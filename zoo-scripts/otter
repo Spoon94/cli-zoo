@@ -1,0 +1,251 @@
+#!/usr/bin/env bash
+# otter - 用 tmux 把 AI CLI + 文件管理器 + 编辑器 + git 客户端组合成一套开箱即用的开发会话布局。
+
+set -u
+
+ALLOWED_TOOLS=("claude")
+
+OPT_C=""
+OPT_S=""
+OPT_KS=""
+
+usage() {
+    cat <<'EOF'
+Usage:
+  otter -c <tool> [-s <session>]   start or reuse a session
+  otter -ks <session>              kill the named session
+  otter -h                         show this help
+
+Options:
+  -c   CLI tool to launch in the first window (whitelist: claude)
+  -s   tmux session name (default: basename of $PWD, sanitized)
+  -ks  kill the named tmux session
+
+Environment:
+  OTTER_NO_ATTACH=1   skip the final tmux attach (for tests)
+EOF
+}
+
+log_err() {
+    printf '%s\n' "$*" >&2
+}
+
+sanitize_session() {
+    local raw="$1"
+    printf %s "$raw" | tr -c '[:alnum:]_-' '_'
+}
+
+has_cmd() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+require_cmd() {
+    if ! has_cmd "$1"; then
+        log_err "$1 is not installed"
+        exit 3
+    fi
+}
+
+in_whitelist() {
+    local tool="$1"
+    local t
+    for t in "${ALLOWED_TOOLS[@]}"; do
+        if [[ "$t" == "$tool" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+session_exists() {
+    tmux has-session -t "=$1" 2>/dev/null
+}
+
+window_exists() {
+    local session="$1" win="$2"
+    tmux list-windows -t "=$session" -F '#{window_name}' 2>/dev/null | grep -qx "$win"
+}
+
+in_git_repo() {
+    git rev-parse --is-inside-work-tree >/dev/null 2>&1
+}
+
+build_cli_window() {
+    local session="$1" tool="$2"
+    local target="=$session:$tool"
+
+    # 步骤 1：左侧 pane 启动 CLI 工具（sleep 0.1 等待 shell 就绪，避免 send-keys 被吞掉）
+    sleep 0.1
+    tmux send-keys -t "$target" "$tool" Enter
+
+    # 步骤 2：右侧 pane（横切，水平分割），若 yazi 存在则启动
+    tmux split-window -h -p 50 -t "$target" -c "$PWD"
+    if has_cmd yazi; then
+        sleep 0.1
+        tmux send-keys -t "$target" "yazi" Enter
+    fi
+
+    # 步骤 3：在右侧再纵切，得到右下 pane（不发键）
+    tmux split-window -v -p 50 -t "$target" -c "$PWD"
+
+    # 步骤 4：焦点回左侧 CLI pane
+    tmux select-pane -t "${target}.0"
+}
+
+# nvim 退出会关闭该 window（new-window 后台直接挂命令，命令结束 window 即销毁）
+build_nvim_window() {
+    local session="$1"
+    tmux new-window -t "=$session" -n nvim -c "$PWD" "nvim ."
+}
+
+# lazygit 退出关闭 window，原因同上
+build_lazygit_window() {
+    local session="$1"
+    tmux new-window -t "=$session" -n lazygit -c "$PWD" "lazygit"
+}
+
+cmd_kill_session() {
+    local name="$1"
+    if tmux has-session -t "=$name" 2>/dev/null; then
+        if ! tmux kill-session -t "=$name"; then
+            log_err "failed to kill session $name"
+            exit 1
+        fi
+    else
+        log_err "session $name not found"
+    fi
+    exit 0
+}
+
+cmd_start() {
+    local tool="$1" session="$2"
+
+    require_cmd tmux
+    require_cmd "$tool"
+
+    if session_exists "$session"; then
+        if window_exists "$session" "$tool"; then
+            : # 同名窗口已存在，直接 attach
+        else
+            if ! tmux new-window -t "=$session" -n "$tool" -c "$PWD"; then
+                log_err "failed to create window $tool in session $session"
+                exit 1
+            fi
+            build_cli_window "$session" "$tool"
+        fi
+    else
+        if ! tmux new-session -d -s "$session" -n "$tool" -c "$PWD"; then
+            log_err "failed to create tmux session $session"
+            exit 1
+        fi
+        build_cli_window "$session" "$tool"
+        if has_cmd nvim; then
+            build_nvim_window "$session"
+        fi
+        if in_git_repo && has_cmd lazygit; then
+            build_lazygit_window "$session"
+        fi
+    fi
+
+    tmux select-window -t "=$session:$tool"
+
+    if [[ "${OTTER_NO_ATTACH:-}" == "1" ]]; then
+        printf 'session: %s\n' "$session"
+        return 0
+    fi
+
+    tmux attach -t "=$session"
+}
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            -c)
+                if [[ $# -lt 2 || "$2" == -* ]]; then
+                    log_err "-c requires a value"
+                    usage >&2
+                    exit 2
+                fi
+                OPT_C="$2"
+                shift 2
+                ;;
+            -s)
+                if [[ $# -lt 2 || "$2" == -* ]]; then
+                    log_err "-s requires a value"
+                    usage >&2
+                    exit 2
+                fi
+                OPT_S="$2"
+                shift 2
+                ;;
+            -ks)
+                if [[ $# -lt 2 || "$2" == -* ]]; then
+                    log_err "-ks requires a session name"
+                    usage >&2
+                    exit 2
+                fi
+                OPT_KS="$2"
+                shift 2
+                ;;
+            *)
+                log_err "unknown argument: $1"
+                usage >&2
+                exit 2
+                ;;
+        esac
+    done
+}
+
+main() {
+    parse_args "$@"
+
+    # 互斥与组合校验
+    if [[ -n "$OPT_C" && -n "$OPT_KS" ]]; then
+        log_err "-c and -ks are mutually exclusive"
+        usage >&2
+        exit 2
+    fi
+
+    if [[ -z "$OPT_C" && -z "$OPT_KS" ]]; then
+        log_err "missing -c or -ks"
+        usage >&2
+        exit 2
+    fi
+
+    # -s 只能配合 -c
+    if [[ -n "$OPT_S" && -z "$OPT_C" ]]; then
+        log_err "-s must be used with -c"
+        usage >&2
+        exit 2
+    fi
+
+    if [[ -n "$OPT_KS" ]]; then
+        require_cmd tmux
+        cmd_kill_session "$OPT_KS"
+        return 0
+    fi
+
+    # -c 模式
+    if ! in_whitelist "$OPT_C"; then
+        log_err "$OPT_C is not in ALLOWED_TOOLS (${ALLOWED_TOOLS[*]})"
+        usage >&2
+        exit 2
+    fi
+
+    local session="$OPT_S"
+    if [[ -z "$session" ]]; then
+        session="$(basename "$PWD")"
+    fi
+    session="$(sanitize_session "$session")"
+
+    cmd_start "$OPT_C" "$session"
+}
+
+# 被 source 时不执行 main，便于单元测试函数
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi
