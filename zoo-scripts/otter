@@ -3,7 +3,7 @@
 
 set -u
 
-ALLOWED_TOOLS=("claude")
+ALLOWED_TOOLS=("claude" "qodercli" "opencode")
 
 OPT_C=""
 OPT_S=""
@@ -17,7 +17,7 @@ Usage:
   otter -h                         show this help
 
 Options:
-  -c   CLI tool to launch in the first window (whitelist: claude)
+  -c   CLI tool to launch in the first window (whitelist: claude, qodercli, opencode)
   -s   tmux session name (default: basename of $PWD, sanitized)
   -ks  kill the named tmux session
 
