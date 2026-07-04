@@ -54,6 +54,8 @@ otter -ks <session>              # 杀掉指定 session
 otter -h                         # 帮助
 ```
 
+`-c` 可选值（白名单 `ALLOWED_TOOLS`）：`claude`、`qodercli`、`opencode`。
+
 布局示意（首次启动时创建）：
 
 | Window | 内容 |
@@ -64,7 +66,7 @@ otter -h                         # 帮助
 
 特性：
 
-- **白名单工具**：`-c` 取值受 `ALLOWED_TOOLS` 数组保护，初始只允许 `claude`，避免任意 shell 字符串被注入。
+- **白名单工具**：`-c` 取值受 `ALLOWED_TOOLS` 数组保护，初始允许 `claude` / `qodercli` / `opencode`，避免任意 shell 字符串被注入。
 - **session 复用**：再次执行 `otter -c claude -s A`，若 `A` 已存在 claude window 则直接 attach；不存在则在 `A` 中新增 claude window。
 - **软依赖降级**：`yazi` / `nvim` / `lazygit` 缺失或非 git 仓库时跳过对应步骤，主流程不报错。
 - **测试钩子**：`OTTER_NO_ATTACH=1` 跳过 `tmux attach`，方便自动化。
