@@ -58,12 +58,12 @@ otter -h                         # 帮助
 
 ### [wren](./zoo-scripts/wren)
 
-把两行 statusline（Dracula 配色）装到 Claude Code 与 pi 两个宿主上的安装器。装的是文件副本，装完不依赖本仓库还在原处。
+把两行 statusline（Dracula 配色）装到 Claude Code、pi 与 Qoder CLI 三个宿主上的安装器。装的是文件副本，装完不依赖本仓库还在原处。
 
 ```bash
 ./cli-zoo-install.sh wren        # 先把 wren 装到 $PREFIX
-wren install [cc|pi|all]         # 装到宿主（默认 all；幂等；cc 的别名 claude）
-wren uninstall [cc|pi|all]       # 卸载（默认 all）
+wren install [cc|pi|qc|all]      # 装到宿主（默认 all；幂等；cc 别名 claude，qc 别名 qoder）
+wren uninstall [cc|pi|qc|all]    # 卸载（默认 all）
 wren -h                          # 帮助
 ```
 
@@ -74,9 +74,16 @@ wren -h                          # 帮助
 ↑12K ↓3K | R1.2M CH57.14% CP2 | 8.40%/200K | claude-opus-5 · high · 1h5m
 ```
 
+qc 侧同构，仅数据源不同（另一 workspace 的真会话实测样例，故分支与 pane 编号不同）：
+
+```
+~/Code/cli-zoo | feat/x ↑0↓0 | wW:t1:p2 | qc
+↑4.5M ↓65K | R4.2M CH98.21% | 15.00%/1M | Qwen3.8-Max · xhigh · 16m
+```
+
 行 1 = cwd + git + herdr 位置 + 宿主徽标；行 2 = 累计 token + 缓存（读取量 / `CH` 命中率 / `CP` 压缩次数）+ 上下文占用 + 模型 · 思考 · 时长。长路径长分支自动折叠不溢出。装完在 pi 里用 `/footer` 切换。
 
-两宿主差异、安装器细节、`wren.ts` 相对 pi 上游的有意修改、Dracula 色板，见 [zoo-scripts/wren/README.md](./zoo-scripts/wren/README.md)；测试见 [docs/testing.md](./docs/testing.md)。
+三宿主差异（cc / pi / qc）、安装器细节、`wren.ts` 相对 pi 上游的有意修改、Dracula 色板，见 [zoo-scripts/wren/README.md](./zoo-scripts/wren/README.md)；测试见 [docs/testing.md](./docs/testing.md)。
 
 ## 安装与卸载
 
@@ -92,12 +99,12 @@ wren -h                          # 帮助
 安装时检查源脚本存在且可执行（必要时 `chmod +x`），目标位置已有文件或软链则先 `rm -f`，再 `ln -s <repo>/zoo-scripts/<tool> $PREFIX/<tool>`（wren 因是多文件工具，软链的是目录内的入口脚本 `zoo-scripts/wren/wren`）。写入失败（权限不足）时会提示用 `sudo PREFIX=$PREFIX ./cli-zoo-install.sh <tool>` 重试。
 
 > **wren 的两级安装是刻意的**：`cli-zoo-install.sh` 装的 `$PREFIX/wren` 是**软链**（跟随仓库，改脚本即时生效）；
-> 而 `wren install` 装到两个宿主的 `$PREFIX/wren-cc` / `$PI_EXT_DIR/wren.ts` 是**文件副本**（仓库被移走/删除后 statusline 照常工作，更新需重跑 `wren install`）。
+> 而 `wren install` 装到宿主的 `$PREFIX/wren-cc` / `$PI_EXT_DIR/wren.ts` / `$QODER_CONFIG_DIR/wren-qc.py` 是**文件副本**（仓库被移走/删除后 statusline 照常工作，更新需重跑 `wren install`）。
 
-**wren 卸载要先拆线再卸本体**，否则会留下 `$PREFIX/wren-cc`、`settings.json` 里的 `statusLine`、以及 pi 扩展目录里的 `wren.ts`：
+**wren 卸载要先拆线再卸本体**，否则会留下 `$PREFIX/wren-cc`、两份 `settings.json` 里的 `statusLine`、pi 扩展目录里的 `wren.ts`、以及 `$QODER_CONFIG_DIR/wren-qc.py`：
 
 ```bash
-wren uninstall              # 拆掉两个宿主的接线
+wren uninstall              # 拆掉三个宿主的接线
 ./cli-zoo-uninstall.sh wren # 再摘掉 wren 本体
 ```
 

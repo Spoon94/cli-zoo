@@ -1,5 +1,5 @@
 # wren 测试结果
-执行时间：2026-09-19 19:46:44
+执行时间：2026-09-19 21:56:41
 
 | ID | 状态 | 备注 |
 |----|------|------|
@@ -49,5 +49,27 @@
 | T44 | PASS | CJK path display width 61 <= 80 |
 | T45 | PASS | CJK extreme line fits: nc=70 tc=70, color-independent folding |
 | T46 | PASS | pi CJK extreme line width 70 <= 80 |
+| T47 | PASS | qc minimal payload: 2 lines, qc badge, no invented segments |
+| T48 | PASS | qc ↑in/↓out from transcript sums, not native per-request field |
+| T49 | PASS | qc ctx%: native used_percentage first, self-computed fallback |
+| T50 | PASS | qc CH = cache_read/input_tokens (qoder input already includes cache) |
+| T51 | PASS | qc legacy fallback: CC formula when input < cache_read |
+| T52 | PASS | qc cache_creation object form summed (5m+1h) in fallback |
+| T53 | PASS | qc duration: cost field first, transcript first-ts fallback |
+| T54 | PASS | qc thinking from runtime-config record; absent -> segment hidden |
+| T55 | PASS | qc Dracula: truecolor/256/NO_COLOR same table as cc/pi |
+| T56 | PASS | qc invalid JSON -> degrade to 2 lines, exit 0 |
+| T57 | PASS | qc WREN_DEBUG_DUMP captures raw stdin bytes |
+| T58 | PASS | qc ctx fallback chain: postTokens after compact_boundary; CP counted |
+| T59 | PASS | qc line1 identical to wren.py after badge strip (/var/…/box43/r59 \| main +1 ✱1) |
+| T60 | PASS | install qc copies payload + writes absolute statusLine |
+| T61 | PASS | install qc only touches qc side |
+| T62 | PASS | qc install preserves keys/order and backs up original bytes |
+| T63 | PASS | uninstall qc removes payload/statusLine/sidecars, keeps rest |
+| T64 | PASS | qc uninstall leaves a foreign statusLine alone (payload still ours, removed) |
+| T65 | PASS | QODER_CONFIG_DIR honored; default dir untouched |
+| T66 | PASS | install qoder is an alias of qc |
+| T67 | PASS | invalid qoder settings -> exit 1 before any install (pre-check gate) |
+| T68 | PASS | uncreatable qoder parent -> exit 1, zero side effects |
 
-汇总：Total 46 / Pass 46 / Fail 0 / Skip 0
+汇总：Total 68 / Pass 68 / Fail 0 / Skip 0

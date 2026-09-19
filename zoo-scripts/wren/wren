@@ -5,9 +5,10 @@
 #   行1: ~/cwd | branch ↑a↓b +增 ~删 ✱改
 #   行2: ↑in ↓out R cacheR CH% CPn | ctx%/win | 模型名 · 思考等级 · 时长
 #
-# 本目录内两个 payload 拷出去安装:
-#   wren.py  -> $PREFIX/wren-cc        并在 ~/.claude/settings.json 写入 statusLine
-#   wren.ts  -> $PI_EXT_DIR/wren.ts    pi 自动加载该目录下的 .ts
+# 本目录内三个 payload 拷出去安装:
+#   wren.py    -> $PREFIX/wren-cc            并在 ~/.claude/settings.json 写入 statusLine
+#   wren.ts    -> $PI_EXT_DIR/wren.ts        pi 自动加载该目录下的 .ts
+#   wren-qc.py -> $QODER_CONFIG_DIR/wren-qc.py 并在 ~/.qoder/settings.json 写入 statusLine（绝对路径）
 #
 # 装的是副本而不是软链：装完以后不依赖本仓库是否还在原处。
 #
@@ -24,10 +25,11 @@ usage() {
     cat <<'EOF'
 Usage: wren <command> [target]
 
-将本目录下的 statusline payload 装到两个宿主:
+将本目录下的 statusline payload 装到三个宿主:
 
-  wren.py  ->  $PREFIX/wren-cc         并在 $CLAUDE_SETTINGS 写入 statusLine
-  wren.ts  ->  $PI_EXT_DIR/wren.ts     pi 自动加载该目录下的 .ts
+  wren.py    ->  $PREFIX/wren-cc              并在 $CLAUDE_SETTINGS 写入 statusLine
+  wren.ts    ->  $PI_EXT_DIR/wren.ts          pi 自动加载该目录下的 .ts
+  wren-qc.py ->  $QODER_CONFIG_DIR/wren-qc.py  并在 $QODER_SETTINGS 写入 statusLine（command 写绝对路径，与 qoder 官方引导一致）
 
 Commands:
   install [target]     安装（幂等）。装的是文件副本，装完不依赖本仓库位置
@@ -35,18 +37,21 @@ Commands:
   -h, --help           显示本帮助
 
 target（省略则为 all）:
-  all                  两个宿主都装（默认）
+  all                  三个宿主都装（默认）
   cc                   只装 Claude Code 侧（别名 claude）
   pi                   只装 pi 侧
+  qc                   只装 Qoder CLI 侧（别名 qoder）
 
 Environment:
   PREFIX             Claude Code 侧可执行文件目录 (default: /usr/local/bin)
   PI_EXT_DIR         pi 扩展目录 (default: $HOME/.pi/agent/extensions)
   CLAUDE_SETTINGS    要改的 settings.json  (default: $CLAUDE_CONFIG_DIR/settings.json,
                      未设则 $HOME/.claude/settings.json)
+  QODER_CONFIG_DIR   Qoder CLI 配置目录 (default: $HOME/.qoder；qoder 官方同名变量)
+  QODER_SETTINGS     要改的 Qoder settings.json (default: $QODER_CONFIG_DIR/settings.json)
 
 依赖:
-  只装 cc 时需要 python3（用于合并写 settings.json）；只装 pi 时不需要。
+  装 cc / qc 时需要 python3（用于合并写 settings.json）；只装 pi 时不需要。
 
 退出码:
   0  成功
@@ -89,8 +94,8 @@ require_cmd() {
 # 改 settings.json。mode=check 只做只读校验与可写性探针，不落任何盘。
 # 解析不了、或目录不可写，都在产生副作用之前退出。
 write_statusline() {
-    local mode="${1:-write}"
-    CLAUDE_SETTINGS="$CLAUDE_SETTINGS" CC_CMD_NAME="$CC_CMD_NAME" WREN_MODE="$mode" python3 - <<'PY'
+    local mode="${1:-write}" settings="${2:-$CLAUDE_SETTINGS}" cmd="${3:-$CC_CMD_NAME}"
+    CLAUDE_SETTINGS="$settings" CC_CMD_NAME="$cmd" WREN_MODE="$mode" python3 - <<'PY'
 import json, os, shutil, sys
 
 path = os.environ["CLAUDE_SETTINGS"]
@@ -121,14 +126,23 @@ if os.path.exists(path):
         fail("%s top level is not an object, refusing to touch it" % path)
 
 if mode == "check":
-    # 可写性探针：真到 write 阶段才发现不可写的话，那会儿已经装了一半
-    if os.path.isdir(parent):
-        probe = os.path.join(parent, ".wren-write-probe")
+    # 可写性探针：真到 write 阶段才发现不可写的话，那会儿已经装了一半。
+    # parent 不存在时不能直接跳过（那正是半装缺口的来源：check 放行 → payload
+    # 先装 → makedirs 失败 → exit 1），向上找第一个存在的祖先探它的可写性；
+    # write 阶段真要 makedirs 的正是这位祖先的后代
+    probe_dir = parent
+    while probe_dir and not os.path.isdir(probe_dir):
+        nxt = os.path.dirname(probe_dir)
+        if nxt == probe_dir:
+            break
+        probe_dir = nxt
+    if os.path.isdir(probe_dir):
+        probe = os.path.join(probe_dir, ".wren-write-probe")
         try:
             with open(probe, "w", encoding="utf-8") as fh:
                 fh.write("")
         except OSError as exc:
-            fail("cannot write in %s: %s" % (parent, exc.strerror or exc))
+            fail("cannot write in %s: %s" % (probe_dir, exc.strerror or exc))
         try:
             os.unlink(probe)
         except OSError:
@@ -165,8 +179,9 @@ PY
 
 # 只在 statusLine 确实指向本工具时才删，避免抹掉用户自己的配置
 clear_statusline() {
-    [[ -f "$CLAUDE_SETTINGS" ]] || return 0
-    CLAUDE_SETTINGS="$CLAUDE_SETTINGS" CC_CMD_NAME="$CC_CMD_NAME" python3 - <<'PY'
+    local settings="${1:-$CLAUDE_SETTINGS}" cmd="${2:-$CC_CMD_NAME}"
+    [[ -f "$settings" ]] || return 0
+    CLAUDE_SETTINGS="$settings" CC_CMD_NAME="$cmd" python3 - <<'PY'
 import json, os, sys
 
 path = os.environ["CLAUDE_SETTINGS"]
@@ -258,18 +273,28 @@ remove_payload() {
 
 cmd_install() {
     local target="$1"
-    local dir cc_payload pi_payload backup
+    local dir cc_payload pi_payload qc_payload backup
     dir="$(script_dir)"
     cc_payload="$dir/wren.py"
     pi_payload="$dir/wren.ts"
+    qc_payload="$dir/wren-qc.py"
 
+    # 前置校验全部先行：任一要写配置的宿主读不懂/写不进，连一个 payload 都不装
+    # （否则 all 场景下 cc/pi 装完才发现 qc 配置写不进，留半装状态）
     if want_target "$target" cc; then
         require_cmd python3
-        # 先把 settings.json 的合法性与可写性验掉（不落盘），
-        # 免得装完 cc payload 才发现配置写不进去
         if ! write_statusline check >/dev/null; then
             exit 1
         fi
+    fi
+    if want_target "$target" qc; then
+        require_cmd python3
+        if ! write_statusline check "$QODER_SETTINGS" "$QC_CMD" >/dev/null; then
+            exit 1
+        fi
+    fi
+
+    if want_target "$target" cc; then
         install_payload "$cc_payload" "$PREFIX/$CC_CMD_NAME" "cc" exec
         if ! backup="$(write_statusline write)"; then
             exit 1
@@ -289,18 +314,53 @@ cmd_install() {
         fi
     fi
 
+    if want_target "$target" qc; then
+        install_payload "$qc_payload" "$QC_CMD" "qc" exec
+        if ! backup="$(write_statusline write "$QODER_SETTINGS" "$QC_CMD")"; then
+            exit 1
+        fi
+        if [[ -n "$backup" ]]; then
+            log_info "[qc] backed up $QODER_SETTINGS -> $backup"
+        fi
+        log_info "[qc] statusLine -> $QC_CMD"
+    fi
+
     log_info "done. run 'wren uninstall' to undo."
 }
 
 cmd_uninstall() {
     local target="$1"
-    local dir cc_payload pi_payload sidecar
+    local dir cc_payload pi_payload qc_payload sidecar
     dir="$(script_dir)"
     cc_payload="$dir/wren.py"
     pi_payload="$dir/wren.ts"
+    qc_payload="$dir/wren-qc.py"
 
     if want_target "$target" pi; then
         remove_payload "$PI_EXT_DIR/wren.ts" "$pi_payload" "pi"
+    fi
+
+    if want_target "$target" qc; then
+        remove_payload "$QC_CMD" "$qc_payload" "qc"
+
+        if command -v python3 >/dev/null 2>&1; then
+            if [[ "$(clear_statusline "$QODER_SETTINGS" "$QC_CMD")" == "leftalone" ]]; then
+                log_info "[qc] statusLine does not point at $QC_CMD; left alone"
+            else
+                log_info "[qc] statusLine removed"
+            fi
+        else
+            log_err "[qc] python3 not found; $QODER_SETTINGS not touched"
+        fi
+
+        for sidecar in "$QODER_SETTINGS.wren-bak" "$QODER_SETTINGS.wren-tmp"; do
+            [[ -e "$sidecar" ]] || continue
+            if rm -f "$sidecar" 2>/dev/null; then
+                log_info "[qc] removed $sidecar"
+            else
+                log_err "[qc] cannot remove $sidecar"
+            fi
+        done
     fi
 
     if want_target "$target" cc; then
@@ -344,6 +404,7 @@ normalize_target() {
         all) TARGET=all ;;
         cc|claude) TARGET=cc ;;
         pi) TARGET=pi ;;
+        qc|qoder) TARGET=qc ;;
         *)
             log_err "unsupported target: $1"
             usage >&2
@@ -364,6 +425,10 @@ main() {
     # 默认值要跟着走，否则在那类机器上会把 settings 写进错误的 ~/.claude
     local claude_cfg="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
     CLAUDE_SETTINGS="${CLAUDE_SETTINGS:-$claude_cfg/settings.json}"
+    # qoder 同理：QODER_CONFIG_DIR 是 qoder 官方的重定向变量；statusLine.command 写绝对路径
+    local qoder_cfg="${QODER_CONFIG_DIR:-$HOME/.qoder}"
+    QODER_SETTINGS="${QODER_SETTINGS:-$qoder_cfg/settings.json}"
+    QC_CMD="$qoder_cfg/wren-qc.py"
     TARGET=all
 
     case "$1" in
