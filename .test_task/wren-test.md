@@ -71,6 +71,19 @@
 | T44 | cc | 全 CJK 路径（全角算 2 格） | 行1 显示宽 ≤80 |
 | T45 | cc | 极端 CJK：长中文路径 + 长中文分支 + 10 脏文件，`NO_COLOR` 与 truecolor 各跑一次 | 两次整行显示宽均 ≤80 且剥色后逐字相同（**色档不得影响折叠**；末级截断按码点切会到 88） |
 | T46 | pi | 同一极端 CJK 场景跑 `wren.ts`（stub 宽度 80） | 行1 显示宽 ≤80（守宿主兜底 + 显示格切片同构） |
+| T47 | qc | 最小合成 payload（`cwd` + `model`）喂 `wren-qc.py` | 恰好 2 行；行1 `"/tmp \| qc"`；行2 `"↑0 ↓0 \| R0 \| Test-Model"`（无中生有的段一概不出现） |
+| T48 | qc | transcript 两条 assistant（Σin=3000 / Σout=400）+ 原生 `total_input_tokens=43138`（诱饵） | 行2 含 `↑3K ↓400`，不含 `↑43K` / `↓0`（原生字段是「最近一次请求」，不得当累计） |
+| T49 | qc | `used_percentage=22` 一次；缺失（只剩 `total_input_tokens=43138`）一次 | 前者 `22.00%/200K`；后者自算 `21.57%/200K` |
+| T50 | qc | transcript 末条 `input=26254, cache_read=24064`（qoder 口径：input 已含 cache） | 行2 含 `CH91.66%` 与 `R24K`，不含 CC 公式值 `CH47.81%` |
+| T51 | qc | 末条 `input=1000 < cache_read=3000, cache_creation=1000`（旧版不含 cache 的口径） | 自适应回退 CC 公式：`CH60.00%` |
+| T52 | qc | `cache_creation` 为对象形态（`ephemeral_5m/1h`）且 `input < cache_read` | 对象按 5m+1h 求和后走回退公式：`CH42.86%` |
+| T53 | qc | `cost.total_duration_ms=3900000` 一次；无 cost + transcript 首条时间戳在 9 分钟前一次 | 前者 `1h5m`；后者 `9m`（宿主目前不发送该字段，回退路径是常态） |
+| T54 | qc | transcript 含 `runtime-config`（`reasoningEffort=high`）一次；无该记录一次 | 前者行2 含 `Test-Model · high`；后者行2 恰为 `↑0 ↓0 \| R0 \| Test-Model`（真实 payload 无顶层思考字段） |
+| T55 | qc | 同一带 git 仓库 + CH + 思考等级的输入跑 truecolor / 256 / `NO_COLOR` | truecolor 含粉/青/灰/紫 `38;2;…` 码且无 256 码；256 含 `38;5;212/61/117/141`；`NO_COLOR` 无任何转义（与 T39/T40 同一张 Dracula 表） |
+| T56 | qc | stdin 喂非法 JSON | exit 0，仍出 2 行，模型名降级 `no-model`，行1 含 `\| qc` |
+| T57 | qc | 设 `WREN_DEBUG_DUMP` | dump 文件内容与 stdin 原始字节逐字相同（真实 payload 对齐钩子） |
+| T58 | qc | transcript：assistant 后跟 `compact_boundary`（`postTokens=50000`），原生 ctx 字段全缺 | 行2 含 `CP1` 与 `25.00%/200K`（ctx 回落链：native → postTokens → 末次请求） |
+| T59 | qc | 同一临时 git 仓库分别跑 `wren.py` 与 `wren-qc.py` | 行1 剥宿主徽标后逐字相同（跨实现同构守门，同 T32 思路） |
 
 ## 条件用例（不满足条件时 SKIP，不算 FAIL）
 
@@ -105,6 +118,10 @@
   Linux 与自定义 HOME 下都不折叠，会在这里失败。
 - **T31 是 pi 侧 CH 位数的守门用例**：必须两位小数，与 `wren.py` 对齐。pi 内置 footer 是一位，
   所以这条同样守的是「有意不跟上游」。
+- **T48-T52 是 qc 侧数据源口径的守门用例**：↑in/↓out 必须取 transcript 累计——qoder 原生 `total_input_tokens`
+  是「最近一次请求」的上下文占用（官方文档注明 NOT a session total），`total_output_tokens` 宿主从不发送；
+  CH 必须按「input 已含 cache」的 qoder 口径 `cr/in`，仅当 `input < cache_read`（旧版口径）才回退 CC 公式。
+  这些结论来自对 qodercli 1.1.57 二进制内嵌 payload 文档/构造器的静态核对与真实会话抓包。
 - settings.json 的断言一律走 `json_field`（`python3 -c` 读 JSON），不靠 grep 文本，避免缩进/换行变动导致误判。
 
 ## 测试脚本结构

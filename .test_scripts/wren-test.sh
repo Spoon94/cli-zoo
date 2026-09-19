@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# wren-test.sh - 自动运行 .test_task/wren-test.md 中的 46 个用例。
+# wren-test.sh - 自动运行 .test_task/wren-test.md 中的 59 个用例。
 #
 # 用法: bash .test_scripts/wren-test.sh
 # 写出: .test_res/wren-test-res.md
@@ -18,6 +18,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 WREN="$REPO_ROOT/zoo-scripts/wren/wren"
 CC_PAYLOAD="$REPO_ROOT/zoo-scripts/wren/wren.py"
 PI_PAYLOAD="$REPO_ROOT/zoo-scripts/wren/wren.ts"
+QC_PAYLOAD="$REPO_ROOT/zoo-scripts/wren/wren-qc.py"
 INSTALL_SH="$REPO_ROOT/cli-zoo-install.sh"
 UNINSTALL_SH="$REPO_ROOT/cli-zoo-uninstall.sh"
 RES_DIR="$REPO_ROOT/.test_res"
@@ -85,6 +86,7 @@ strip_tag() {
     # 段尾的宿主徽标（v6 起）：无 git/herdr 时整段就是裸徽标，剥完为空
     seg="${seg% | cc}"
     seg="${seg% | pi}"
+    seg="${seg% | qc}"
     printf '%s' "$seg"
 }
 
@@ -102,7 +104,7 @@ if ! command -v python3 >/dev/null 2>&1; then
     exit 2
 fi
 
-for f in "$WREN" "$CC_PAYLOAD" "$PI_PAYLOAD"; do
+for f in "$WREN" "$CC_PAYLOAD" "$PI_PAYLOAD" "$QC_PAYLOAD"; do
     if [[ ! -f "$f" ]]; then
         echo "ERROR: $f not found" >&2
         exit 2
@@ -1103,6 +1105,244 @@ else
     else
         fail T46 "width=${w46} line=[$pi46]"
     fi
+fi
+
+# ============================================================
+# qc（wren-qc.py，Qoder CLI statusline）—— 只用合成 payload，
+# 不嵌任何真实会话数据（session_id / credits / codebase 一概不出现）。
+# 每个用例独立 WREN_CACHE_DIR，transcript 路径互不相同，避免增量解析缓存串味。
+# ============================================================
+
+# ============================================================
+# T47: qc 最小 payload → 两行 + qc 徽标，无中生有的段不出现
+# ============================================================
+new_box
+printf '{"cwd":"/tmp","model":{"display_name":"Test-Model"}}' \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q47" python3 "$QC_PAYLOAD" >"$BOX/q47.txt" 2>&1
+q47_lines=$(awk 'END{printf "%d", NR}' "$BOX/q47.txt")
+q47_l1="$(head -1 "$BOX/q47.txt")"; q47_l2="$(tail -1 "$BOX/q47.txt")"
+if [[ "$q47_lines" == "2" && "$q47_l1" == "/tmp | qc" && "$q47_l2" == "↑0 ↓0 | R0 | Test-Model" ]]; then
+    pass T47 "qc minimal payload: 2 lines, qc badge, no invented segments"
+else
+    fail T47 "lines=$q47_lines l1=[$q47_l1] l2=[$q47_l2]"
+fi
+
+# ============================================================
+# T48: qc ↑in/↓out 取 transcript 累计，不碰原生「最近一次请求」字段
+# ============================================================
+new_box
+cat >"$BOX/tr48.jsonl" <<'EOF2'
+{"type":"assistant","message":{"usage":{"input_tokens":1000,"output_tokens":100,"cache_read_input_tokens":500}}}
+{"type":"assistant","message":{"usage":{"input_tokens":2000,"output_tokens":300,"cache_read_input_tokens":1500}}}
+EOF2
+printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"total_input_tokens":43138,"context_window_size":200000,"used_percentage":22},"transcript_path":"%s"}' "$BOX/tr48.jsonl" \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q48" python3 "$QC_PAYLOAD" >"$BOX/q48.txt" 2>&1
+q48="$(tail -1 "$BOX/q48.txt")"
+if printf '%s' "$q48" | grep -qF "↑3K ↓400" \
+   && ! printf '%s' "$q48" | grep -qF "↑43K" \
+   && ! printf '%s' "$q48" | grep -qF "↓0"; then
+    pass T48 "qc ↑in/↓out from transcript sums, not native per-request field"
+else
+    fail T48 "l2=[$q48]"
+fi
+
+# ============================================================
+# T49: qc ctx% 原生 used_percentage 优先；缺失时按 total_input_tokens 自算
+# ============================================================
+new_box
+printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"total_input_tokens":43138,"context_window_size":200000,"used_percentage":22}}' \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q49" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1 >"$BOX/q49a.txt"
+printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"total_input_tokens":43138,"context_window_size":200000}}' \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q49" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1 >"$BOX/q49b.txt"
+q49a="$(<"$BOX/q49a.txt")"; q49b="$(<"$BOX/q49b.txt")"
+if printf '%s' "$q49a" | grep -qF "22.00%/200K" \
+   && printf '%s' "$q49b" | grep -qF "21.57%/200K"; then
+    pass T49 "qc ctx%: native used_percentage first, self-computed fallback"
+else
+    fail T49 "a=[$q49a] b=[$q49b]"
+fi
+
+# ============================================================
+# T50: qc CH 用 qoder 口径 cr/in（input 已含 cache，不得套 CC 公式）
+# ============================================================
+new_box
+cat >"$BOX/tr50.jsonl" <<'EOF2'
+{"type":"assistant","message":{"usage":{"input_tokens":26254,"output_tokens":203,"cache_read_input_tokens":24064}}}
+EOF2
+printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$BOX/tr50.jsonl" \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q50" python3 "$QC_PAYLOAD" >"$BOX/q50.txt" 2>&1
+q50="$(tail -1 "$BOX/q50.txt")"
+if printf '%s' "$q50" | grep -qF "CH91.66%" \
+   && printf '%s' "$q50" | grep -qF "R24K" \
+   && ! printf '%s' "$q50" | grep -qF "CH47.81%"; then
+    pass T50 "qc CH = cache_read/input_tokens (qoder input already includes cache)"
+else
+    fail T50 "l2=[$q50]"
+fi
+
+# ============================================================
+# T51: qc 旧版口径自适应——input < cache_read 时回退 CC 公式
+# ============================================================
+new_box
+cat >"$BOX/tr51.jsonl" <<'EOF2'
+{"type":"assistant","message":{"usage":{"input_tokens":1000,"output_tokens":10,"cache_read_input_tokens":3000,"cache_creation_input_tokens":1000}}}
+EOF2
+printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$BOX/tr51.jsonl" \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q51" python3 "$QC_PAYLOAD" >"$BOX/q51.txt" 2>&1
+if grep -qF "CH60.00%" "$BOX/q51.txt"; then
+    pass T51 "qc legacy fallback: CC formula when input < cache_read"
+else
+    fail T51 "l2=[$(tail -1 "$BOX/q51.txt")]"
+fi
+
+# ============================================================
+# T52: qc cache_creation 为对象形态（ephemeral_5m/1h）且走回退公式
+# ============================================================
+new_box
+cat >"$BOX/tr52.jsonl" <<'EOF2'
+{"type":"assistant","message":{"usage":{"input_tokens":1000,"output_tokens":10,"cache_read_input_tokens":3000,"cache_creation":{"ephemeral_5m_input_tokens":1000,"ephemeral_1h_input_tokens":2000}}}}
+EOF2
+printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$BOX/tr52.jsonl" \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q52" python3 "$QC_PAYLOAD" >"$BOX/q52.txt" 2>&1
+if grep -qF "CH42.86%" "$BOX/q52.txt"; then
+    pass T52 "qc cache_creation object form summed (5m+1h) in fallback"
+else
+    fail T52 "l2=[$(tail -1 "$BOX/q52.txt")]"
+fi
+
+# ============================================================
+# T53: qc 时长：cost.total_duration_ms 优先 → transcript 首条时间戳回退
+# ============================================================
+new_box
+printf '{"cwd":"/tmp","model":{"display_name":"m"},"cost":{"total_duration_ms":3900000}}' \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q53" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1 >"$BOX/q53a.txt"
+TS53=$(python3 -c "import datetime;print((datetime.datetime.now(datetime.timezone.utc)-datetime.timedelta(minutes=9)).isoformat())")
+printf '{"type":"assistant","timestamp":"%s","message":{"usage":{}}}\n' "$TS53" >"$BOX/tr53.jsonl"
+printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$BOX/tr53.jsonl" \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q53b" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1 >"$BOX/q53b.txt"
+q53a="$(<"$BOX/q53a.txt")"; q53b="$(<"$BOX/q53b.txt")"
+if printf '%s' "$q53a" | grep -qF "1h5m" \
+   && printf '%s' "$q53b" | grep -qF "9m"; then
+    pass T53 "qc duration: cost field first, transcript first-ts fallback"
+else
+    fail T53 "a=[$q53a] b=[$q53b]"
+fi
+
+# ============================================================
+# T54: qc 思考等级来自 transcript runtime-config；无记录时不渲染该段
+# ============================================================
+new_box
+printf '{"type":"runtime-config","reasoningEffort":"high"}\n' >"$BOX/tr54.jsonl"
+printf '{"cwd":"/tmp","model":{"display_name":"Test-Model"},"transcript_path":"%s"}' "$BOX/tr54.jsonl" \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q54" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1 >"$BOX/q54a.txt"
+printf '{"cwd":"/tmp","model":{"display_name":"Test-Model"}}' \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q54" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1 >"$BOX/q54b.txt"
+q54a="$(<"$BOX/q54a.txt")"; q54b="$(<"$BOX/q54b.txt")"
+if printf '%s' "$q54a" | grep -qF "Test-Model · high" \
+   && [[ "$q54b" == "↑0 ↓0 | R0 | Test-Model" ]]; then
+    pass T54 "qc thinking from runtime-config record; absent -> segment hidden"
+else
+    fail T54 "a=[$q54a] b=[$q54b]"
+fi
+
+# ============================================================
+# T55: qc Dracula 三色档（与 T39/T40 同一张表，带色断言精确到转义字节）
+# ============================================================
+new_box
+R55="$BOX/r55"; mkdir -p "$R55"
+(cd "$R55" && git -c init.defaultBranch=main init -q && git config user.email t@e.com && git config user.name t \
+    && : >a.txt && git add -A && git commit -qm i) >/dev/null 2>&1
+cat >"$BOX/tr55.jsonl" <<'EOF2'
+{"type":"assistant","message":{"usage":{"input_tokens":26254,"output_tokens":203,"cache_read_input_tokens":24064}}}
+{"type":"runtime-config","reasoningEffort":"high"}
+EOF2
+QC55=$(printf '{"cwd":"%s","model":{"display_name":"Test-Model"},"transcript_path":"%s"}' "$R55" "$BOX/tr55.jsonl")
+qc55_tc=$(printf '%s' "$QC55" | COLORTERM=truecolor WREN_CACHE_DIR="$BOX/q55" python3 "$QC_PAYLOAD" 2>/dev/null)
+qc55_256=$(printf '%s' "$QC55" | env -u COLORTERM WREN_CACHE_DIR="$BOX/q55" python3 "$QC_PAYLOAD" 2>/dev/null)
+qc55_nc=$(printf '%s' "$QC55" | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q55" python3 "$QC_PAYLOAD" 2>/dev/null)
+t55_ok=1
+# truecolor：粉模型 / 青思考 / 灰分隔 / 紫分支 四码必现；且不混入 256 码
+for code in '38;2;255;121;198' '38;2;139;233;253' '38;2;98;114;164' '38;2;189;147;249'; do
+    printf '%s' "$qc55_tc" | grep -qF "$code" || t55_ok=0
+done
+printf '%s' "$qc55_tc" | grep -qF '38;5;61' && t55_ok=0
+# 256：粉 212 / 灰 61 / 青 117 / 紫 141
+for code in '38;5;212' '38;5;61' '38;5;117' '38;5;141'; do
+    printf '%s' "$qc55_256" | grep -qF "$code" || t55_ok=0
+done
+printf '%s' "$qc55_nc" | grep -q $'\x1b\[' && t55_ok=0
+if [[ $t55_ok -eq 1 ]]; then
+    pass T55 "qc Dracula: truecolor/256/NO_COLOR same table as cc/pi"
+else
+    fail T55 "tc_head=[$(printf '%s' "$qc55_tc" | head -c 100)]"
+fi
+
+# ============================================================
+# T56: qc stdin 非法 JSON → 降级不炸（statusline 宁可退化也不能空/挂住）
+# ============================================================
+new_box
+printf 'not json at all' \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q56" python3 "$QC_PAYLOAD" >"$BOX/q56.txt" 2>&1
+q56_rc=$?
+q56_lines=$(awk 'END{printf "%d", NR}' "$BOX/q56.txt")
+q56_body="$(<"$BOX/q56.txt")"
+if [[ $q56_rc -eq 0 && "$q56_lines" == "2" ]] \
+   && printf '%s' "$q56_body" | grep -qF "no-model" \
+   && printf '%s' "$q56_body" | grep -qF "| qc"; then
+    pass T56 "qc invalid JSON -> degrade to 2 lines, exit 0"
+else
+    fail T56 "rc=$q56_rc lines=$q56_lines body=[$q56_body]"
+fi
+
+# ============================================================
+# T57: qc WREN_DEBUG_DUMP 钩子落盘的即是 stdin 原始字节
+# ============================================================
+new_box
+Q57IN='{"cwd":"/tmp","model":{"display_name":"m"}}'
+printf '%s' "$Q57IN" \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q57" WREN_DEBUG_DUMP="$BOX/dump57.json" \
+    python3 "$QC_PAYLOAD" >/dev/null 2>&1
+if [[ -f "$BOX/dump57.json" ]] && printf '%s' "$Q57IN" | cmp -s - "$BOX/dump57.json"; then
+    pass T57 "qc WREN_DEBUG_DUMP captures raw stdin bytes"
+else
+    fail T57 "dump=[$(cat "$BOX/dump57.json" 2>/dev/null)]"
+fi
+
+# ============================================================
+# T58: qc ctx 回落链——原生缺失 → postTokens → 末次请求；CP 计数
+# ============================================================
+new_box
+cat >"$BOX/tr58.jsonl" <<'EOF2'
+{"type":"assistant","message":{"usage":{"input_tokens":1000,"output_tokens":100,"cache_read_input_tokens":3000,"cache_creation_input_tokens":1000}}}
+{"type":"system","subtype":"compact_boundary","isSidechain":false,"compactMetadata":{"trigger":"manual","postTokens":50000}}
+EOF2
+printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":200000},"transcript_path":"%s"}' "$BOX/tr58.jsonl" \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q58" python3 "$QC_PAYLOAD" >"$BOX/q58.txt" 2>&1
+q58="$(tail -1 "$BOX/q58.txt")"
+if printf '%s' "$q58" | grep -qF "CP1" \
+   && printf '%s' "$q58" | grep -qF "25.00%/200K"; then
+    pass T58 "qc ctx fallback chain: postTokens after compact_boundary; CP counted"
+else
+    fail T58 "l2=[$q58]"
+fi
+
+# ============================================================
+# T59: qc 行1 与 wren.py 跨实现同构（剥宿主徽标后逐字相同）
+# ============================================================
+new_box
+R59="$BOX/r59"; mkdir -p "$R59"
+(cd "$R59" && git -c init.defaultBranch=main init -q && git config user.email t@e.com && git config user.name t \
+    && printf 'a\n' >a.txt && git add -A && git commit -qm i >/dev/null 2>&1 \
+    && printf 'changed\n' >>a.txt && : >new.txt) >/dev/null 2>&1
+cc59=$(printf '{"cwd":"%s","model":{"display_name":"m"}}' "$R59" \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/c59" python3 "$CC_PAYLOAD" 2>/dev/null | head -1)
+qc59=$(printf '{"cwd":"%s","model":{"display_name":"m"}}' "$R59" \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q59" python3 "$QC_PAYLOAD" 2>/dev/null | head -1)
+cc59s="$(strip_tag "$cc59")"; qc59s="$(strip_tag "$qc59")"
+if [[ -n "$cc59s" && "$cc59s" == "$qc59s" ]] && printf '%s' "$cc59s" | grep -qF "main"; then
+    pass T59 "qc line1 identical to wren.py after badge strip ($cc59s)"
+else
+    fail T59 "cc=[$cc59s] qc=[$qc59s]"
 fi
 
 # ---------- 汇总 ----------
