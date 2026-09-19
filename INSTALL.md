@@ -7,12 +7,13 @@
 | 依赖 | 用在哪 | 检查 |
 |------|--------|------|
 | bash | 安装脚本、测试 | `command -v bash` |
-| python3 | wren 的 CC 侧 payload（`wren.py`）、两套测试的 JSON 断言 | `command -v python3` |
+| python3 | wren 的 CC 侧 payload（`wren.py`）、wren 测试的 JSON 断言 | `command -v python3` |
+| claude | otter 测试 T06+ 前置检查（缺则 otter 测试 exit 2） | `command -v claude` |
 | git | otter 布局里的 lazygit window、wren 的 statusline git 段 | `command -v git` |
-| node ≥ 22.6 | 仅 wren 测试的 T27-T32/T38/T40/T43/T46（直接执行 `.ts` 需 type stripping）；wren 运行本身不需要 | `node -v`（缺时测试 SKIP，不算 FAIL） |
+| node ≥ 22.18（或 23.6） | 仅 wren 测试的 T27-T32/T38/T40/T43/T46（需不带 flag 直接执行 `.ts` 的版本；22.6-22.17 要显式 flag，probe 不加，会 SKIP）；wren 运行本身不需要 | `node -v`（缺时测试 SKIP，不算 FAIL） |
 | tmux | otter 全部功能 | `command -v tmux` |
 
-缺 node 只导致 wren 那 10 条用例 SKIP，不算 FAIL；缺 python3 时 wren 测试脚本自身 exit 2，otter 的 `wren install cc` 会 exit 3（`wren install pi` 不需要 python3）。
+缺 node 只导致 wren 那 10 条用例 SKIP，不算 FAIL；缺 python3 时 wren 测试脚本自身 exit 2，而 `wren install cc` 会 exit 3（`wren install pi` 不需要 python3）。
 
 ## 安装
 
@@ -44,8 +45,8 @@ bash .test_scripts/wren-test.sh         # expect: Total: 46  Pass: 46（缺 node
 wren 装好后可再喂一份 statusline JSON 冒烟：
 
 ```bash
-printf '{"cwd":"/tmp","model":{"display_name":"m"}}' | NO_COLOR=1 "$PREFIX/wren-cc"
-# expect: 两行输出，行1 以 "| cc" 结尾，exit 0
+printf '{"cwd":"/tmp","model":{"display_name":"m"}}' | NO_COLOR=1 wren-cc
+# expect: 两行输出，行1 以 "| cc" 结尾，exit 0（wren-cc 在 PATH，即 $PREFIX 默认 /usr/local/bin）
 ```
 
 ## 卸载
