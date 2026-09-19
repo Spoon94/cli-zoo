@@ -63,6 +63,14 @@
 | T36 | 安装 | `wren install bogus` | exit 2，两侧目标目录仍空、settings 未变 |
 | T37 | 安装 | 设 `CLAUDE_CONFIG_DIR=$BOX/cfg` 后 `install cc` | settings 写进 `$BOX/cfg/settings.json`；沙箱的默认 `~/.claude` 路径未被创建 |
 | T38 | pi | detached HEAD / staged rename / 冲突 UU 三个场景里分别跑 `wren.py` 与 `wren.ts` | detached：两侧都无 git 段；rename：两侧一致 `✱2` 且无 `+`；冲突：两侧一致含 `✱` |
+| T39 | cc | 同一份 statusline JSON 跑 truecolor / 256 / `NO_COLOR` 三档 | truecolor 含 `38;2;…` 精确码与紫分支码；256 含 `38;5;61/117/212`；`NO_COLOR` 无任何转义 |
+| T40 | pi | stub theme 的 `getColorMode` 分别返回 `truecolor` / `256color`，再叠加 `NO_COLOR` | 三档色码与 CC 侧同一张 Dracula 表；`NO_COLOR` 优先于宿主 |
+| T41 | cc | transcript 末条 assistant 后跟一条 `compact_boundary`（`current_usage` 为 null） | 行2 含 `CH60.00%` 与 `CP1`，ctx 用 `postTokens`（`25.00%/200K`） |
+| T42 | cc | 长路径 + 长分支的仓库 | 路径折叠含 `…` 且中间段消失；分支折叠后可见宽 ≤25 且含 `…`；尾徽标仍在 |
+| T43 | pi | 同一仓库跑 `wren.ts` | 分支折叠结果与 T42 的 CC 侧相同（同规则守门） |
+| T44 | cc | 全 CJK 路径（全角算 2 格） | 行1 显示宽 ≤80 |
+| T45 | cc | 极端 CJK：长中文路径 + 长中文分支 + 10 脏文件，`NO_COLOR` 与 truecolor 各跑一次 | 两次整行显示宽均 ≤80 且剥色后逐字相同（**色档不得影响折叠**；末级截断按码点切会到 88） |
+| T46 | pi | 同一极端 CJK 场景跑 `wren.ts`（stub 宽度 80） | 行1 显示宽 ≤80（守宿主兜底 + 显示格切片同构） |
 
 ## 条件用例（不满足条件时 SKIP，不算 FAIL）
 
@@ -70,6 +78,7 @@
 |---|---|
 | T24 | 以 root 运行时文件权限不生效（`chmod 555` 仍可写） |
 | T27-T32、T38 | 无 `node`，或 `node` 不支持直接执行 `.ts`（Node 22.6+ 的 type stripping） |
+| T46 | 同上（依赖 node harness） |
 
 其余用例只依赖 bash / python3 / coreutils，且全程在用户态临时目录作业。
 `python3` 缺失时测试脚本自身 exit 2（前置依赖检查），因为连 settings.json 的断言都做不了。

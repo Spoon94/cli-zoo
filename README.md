@@ -168,9 +168,11 @@ CH 公式两侧一致，都是 `cacheRead / (input + cacheRead + cacheWrite)`，
   不用 `getGitBranch()` 的返回值：pi 对真 detached 与名为 `detached` 的真分支返回同一字符串，无法区分（T38）。
 - **CH 无缓存不显示、压缩后显示旧值**：与 `wren.py` 统一（T41）。
 - **行内布局**：删掉右对齐/pad，`·` 分隔，thinking 缺省不显示，与 `wren.py` 逐字同构。
-- **长目录/长分支折叠**：预算驱动（宽度−40），逐级降级（头2尾2 → 头1尾2 → 尾2 → 尾1 → 尾段字符截断），
-  保证 `len ≤ budget`；分支 >24 折叠为头 8 + `…` + 尾 15。宽度来源分宿主：pi 用 `render(width)`，
-  CC 用 `COLUMNS` 有则用、无则 80 兜底（T42/T43）。
+- **长目录/长分支折叠**：预算驱动，逐级降级（头2尾2 → 头1尾2 → 尾2 → 尾1 → 末级字符截断），
+  按显示宽计算（全角算 2 格），折叠结果与色档无关；分支 >24 折叠为头 8 + `…` + 尾 15。
+  宽度来源分宿主：pi 用 `render(width)`，
+  CC 用 `COLUMNS` 有则用、无则 80 兜底（T42/T43/T45/T46）。整行出口再各做一次硬截断
+  （pi 的 `truncateToWidth` / CC 侧等价实现），公式算偏也不会溢出。
 
 #### Dracula 主题（v5 起，两侧同款色板）
 
@@ -243,19 +245,19 @@ wren uninstall              # 拆掉两个宿主的接线
 | 工具 | 用例数 | 运行 |
 |------|--------|------|
 | `otter` | 25 | `bash .test_scripts/otter-test.sh` |
-| `wren` | 44 | `bash .test_scripts/wren-test.sh` |
+| `wren` | 46 | `bash .test_scripts/wren-test.sh` |
 
 输出格式：
 
 ```
 PASS T01 ...
 ...
-Total: 44  Pass: 44  Fail: 0  Skip: 0
+Total: 46  Pass: 46  Fail: 0  Skip: 0
 ```
 
 任一 FAIL → 退出码 1，结果文件 `<tool>-test-res.md` 会被覆盖写。
 
-`wren` 的测试全程在 `mktemp -d` 沙箱里作业：`PREFIX` / `PI_EXT_DIR` / `CLAUDE_SETTINGS` 三个变量把安装目标全部改道，真实的 `/usr/local/bin`、`~/.pi`、`~/.claude` 一个都不碰。T27-T32、T38-T44 还会 stub 掉 `@earendil-works/pi-tui`，用 fixture 驱动 `wren.ts` 的 footer 真实渲染；缺 node（或 node 不支持直接执行 `.ts`）时这几条整体 SKIP。
+`wren` 的测试全程在 `mktemp -d` 沙箱里作业：`PREFIX` / `PI_EXT_DIR` / `CLAUDE_SETTINGS` 三个变量把安装目标全部改道，真实的 `/usr/local/bin`、`~/.pi`、`~/.claude` 一个都不碰。T27-T32、T38、T43、T46 还会 stub 掉 `@earendil-works/pi-tui`，用 fixture 驱动 `wren.ts` 的 footer 真实渲染；缺 node（或 node 不支持直接执行 `.ts`）时这几条整体 SKIP。
 
 ## 贡献
 

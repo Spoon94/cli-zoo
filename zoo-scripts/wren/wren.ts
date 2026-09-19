@@ -21,6 +21,23 @@ const DRACULA: Record<string, [string, string]> = {
 };
 const RESET = "\x1b[0m";
 
+// 按显示格取头/尾片段，结果不超过 maxW 格。
+// 不按码点切：13 个汉字的分支是 26 格 / 13 码点，按码点切会切出两倍预算，
+// 与 wren.py 的 slice_cells 不同构（CR 轮 11）。
+function sliceCells(s: string, maxW: number, fromEnd: boolean): string {
+	const chars = Array.from(s);
+	if (fromEnd) chars.reverse();
+	let w = 0;
+	const out: string[] = [];
+	for (const ch of chars) {
+		const cw = visibleWidth(ch);
+		if (w + cw > maxW) break;
+		out.push(ch);
+		w += cw;
+	}
+	return fromEnd ? out.reverse().join("") : out.join("");
+}
+
 // theme.getColorMode() 是 pi 宿主的公开 API（theme.d.ts）；NO_COLOR 优先于宿主判定。
 function colorMode(theme: any): "truecolor" | "256" | "none" {
 	if (process.env.NO_COLOR) return "none";
@@ -134,7 +151,9 @@ export default function (pi: ExtensionAPI) {
 			// 行2 模型段挤掉（truncateToWidth 砍尾）。
 			// 分支折叠：尾重头轻（head 8 / tail 15），与 wren.py 的 fold_branch 同规则
 			const foldBranch = (b: string, maxLen = 24) =>
-				b.length <= maxLen ? b : b.slice(0, 8) + "…" + b.slice(-15);
+				visibleWidth(b) <= maxLen
+					? b
+					: sliceCells(b, 8, false) + "…" + sliceCells(b, 15, true);
 			return {
 				dispose() {
 					unsub();
@@ -176,10 +195,10 @@ export default function (pi: ExtensionAPI) {
 						];
 						displayPath = cands.find((c2) => visibleWidth(c2) <= maxPath) ?? cands[3];
 						if (visibleWidth(displayPath) > maxPath) {
-							// 末级：对尾段字符截断
+							// 末级：对尾段按显示格截断（与 wren.py 的 slice_cells 同规则）
 							const last = segs[segs.length - 1];
 							const keep = maxPath - 2;
-							displayPath = keep >= 1 ? `…${last.slice(-keep)}` : displayPath.slice(0, maxPath);
+							displayPath = keep >= 1 ? `…${sliceCells(last, keep, true)}` : sliceCells(displayPath, maxPath, false);
 						}
 					}
 					// Dracula: cwd/分隔线/herdr 灰、分支紫、ab 白（counts 已在拼接处上色）

@@ -1,5 +1,5 @@
 # wren 测试结果
-执行时间：2026-09-19 17:36:44
+执行时间：2026-09-19 17:57:24
 
 | ID | 状态 | 备注 |
 |----|------|------|
@@ -47,5 +47,7 @@
 | T42 | PASS | cc folding: path=…/with-a-long-name-that-will-overflow branch=feature/…esting-overflow |
 | T43 | PASS | pi branch folding (feature/…esting-overflow) |
 | T44 | PASS | CJK path display width 61 <= 80 |
+| T45 | PASS | CJK extreme line fits: nc=70 tc=70, color-independent folding |
+| T46 | PASS | pi CJK extreme line width 70 <= 80 |
 
-汇总：Total 44 / Pass 44 / Fail 0 / Skip 0
+汇总：Total 46 / Pass 46 / Fail 0 / Skip 0
