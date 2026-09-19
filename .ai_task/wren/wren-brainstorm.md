@@ -160,11 +160,12 @@ pi 扩展目录里若已有一份 `wren.ts`（例如用户此前手工装的）�
 
 ### 7.1 用例（`.test_task/wren-test.md`）
 
-共 44 条：T01-T03 参数，T04-T14 install（拷入副本、settings 合并、备份、零副作用、装好的 payload
+共 46 条：T01-T03 参数，T04-T14 install（拷入副本、settings 合并、备份、零副作用、装好的 payload
 能跑、重复加载警告），T15-T19 uninstall（删副本、删键、外来文件不动、幂等），T20-T21 与
 `cli-zoo-install.sh` 的集成，T22-T23 依赖缺失，T24 目录不可写不进半装状态，T25 覆盖外来文件的分寸，
 T26 卸载清理副产物，T27-T32 pi 侧渲染与 fmt/ctx%/家目录，T33-T37 分侧安装与 CLAUDE_CONFIG_DIR，
-T38-T41 detached/rename/冲突、色档、CH 压缩后语义，T42-T44 折叠与 CJK 宽度。
+T38-T41 detached/rename/冲突、色档、CH 压缩后语义，T42-T44 折叠与 CJK 宽度，
+T45-T46 极端 CJK 整行不溢出且折叠与色档无关（CR 轮 11）。
 
 ### 7.2 测试脚本（`.test_scripts/wren-test.sh`）
 
@@ -224,11 +225,15 @@ tty，`isatty()` 不可用）；pi 侧 `theme.getColorMode()` + `NO_COLOR` 优�
 打架）取 `cc`/`pi`（复用 `wren install` 目标词汇表）。连带测试影响：跨实现比对（T32/T38）的段提取
 须先剥徽标尾（`strip_tag`），CR 轮 8 预言并命中。
 
-**折叠（v6，CR 轮 9 定稿）**：预算驱动 `budget = 宽度 − 40`；逐级降级（头2+尾2 → 头1+尾2 →
-尾2 → 尾1 → 尾段字符截断），`len ≤ budget` 为不变量；无段数门槛（CR 抓的 bug：段少段长的路径
+**折叠（v6，CR 轮 9 定稿、轮 11 修正）**：预算驱动 `budget = 宽度 − 其余段真实可见宽`（固定 −40
+在长分支+多脏文件+herdr 场景下不够，整行可到 88）；逐级降级（头2+尾2 → 头1+尾2 →
+尾2 → 尾1 → 末级字符截断），显示宽 ≤ budget 为不变量（截断与分支折叠都按显示格切，不按码点；
+宽度一律量无色文本，色档不得影响折叠结果）；无段数门槛（CR 抓的 bug：段少段长的路径
 在门槛下完全不折）。分支 >24 折为头 8 + `…` + 尾 15（尾重：等分时头部被 `feature/` 前缀占满；
-ticket-in-slug 的启发式被反例否决）。宽度来源分宿主：pi `render(width)`、CC `COLUMNS` 或 80 兜底
+ticket-in-slug 的启发式被反例否决）；两侧触发条件同用显示宽（此前 py 按格、ts 按码点，13 汉字
+分支 cc 折 pi 不折）。宽度来源分宿主：pi `render(width)`、CC `COLUMNS` 或 80 兜底
 （stdin JSON 无 width 字段；herdr 内实测 COLUMNS 未设、`get_terminal_size()` 恰退 80）。
+出口各做一次显示宽硬截断（pi 宿主 `truncateToWidth`、CC 侧等价 `truncate_display`），公式算偏也不溢出。
 
 **CH 口径（CR 轮 5-7 定稿）**：公式 `cacheRead / (input + cacheRead + cacheWrite)` 两侧一致
 （与 pi 内置逐项同式，`cacheWrite1h` 是计费拆分字段、`cacheWrite` 已含 1h 部分，进分母会重复计数；

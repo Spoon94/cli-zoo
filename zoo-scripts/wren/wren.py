@@ -12,6 +12,7 @@
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import unicodedata
@@ -94,10 +95,53 @@ def dwidth(s):
     return w
 
 
+def slice_cells(s, maxw, from_end=False):
+    """按显示宽取头/尾片段，结果不超过 maxw 格。
+    CR 轮 11：预算以格计、切片以码点计，两者混用会让 CJK 段切出两倍预算。"""
+    seq = reversed(s) if from_end else s
+    out, w = [], 0
+    for ch in seq:
+        cw = 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+        if w + cw > maxw:
+            break
+        out.append(ch)
+        w += cw
+    return "".join(reversed(out)) if from_end else "".join(out)
+
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def truncate_display(s, maxw):
+    """按显示宽度硬截断整行，ANSI 转义原样保留、宽度记 0。
+    地位与 pi 侧的 truncateToWidth 相同：折叠公式算偏了也不会溢出。
+    CR 轮 11：py 侧原先只有「公式算准」这一条防线，公式一错整行就超宽
+    （实测 88 > 80），而 ts 侧有宿主兜底所以天然不犯。"""
+    out, w, i, n, saw = [], 0, 0, len(s), False
+    while i < n and w < maxw:
+        if s[i] == "\033":
+            m = _ANSI_RE.match(s, i)
+            if m:
+                out.append(m.group())
+                saw = True
+                i = m.end()
+                continue
+        ch = s[i]
+        cw = 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+        if w + cw > maxw:
+            break
+        out.append(ch)
+        w += cw
+        i += 1
+    if saw and i < n:
+        out.append("\033[0m")
+    return "".join(out)
+
+
 def fold_path(p, budget):
     """路径折叠：给定预算逐级降级（头2+尾2 → 头1+尾2 → 尾2 → 尾1），末级对尾段字符截断。
     触发按总长，不设段数门槛（CR 轮 9：'段少但段长'的路径在段数门槛下完全不折）。
-    返回值保证 len ≤ budget（除非单段本身超预算，那也硬截到预算）。"""
+    返回值保证显示宽 ≤ budget，末级字符截断也按显示格切（CR 轮 11）。"""
     if dwidth(p) <= budget:
         return p
     segs = p.split("/")
@@ -114,19 +158,21 @@ def fold_path(p, budget):
     last = "…/" + segs[-1]
     if dwidth(last) <= budget:
         return last
-    keep = budget - 2  # "…" + 至少1字符
+    keep = budget - 2  # "…" + 至少 1 格
     if keep < 1:
-        return p[:budget]
-    return "…" + segs[-1][-keep:]
+        return slice_cells(p, max(0, budget))
+    return "…" + slice_cells(segs[-1], keep, from_end=True)
 
 
 def fold_branch(b, max_len=24):
-    """分支折叠：超长截中段，尾重头轻（head 8 / tail 15）。
+    """分支折叠：超长截中段，尾重头轻（head 8 / tail 15，均按显示格计）。
     CR 轮 9：50/50 等分时头部大半被 feature/ 这类前缀占掉、有效信息只剩几个字符；
-    ticket 号在 slug 前的情况（PROJ-1234-add-xxx）任何截法都会丢，不做启发式。"""
+    ticket 号在 slug 前的情况（PROJ-1234-add-xxx）任何截法都会丢，不做启发式。
+    CR 轮 11：触发条件与切片都改按显示格，此前 py 按格、ts 按码点，
+    13 个汉字的分支（26 格 / 13 码点）在 cc 折、在 pi 不折。"""
     if dwidth(b) <= max_len:
         return b
-    return b[:8] + "…" + b[-15:]
+    return slice_cells(b, 8) + "…" + slice_cells(b, 15, from_end=True)
 
 
 def accumulate(st, d):
@@ -271,14 +317,15 @@ def main():
                     deleted += 1
                 else:
                     modified += 1
-        parts = []
-        if added:
-            parts.append(c("green", f"+{added}"))
-        if deleted:
-            parts.append(c("red", f"~{deleted}"))
-        if modified:
-            parts.append(c("yellow", f"✱{modified}"))
+        # 同时留一份无色文本：dwidth 不剥 ANSI，拿上色串量宽度会把转义字节算进去，
+        # 同一个路径在色开/色关下就折出不同结果（CR 轮 11 实测 62 vs 79）。
+        parts, plain_parts = [], []
+        for mark, name, count in (("+", "green", added), ("~", "red", deleted), ("✱", "yellow", modified)):
+            if count:
+                plain_parts.append(f"{mark}{count}")
+                parts.append(c(name, f"{mark}{count}"))
         dmg = " " + " ".join(parts) if parts else ""
+        dmg_plain = " " + " ".join(plain_parts) if plain_parts else ""
     git_part = f"{branch}{ab}{dmg}" if branch else ""
 
     # ---- herdr 位置 ----
@@ -342,7 +389,7 @@ def main():
     # 长分支+多脏文件+herdr 场景下不够，整行可到 88 > 80，徽标被宿主截掉）
     rest = 0
     if branch:
-        rest += dwidth(f" | {fold_branch(branch, 24)}{ab}{dmg}")
+        rest += dwidth(f" | {fold_branch(branch, 24)}{ab}{dmg_plain}")
     if herdr_tag:
         rest += dwidth(f" | {herdr_tag}")
     rest += dwidth(" | cc")
@@ -378,7 +425,9 @@ def main():
         colored_ctx = f" {sep} " + c(pct_name, ctx_pct)
     line2 = tok + colored_ctx + f" {sep} " + " · ".join(right_parts)
 
-    sys.stdout.write(f"{line1}\n{line2}")
+    # 出口兜底：折叠只保证「算出来不超宽」，这里保证「输出不超宽」。
+    # 与 pi 侧 render 里的 truncateToWidth 同一地位。
+    sys.stdout.write(f"{truncate_display(line1, term_w)}\n{truncate_display(line2, term_w)}")
 
 
 if __name__ == "__main__":

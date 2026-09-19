@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# wren-test.sh - 自动运行 .test_task/wren-test.md 中的 44 个用例。
+# wren-test.sh - 自动运行 .test_task/wren-test.md 中的 46 个用例。
 #
 # 用法: bash .test_scripts/wren-test.sh
 # 写出: .test_res/wren-test-res.md
@@ -486,12 +486,32 @@ if command -v node >/dev/null 2>&1; then
     node "$PI_DIR/probe.ts" 2>/dev/null | grep -qF "ts-ok 1" && TS_OK=1
 fi
 
+# visibleWidth 必须按显示格而非码点：宿主 pi-tui 的真身把 CJK 全角算 2 格、
+# 并且剥掉 ANSI（原 stub 用 .length，于是 CJK 断言 TS 侧永远测不出问题，CR 轮 11）
 cat >"$PI_DIR/tui-stub.mjs" <<'EOF'
 const ANSI = /\x1b\[[0-9;]*m/g;
-export const visibleWidth = (s) => String(s).replace(ANSI, "").length;
+// East Asian Wide / Fullwidth 的常用区间（与 Python 侧 east_asian_width 在汉字上一致）
+const isWide = (cp) =>
+  (cp >= 0x1100 && cp <= 0x115f) || (cp >= 0x2e80 && cp <= 0xa4cf) ||
+  (cp >= 0xac00 && cp <= 0xd7a3) || (cp >= 0xf900 && cp <= 0xfaff) ||
+  (cp >= 0xfe30 && cp <= 0xfe6f) || (cp >= 0xff00 && cp <= 0xff60) ||
+  (cp >= 0xffe0 && cp <= 0xffe6) || (cp >= 0x1f300 && cp <= 0x1f64f) ||
+  (cp >= 0x20000 && cp <= 0x3fffd);
+const cellWidth = (ch) => (isWide(ch.codePointAt(0)) ? 2 : 1);
+export const visibleWidth = (s) => {
+  let w = 0;
+  for (const ch of String(s).replace(ANSI, "")) w += cellWidth(ch);
+  return w;
+};
 export const truncateToWidth = (s, w) => {
-  const plain = String(s).replace(ANSI, "");
-  return plain.length <= w ? s : plain.slice(0, w);
+  if (visibleWidth(s) <= w) return s;
+  let out = "", cur = 0;
+  for (const ch of String(s).replace(ANSI, "")) {
+    const cw = cellWidth(ch);
+    if (cur + cw > w) break;
+    out += ch; cur += cw;
+  }
+  return out;
 };
 EOF
 
@@ -1022,6 +1042,67 @@ if [[ -n "$cc44" ]] && [[ "$w44" -le 80 ]]; then
     pass T44 "CJK path display width $w44 <= 80"
 else
     fail T44 "display width=$w44 line=[$cc44]"
+fi
+
+# ============================================================
+# T45: 极端 CJK（长中文路径 + 长中文分支）整行不溢出，且折叠结果与色档无关
+#      CR 轮 11：末级字符截断按码点切，中文段能切出两倍预算（实测 88 > 80）；
+#      且 rest 用上色串量宽 → 色开/色关折出不同结果
+# ============================================================
+new_box
+CJK45="$BOX/中文项目目录名称很长的十六个汉字/另一个很长的中文目录名称十六个汉字/最后一级超长中文目录名称十六个字"
+mkdir -p "$CJK45"
+(cd "$CJK45" && git -c init.defaultBranch=main init -q && git config user.email t@e.com && git config user.name t \
+    && : >f && git add -A && git commit -qm i >/dev/null 2>&1 \
+    && git checkout -q -b 二十四字符分支名称测试用abcdefghijklmnop \
+    && for i in 1 2 3 4 5 6 7 8 9 10; do : >"d$i"; done) >/dev/null 2>&1
+cjk_body() {  # $1.. = env assignments for color mode
+    (cd "$CJK45" && env -u NO_COLOR "$@" COLUMNS=80 WREN_CACHE_DIR="$BOX/c45" \
+        python3 "$CC_PAYLOAD" <<<"{\"cwd\":\"$CJK45\",\"model\":{\"display_name\":\"m\"}}" 2>/dev/null | head -1)
+}
+# 剥 ANSI 后同时给出显示宽与明文（带色行里 "| cc" 被转义隔开，明文子串断言必须先剥）
+cjk_strip() {
+    python3 -c "
+import sys, re, unicodedata
+line = re.sub(r'\x1b\[[0-9;]*m', '', sys.argv[1])
+w = sum(2 if unicodedata.east_asian_width(c) in ('W','F') else 1 for c in line)
+print(w)
+print(line)
+" "$1"
+}
+cc45_nc="$(cjk_body NO_COLOR=1)"
+cc45_tc="$(cjk_body COLORTERM=truecolor)"
+nc45="$(cjk_strip "$cc45_nc")"; tc45="$(cjk_strip "$cc45_tc")"
+w45_nc="${nc45%%$'\n'*}"; p45_nc="${nc45#*$'\n'}"
+w45_tc="${tc45%%$'\n'*}"; p45_tc="${tc45#*$'\n'}"
+t45_ok=1
+[[ "$w45_nc" -le 80 ]] || t45_ok=0
+[[ "$w45_tc" -le 80 ]] || t45_ok=0
+printf '%s' "$p45_nc" | grep -qF "| cc" || t45_ok=0
+printf '%s' "$p45_tc" | grep -qF "| cc" || t45_ok=0
+# 色档只影响转义序列，不得影响折叠结果
+[[ "$p45_nc" == "$p45_tc" ]] || t45_ok=0
+if [[ $t45_ok -eq 1 ]]; then
+    pass T45 "CJK extreme line fits: nc=${w45_nc} tc=${w45_tc}, color-independent folding"
+else
+    fail T45 "nc=${w45_nc} tc=${w45_tc} nc_line=[$p45_nc] tc_line=[$p45_tc]"
+fi
+
+# ============================================================
+# T46: pi 侧同一极端场景整行不溢出（宿主 truncateToWidth 兜底 + 折叠按显示格）
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T46 "node with .ts type-stripping not available"
+else
+    pi46="$(cd "$CJK45" && env NO_COLOR=1 WIDTH=80 BRANCHNAME="二十四字符分支名称测试用abcdefghijklmnop" \
+        CTX_USAGE="$USAGE_OK" GIT_WAIT_MS=1500 WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs" \
+        node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null | head -1)"
+    w46="$(cjk_strip "$pi46")"; w46="${w46%%$'\n'*}"
+    if [[ -n "$pi46" ]] && [[ "$w46" -le 80 ]] && printf '%s' "$pi46" | grep -qF "| pi"; then
+        pass T46 "pi CJK extreme line width ${w46} <= 80"
+    else
+        fail T46 "width=${w46} line=[$pi46]"
+    fi
 fi
 
 # ---------- 汇总 ----------
