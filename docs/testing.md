@@ -1,6 +1,6 @@
 # 测试
 
-每个工具配一套 shell 测试，跑在临时沙箱里，结果写入 `<tool>-test-res.md`。
+每个工具配一套 shell 测试，跑在临时沙箱里，结果写入 `.test_res/<tool>-test-res.md`。
 
 | 工具 | 用例数 | 运行 |
 |------|--------|------|
@@ -15,7 +15,7 @@ PASS T01 ...
 Total: 46  Pass: 46  Fail: 0  Skip: 0
 ```
 
-任一 FAIL → 退出码 1，结果文件 `<tool>-test-res.md` 会被覆盖写。
+任一 FAIL → 退出码 1，结果文件 `.test_res/<tool>-test-res.md` 会被覆盖写。
 
 ## wren 测试说明
 

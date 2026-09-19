@@ -33,6 +33,17 @@ CH 公式两侧一致，都是 `cacheRead / (input + cacheRead + cacheWrite)`，
 `wren` 自己经 `cli-zoo-install.sh` 软链到 `$PREFIX` 后，仍能定位同目录的 payload。行 1 尾部有一个
 灰字宿主徽标 ` | cc` 或 ` | pi`，同屏开多个 agent 时一眼能区分。
 
+## 环境变量与退出码
+
+| 变量 | 默认 | 作用 |
+|------|------|------|
+| `PREFIX` | `/usr/local/bin` | CC 侧可执行文件目录 |
+| `PI_EXT_DIR` | `$HOME/.pi/agent/extensions` | pi 扩展目录 |
+| `CLAUDE_CONFIG_DIR` | `$HOME/.claude` | Claude Code 配置目录（CC 官方支持的重定向变量，wren 跟随它定位 settings） |
+| `CLAUDE_SETTINGS` | `$CLAUDE_CONFIG_DIR/settings.json` | 要改的 settings 文件（显式设置时优先级最高） |
+
+退出码：`0` 成功 / `1` 写入失败 / `2` 参数错误 / `3` 依赖缺失（python3 或 payload）。
+
 ## `wren.ts` 相对 pi 上游的有意修改
 
 （`wren.py` 未改；括号里是对应的守门用例）
