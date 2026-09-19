@@ -5,14 +5,14 @@
 | 工具 | 用例数 | 运行 |
 |------|--------|------|
 | `otter` | 25 | `bash .test_scripts/otter-test.sh` |
-| `wren` | 67 | `bash .test_scripts/wren-test.sh` |
+| `wren` | 68 | `bash .test_scripts/wren-test.sh` |
 
 输出格式：
 
 ```
 PASS T01 ...
 ...
-Total: 67  Pass: 67  Fail: 0  Skip: 0
+Total: 68  Pass: 68  Fail: 0  Skip: 0
 ```
 
 任一 FAIL → 退出码 1，结果文件 `.test_res/<tool>-test-res.md` 会被覆盖写。

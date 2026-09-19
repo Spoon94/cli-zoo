@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# wren-test.sh - 自动运行 .test_task/wren-test.md 中的 67 个用例。
+# wren-test.sh - 自动运行 .test_task/wren-test.md 中的 68 个用例。
 #
 # 用法: bash .test_scripts/wren-test.sh
 # 写出: .test_res/wren-test-res.md
 #
-# 全程在 mktemp -d 里作业：PREFIX / PI_EXT_DIR / CLAUDE_SETTINGS 三个变量把
-# 安装目标全部改道，不会碰到真实的 /usr/local/bin、~/.pi、~/.claude。
+# 全程在 mktemp -d 里作业：PREFIX / PI_EXT_DIR / CLAUDE_SETTINGS / QODER_CONFIG_DIR /
+# QODER_SETTINGS 五个变量把安装目标全部改道，不会碰到真实的 /usr/local/bin、~/.pi、
+# ~/.claude、~/.qoder。
 
 set -u
 
@@ -1483,6 +1484,32 @@ if [[ "$WREN_EXIT" == "1" ]] \
     pass T67 "invalid qoder settings -> exit 1 before any install (pre-check gate)"
 else
     fail T67 "exit=$WREN_EXIT bin=[$(ls -A "$BIN")] piext=[$(ls -A "$PIEXT")] qoder=[$(ls -A "$QODER")]"
+fi
+
+# ============================================================
+# T68: 目标父目录不存在且不可创建（只读祖先）→ 预检挡住，零副作用
+#（CR 轮 13 抓的缺口：check 只在 parent 已存在时探可写性，parent 缺失时放行，
+#  payload 先装、makedirs 失败后才 exit 1，留下半装状态。root 下 chmod 555 无效会 SKIP）
+# ============================================================
+if [[ "$(id -u)" == "0" ]]; then
+    skip T68 "running as root; read-only dir is not enforced"
+else
+    new_box
+    RO="$BOX/readonly"; mkdir -p "$RO"; chmod 555 "$RO"
+    printf '{"model":"opus"}\n' >"$SETTINGS"
+    cp "$SETTINGS" "$BOX/before68"
+    env NO_COLOR=1 PREFIX="$BIN" PI_EXT_DIR="$PIEXT" CLAUDE_SETTINGS="$SETTINGS" \
+        QODER_CONFIG_DIR="$RO/qoder/nested" "$WREN" install >"$BOX/out68.txt" 2>"$BOX/err68.txt"
+    E68=$?
+    if [[ "$E68" == "1" ]] \
+       && [[ -z "$(ls -A "$BIN")" && -z "$(ls -A "$PIEXT")" ]] \
+       && [[ ! -e "$RO/qoder" ]] \
+       && diff -q "$BOX/before68" "$SETTINGS" >/dev/null; then
+        pass T68 "uncreatable qoder parent -> exit 1, zero side effects"
+    else
+        fail T68 "exit=$E68 bin=[$(ls -A "$BIN")] piext=[$(ls -A "$PIEXT")] ro=[$(ls -A "$RO" 2>/dev/null)]"
+    fi
+    chmod 755 "$RO"
 fi
 
 # ---------- 汇总 ----------

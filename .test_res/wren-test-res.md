@@ -1,5 +1,5 @@
 # wren 测试结果
-执行时间：2026-09-19 21:47:53
+执行时间：2026-09-19 21:52:19
 
 | ID | 状态 | 备注 |
 |----|------|------|
@@ -70,5 +70,6 @@
 | T65 | PASS | QODER_CONFIG_DIR honored; default dir untouched |
 | T66 | PASS | install qoder is an alias of qc |
 | T67 | PASS | invalid qoder settings -> exit 1 before any install (pre-check gate) |
+| T68 | PASS | uncreatable qoder parent -> exit 1, zero side effects |
 
-汇总：Total 67 / Pass 67 / Fail 0 / Skip 0
+汇总：Total 68 / Pass 68 / Fail 0 / Skip 0

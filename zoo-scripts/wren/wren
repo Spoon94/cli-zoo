@@ -126,14 +126,23 @@ if os.path.exists(path):
         fail("%s top level is not an object, refusing to touch it" % path)
 
 if mode == "check":
-    # 可写性探针：真到 write 阶段才发现不可写的话，那会儿已经装了一半
-    if os.path.isdir(parent):
-        probe = os.path.join(parent, ".wren-write-probe")
+    # 可写性探针：真到 write 阶段才发现不可写的话，那会儿已经装了一半。
+    # parent 不存在时不能直接跳过（那正是半装缺口的来源：check 放行 → payload
+    # 先装 → makedirs 失败 → exit 1），向上找第一个存在的祖先探它的可写性；
+    # write 阶段真要 makedirs 的正是这位祖先的后代
+    probe_dir = parent
+    while probe_dir and not os.path.isdir(probe_dir):
+        nxt = os.path.dirname(probe_dir)
+        if nxt == probe_dir:
+            break
+        probe_dir = nxt
+    if os.path.isdir(probe_dir):
+        probe = os.path.join(probe_dir, ".wren-write-probe")
         try:
             with open(probe, "w", encoding="utf-8") as fh:
                 fh.write("")
         except OSError as exc:
-            fail("cannot write in %s: %s" % (parent, exc.strerror or exc))
+            fail("cannot write in %s: %s" % (probe_dir, exc.strerror or exc))
         try:
             os.unlink(probe)
         except OSError:

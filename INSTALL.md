@@ -39,7 +39,7 @@ wren install            # 三个宿主都装；或 wren install cc / pi / qc 分
 otter -h                                # otter 装好
 wren -h                                 # wren 本体装好
 bash .test_scripts/otter-test.sh        # expect: Total: 25  Pass: 25
-bash .test_scripts/wren-test.sh         # expect: Total: 67  Pass: 67（缺 node 时部分 SKIP）
+bash .test_scripts/wren-test.sh         # expect: Total: 68  Pass: 68（缺 node 时部分 SKIP）
 ```
 
 wren 装好后可再喂一份 statusline JSON 冒烟：

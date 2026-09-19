@@ -93,12 +93,14 @@
 | T65 | 安装 | 只设 `QODER_CONFIG_DIR=$BOX/qcfg`（不设 `QODER_SETTINGS`）后 `install qc` | payload/`settings.json` 全落 `$BOX/qcfg`；默认 `$BOX/qoder` 目录未被碰 |
 | T66 | 安装 | `wren install qoder` | 等价于 `qc`（别名） |
 | T67 | 安装 | cc settings 合法、qoder settings 非法 JSON，跑 `wren install`（all） | exit 1；`$PREFIX`/`$PI_EXT_DIR`/qoder 目录均无 payload、两份 settings 均无 `.wren-bak`、cc settings 字节未变（**预检先行守门**） |
+| T68 | 安装 | `QODER_CONFIG_DIR` 指向只读目录下的不存在路径（父目录不可创建），跑 `install`（all） | exit 1；`$PREFIX`/`$PI_EXT_DIR` 均空、目标目录未被创建、cc settings 字节未变（**半装缺口守门**：check 探针需向上找存在祖先） |
 
 ## 条件用例（不满足条件时 SKIP，不算 FAIL）
 
 | ID | 跳过条件 |
 |---|---|
 | T24 | 以 root 运行时文件权限不生效（`chmod 555` 仍可写） |
+| T68 | 同上（依赖 chmod 555 生效） |
 | T27-T32、T38、T40、T43、T46 | 无 `node`，或 `node` 不支持直接执行 `.ts`（Node 22.6+ 的 type stripping） |
 
 其余用例只依赖 bash / python3 / coreutils，且全程在用户态临时目录作业。
