@@ -62,7 +62,7 @@ otter -h                         # 帮助
 
 ```bash
 ./cli-zoo-install.sh wren        # 先把 wren 装到 $PREFIX
-wren install [cc|pi|all]         # 装到宿主（默认 all；幂等）
+wren install [cc|pi|all]         # 装到宿主（默认 all；幂等；cc 的别名 claude）
 wren uninstall [cc|pi|all]       # 卸载（默认 all）
 wren -h                          # 帮助
 ```
