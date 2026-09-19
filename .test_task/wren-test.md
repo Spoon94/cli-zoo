@@ -77,8 +77,7 @@
 | ID | 跳过条件 |
 |---|---|
 | T24 | 以 root 运行时文件权限不生效（`chmod 555` 仍可写） |
-| T27-T32、T38 | 无 `node`，或 `node` 不支持直接执行 `.ts`（Node 22.6+ 的 type stripping） |
-| T46 | 同上（依赖 node harness） |
+| T27-T32、T38、T40、T43、T46 | 无 `node`，或 `node` 不支持直接执行 `.ts`（Node 22.6+ 的 type stripping） |
 
 其余用例只依赖 bash / python3 / coreutils，且全程在用户态临时目录作业。
 `python3` 缺失时测试脚本自身 exit 2（前置依赖检查），因为连 settings.json 的断言都做不了。
