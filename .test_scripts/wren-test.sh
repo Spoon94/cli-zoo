@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# wren-test.sh - 自动运行 .test_task/wren-test.md 中的 46 个用例。
+# wren-test.sh - 自动运行 .test_task/wren-test.md 中的 68 个用例。
 #
 # 用法: bash .test_scripts/wren-test.sh
 # 写出: .test_res/wren-test-res.md
 #
-# 全程在 mktemp -d 里作业：PREFIX / PI_EXT_DIR / CLAUDE_SETTINGS 三个变量把
-# 安装目标全部改道，不会碰到真实的 /usr/local/bin、~/.pi、~/.claude。
+# 全程在 mktemp -d 里作业：PREFIX / PI_EXT_DIR / CLAUDE_SETTINGS / QODER_CONFIG_DIR /
+# QODER_SETTINGS 五个变量把安装目标全部改道，不会碰到真实的 /usr/local/bin、~/.pi、
+# ~/.claude、~/.qoder。
 
 set -u
 
@@ -18,6 +19,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 WREN="$REPO_ROOT/zoo-scripts/wren/wren"
 CC_PAYLOAD="$REPO_ROOT/zoo-scripts/wren/wren.py"
 PI_PAYLOAD="$REPO_ROOT/zoo-scripts/wren/wren.ts"
+QC_PAYLOAD="$REPO_ROOT/zoo-scripts/wren/wren-qc.py"
 INSTALL_SH="$REPO_ROOT/cli-zoo-install.sh"
 UNINSTALL_SH="$REPO_ROOT/cli-zoo-uninstall.sh"
 RES_DIR="$REPO_ROOT/.test_res"
@@ -54,22 +56,25 @@ TMPROOT="$(mktemp -d 2>/dev/null || mktemp -d -t wren)"
 cleanup_all() { rm -rf "$TMPROOT"; }
 trap cleanup_all EXIT
 
-# 每个场景一个新沙箱：BIN / PIEXT / CLAUDE 三个目录 + wren 运行环境
+# 每个场景一个新沙箱：BIN / PIEXT / CLAUDE / QODER 四个目录 + wren 运行环境
 new_box() {
     BOX="$TMPROOT/box$((BOX_N += 1))"
     BIN="$BOX/bin"
     PIEXT="$BOX/piext"
     CLAUDE="$BOX/claude"
     SETTINGS="$CLAUDE/settings.json"
-    mkdir -p "$BIN" "$PIEXT" "$CLAUDE"
+    QODER="$BOX/qoder"
+    QODER_SETTINGS="$QODER/settings.json"
+    mkdir -p "$BIN" "$PIEXT" "$CLAUDE" "$QODER"
 }
 BOX_N=0
-BOX="" BIN="" PIEXT="" CLAUDE="" SETTINGS=""
+BOX="" BIN="" PIEXT="" CLAUDE="" SETTINGS="" QODER="" QODER_SETTINGS=""
 
 # 用沙箱环境调用 wren；输出落 OUT_FILE，退出码进 WREN_EXIT
 run_wren() {
     # NO_COLOR=1：旧用例断言的是明文子串，色档统一关掉（带色断言在 T39+ 单独跑）
     env NO_COLOR=1 PREFIX="$BIN" PI_EXT_DIR="$PIEXT" CLAUDE_SETTINGS="$SETTINGS" \
+        QODER_CONFIG_DIR="$QODER" QODER_SETTINGS="$QODER_SETTINGS" \
         "$WREN" "$@" >"$BOX/out.txt" 2>"$BOX/err.txt"
     WREN_EXIT=$?
     WREN_OUT="$(<"$BOX/out.txt")"
@@ -85,6 +90,7 @@ strip_tag() {
     # 段尾的宿主徽标（v6 起）：无 git/herdr 时整段就是裸徽标，剥完为空
     seg="${seg% | cc}"
     seg="${seg% | pi}"
+    seg="${seg% | qc}"
     printf '%s' "$seg"
 }
 
@@ -102,7 +108,7 @@ if ! command -v python3 >/dev/null 2>&1; then
     exit 2
 fi
 
-for f in "$WREN" "$CC_PAYLOAD" "$PI_PAYLOAD"; do
+for f in "$WREN" "$CC_PAYLOAD" "$PI_PAYLOAD" "$QC_PAYLOAD"; do
     if [[ ! -f "$f" ]]; then
         echo "ERROR: $f not found" >&2
         exit 2
@@ -1103,6 +1109,407 @@ else
     else
         fail T46 "width=${w46} line=[$pi46]"
     fi
+fi
+
+# ============================================================
+# qc（wren-qc.py，Qoder CLI statusline）—— 只用合成 payload，
+# 不嵌任何真实会话数据（session_id / credits / codebase 一概不出现）。
+# 每个用例独立 WREN_CACHE_DIR，transcript 路径互不相同，避免增量解析缓存串味。
+# ============================================================
+
+# ============================================================
+# T47: qc 最小 payload → 两行 + qc 徽标，无中生有的段不出现
+# ============================================================
+new_box
+printf '{"cwd":"/tmp","model":{"display_name":"Test-Model"}}' \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q47" python3 "$QC_PAYLOAD" >"$BOX/q47.txt" 2>&1
+q47_lines=$(awk 'END{printf "%d", NR}' "$BOX/q47.txt")
+q47_l1="$(head -1 "$BOX/q47.txt")"; q47_l2="$(tail -1 "$BOX/q47.txt")"
+if [[ "$q47_lines" == "2" && "$q47_l1" == "/tmp | qc" && "$q47_l2" == "↑0 ↓0 | R0 | Test-Model" ]]; then
+    pass T47 "qc minimal payload: 2 lines, qc badge, no invented segments"
+else
+    fail T47 "lines=$q47_lines l1=[$q47_l1] l2=[$q47_l2]"
+fi
+
+# ============================================================
+# T48: qc ↑in/↓out 取 transcript 累计，不碰原生「最近一次请求」字段
+# ============================================================
+new_box
+cat >"$BOX/tr48.jsonl" <<'EOF2'
+{"type":"assistant","message":{"usage":{"input_tokens":1000,"output_tokens":100,"cache_read_input_tokens":500}}}
+{"type":"assistant","message":{"usage":{"input_tokens":2000,"output_tokens":300,"cache_read_input_tokens":1500}}}
+EOF2
+printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"total_input_tokens":43138,"context_window_size":200000,"used_percentage":22},"transcript_path":"%s"}' "$BOX/tr48.jsonl" \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q48" python3 "$QC_PAYLOAD" >"$BOX/q48.txt" 2>&1
+q48="$(tail -1 "$BOX/q48.txt")"
+if printf '%s' "$q48" | grep -qF "↑3K ↓400" \
+   && ! printf '%s' "$q48" | grep -qF "↑43K" \
+   && ! printf '%s' "$q48" | grep -qF "↓0"; then
+    pass T48 "qc ↑in/↓out from transcript sums, not native per-request field"
+else
+    fail T48 "l2=[$q48]"
+fi
+
+# ============================================================
+# T49: qc ctx% 原生 used_percentage 优先；缺失时按 total_input_tokens 自算
+# ============================================================
+new_box
+printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"total_input_tokens":43138,"context_window_size":200000,"used_percentage":22}}' \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q49" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1 >"$BOX/q49a.txt"
+printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"total_input_tokens":43138,"context_window_size":200000}}' \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q49" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1 >"$BOX/q49b.txt"
+q49a="$(<"$BOX/q49a.txt")"; q49b="$(<"$BOX/q49b.txt")"
+if printf '%s' "$q49a" | grep -qF "22.00%/200K" \
+   && printf '%s' "$q49b" | grep -qF "21.57%/200K"; then
+    pass T49 "qc ctx%: native used_percentage first, self-computed fallback"
+else
+    fail T49 "a=[$q49a] b=[$q49b]"
+fi
+
+# ============================================================
+# T50: qc CH 用 qoder 口径 cr/in（input 已含 cache，不得套 CC 公式）
+# ============================================================
+new_box
+cat >"$BOX/tr50.jsonl" <<'EOF2'
+{"type":"assistant","message":{"usage":{"input_tokens":26254,"output_tokens":203,"cache_read_input_tokens":24064}}}
+EOF2
+printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$BOX/tr50.jsonl" \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q50" python3 "$QC_PAYLOAD" >"$BOX/q50.txt" 2>&1
+q50="$(tail -1 "$BOX/q50.txt")"
+if printf '%s' "$q50" | grep -qF "CH91.66%" \
+   && printf '%s' "$q50" | grep -qF "R24K" \
+   && ! printf '%s' "$q50" | grep -qF "CH47.82%"; then
+    pass T50 "qc CH = cache_read/input_tokens (qoder input already includes cache)"
+else
+    fail T50 "l2=[$q50]"
+fi
+
+# ============================================================
+# T51: qc 旧版口径自适应——input < cache_read 时回退 CC 公式
+# ============================================================
+new_box
+cat >"$BOX/tr51.jsonl" <<'EOF2'
+{"type":"assistant","message":{"usage":{"input_tokens":1000,"output_tokens":10,"cache_read_input_tokens":3000,"cache_creation_input_tokens":1000}}}
+EOF2
+printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$BOX/tr51.jsonl" \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q51" python3 "$QC_PAYLOAD" >"$BOX/q51.txt" 2>&1
+if grep -qF "CH60.00%" "$BOX/q51.txt"; then
+    pass T51 "qc legacy fallback: CC formula when input < cache_read"
+else
+    fail T51 "l2=[$(tail -1 "$BOX/q51.txt")]"
+fi
+
+# ============================================================
+# T52: qc cache_creation 为对象形态（ephemeral_5m/1h）且走回退公式
+# ============================================================
+new_box
+cat >"$BOX/tr52.jsonl" <<'EOF2'
+{"type":"assistant","message":{"usage":{"input_tokens":1000,"output_tokens":10,"cache_read_input_tokens":3000,"cache_creation":{"ephemeral_5m_input_tokens":1000,"ephemeral_1h_input_tokens":2000}}}}
+EOF2
+printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$BOX/tr52.jsonl" \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q52" python3 "$QC_PAYLOAD" >"$BOX/q52.txt" 2>&1
+if grep -qF "CH42.86%" "$BOX/q52.txt"; then
+    pass T52 "qc cache_creation object form summed (5m+1h) in fallback"
+else
+    fail T52 "l2=[$(tail -1 "$BOX/q52.txt")]"
+fi
+
+# ============================================================
+# T53: qc 时长：cost.total_duration_ms 优先 → transcript 首条时间戳回退
+# ============================================================
+new_box
+printf '{"cwd":"/tmp","model":{"display_name":"m"},"cost":{"total_duration_ms":3900000}}' \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q53" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1 >"$BOX/q53a.txt"
+TS53=$(python3 -c "import datetime;print((datetime.datetime.now(datetime.timezone.utc)-datetime.timedelta(minutes=9)).isoformat())")
+printf '{"type":"assistant","timestamp":"%s","message":{"usage":{}}}\n' "$TS53" >"$BOX/tr53.jsonl"
+printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$BOX/tr53.jsonl" \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q53b" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1 >"$BOX/q53b.txt"
+q53a="$(<"$BOX/q53a.txt")"; q53b="$(<"$BOX/q53b.txt")"
+if printf '%s' "$q53a" | grep -qF "1h5m" \
+   && printf '%s' "$q53b" | grep -qF "9m"; then
+    pass T53 "qc duration: cost field first, transcript first-ts fallback"
+else
+    fail T53 "a=[$q53a] b=[$q53b]"
+fi
+
+# ============================================================
+# T54: qc 思考等级来自 transcript runtime-config；无记录时不渲染该段
+# ============================================================
+new_box
+printf '{"type":"runtime-config","reasoningEffort":"high"}\n' >"$BOX/tr54.jsonl"
+printf '{"cwd":"/tmp","model":{"display_name":"Test-Model"},"transcript_path":"%s"}' "$BOX/tr54.jsonl" \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q54" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1 >"$BOX/q54a.txt"
+printf '{"cwd":"/tmp","model":{"display_name":"Test-Model"}}' \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q54" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1 >"$BOX/q54b.txt"
+q54a="$(<"$BOX/q54a.txt")"; q54b="$(<"$BOX/q54b.txt")"
+if printf '%s' "$q54a" | grep -qF "Test-Model · high" \
+   && [[ "$q54b" == "↑0 ↓0 | R0 | Test-Model" ]]; then
+    pass T54 "qc thinking from runtime-config record; absent -> segment hidden"
+else
+    fail T54 "a=[$q54a] b=[$q54b]"
+fi
+
+# ============================================================
+# T55: qc Dracula 三色档（与 T39/T40 同一张表，带色断言精确到转义字节）
+# ============================================================
+new_box
+R55="$BOX/r55"; mkdir -p "$R55"
+(cd "$R55" && git -c init.defaultBranch=main init -q && git config user.email t@e.com && git config user.name t \
+    && : >a.txt && git add -A && git commit -qm i) >/dev/null 2>&1
+cat >"$BOX/tr55.jsonl" <<'EOF2'
+{"type":"assistant","message":{"usage":{"input_tokens":26254,"output_tokens":203,"cache_read_input_tokens":24064}}}
+{"type":"runtime-config","reasoningEffort":"high"}
+EOF2
+QC55=$(printf '{"cwd":"%s","model":{"display_name":"Test-Model"},"transcript_path":"%s"}' "$R55" "$BOX/tr55.jsonl")
+qc55_tc=$(printf '%s' "$QC55" | COLORTERM=truecolor WREN_CACHE_DIR="$BOX/q55" python3 "$QC_PAYLOAD" 2>/dev/null)
+qc55_256=$(printf '%s' "$QC55" | env -u COLORTERM WREN_CACHE_DIR="$BOX/q55" python3 "$QC_PAYLOAD" 2>/dev/null)
+qc55_nc=$(printf '%s' "$QC55" | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q55" python3 "$QC_PAYLOAD" 2>/dev/null)
+t55_ok=1
+# truecolor：粉模型 / 青思考 / 灰分隔 / 紫分支 四码必现；且不混入 256 码
+for code in '38;2;255;121;198' '38;2;139;233;253' '38;2;98;114;164' '38;2;189;147;249'; do
+    printf '%s' "$qc55_tc" | grep -qF "$code" || t55_ok=0
+done
+printf '%s' "$qc55_tc" | grep -qF '38;5;61' && t55_ok=0
+# 256：粉 212 / 灰 61 / 青 117 / 紫 141
+for code in '38;5;212' '38;5;61' '38;5;117' '38;5;141'; do
+    printf '%s' "$qc55_256" | grep -qF "$code" || t55_ok=0
+done
+printf '%s' "$qc55_nc" | grep -q $'\x1b\[' && t55_ok=0
+if [[ $t55_ok -eq 1 ]]; then
+    pass T55 "qc Dracula: truecolor/256/NO_COLOR same table as cc/pi"
+else
+    fail T55 "tc_head=[$(printf '%s' "$qc55_tc" | head -c 100)]"
+fi
+
+# ============================================================
+# T56: qc stdin 非法 JSON → 降级不炸（statusline 宁可退化也不能空/挂住）
+# ============================================================
+new_box
+printf 'not json at all' \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q56" python3 "$QC_PAYLOAD" >"$BOX/q56.txt" 2>&1
+q56_rc=$?
+q56_lines=$(awk 'END{printf "%d", NR}' "$BOX/q56.txt")
+q56_body="$(<"$BOX/q56.txt")"
+if [[ $q56_rc -eq 0 && "$q56_lines" == "2" ]] \
+   && printf '%s' "$q56_body" | grep -qF "no-model" \
+   && printf '%s' "$q56_body" | grep -qF "| qc"; then
+    pass T56 "qc invalid JSON -> degrade to 2 lines, exit 0"
+else
+    fail T56 "rc=$q56_rc lines=$q56_lines body=[$q56_body]"
+fi
+
+# ============================================================
+# T57: qc WREN_DEBUG_DUMP 钩子落盘的即是 stdin 原始字节
+# ============================================================
+new_box
+Q57IN='{"cwd":"/tmp","model":{"display_name":"m"}}'
+printf '%s' "$Q57IN" \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q57" WREN_DEBUG_DUMP="$BOX/dump57.json" \
+    python3 "$QC_PAYLOAD" >/dev/null 2>&1
+if [[ -f "$BOX/dump57.json" ]] && printf '%s' "$Q57IN" | cmp -s - "$BOX/dump57.json"; then
+    pass T57 "qc WREN_DEBUG_DUMP captures raw stdin bytes"
+else
+    fail T57 "dump=[$(cat "$BOX/dump57.json" 2>/dev/null)]"
+fi
+
+# ============================================================
+# T58: qc ctx 回落链——原生缺失 → postTokens → 末次请求；CP 计数
+# ============================================================
+new_box
+cat >"$BOX/tr58.jsonl" <<'EOF2'
+{"type":"assistant","message":{"usage":{"input_tokens":1000,"output_tokens":100,"cache_read_input_tokens":3000,"cache_creation_input_tokens":1000}}}
+{"type":"system","subtype":"compact_boundary","isSidechain":false,"compactMetadata":{"trigger":"manual","postTokens":50000}}
+EOF2
+printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":200000},"transcript_path":"%s"}' "$BOX/tr58.jsonl" \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q58" python3 "$QC_PAYLOAD" >"$BOX/q58.txt" 2>&1
+q58="$(tail -1 "$BOX/q58.txt")"
+if printf '%s' "$q58" | grep -qF "CP1" \
+   && printf '%s' "$q58" | grep -qF "25.00%/200K"; then
+    pass T58 "qc ctx fallback chain: postTokens after compact_boundary; CP counted"
+else
+    fail T58 "l2=[$q58]"
+fi
+
+# ============================================================
+# T59: qc 行1 与 wren.py 跨实现同构（剥宿主徽标后逐字相同）
+# ============================================================
+new_box
+R59="$BOX/r59"; mkdir -p "$R59"
+(cd "$R59" && git -c init.defaultBranch=main init -q && git config user.email t@e.com && git config user.name t \
+    && printf 'a\n' >a.txt && git add -A && git commit -qm i >/dev/null 2>&1 \
+    && printf 'changed\n' >>a.txt && : >new.txt) >/dev/null 2>&1
+cc59=$(printf '{"cwd":"%s","model":{"display_name":"m"}}' "$R59" \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/c59" python3 "$CC_PAYLOAD" 2>/dev/null | head -1)
+qc59=$(printf '{"cwd":"%s","model":{"display_name":"m"}}' "$R59" \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q59" python3 "$QC_PAYLOAD" 2>/dev/null | head -1)
+cc59s="$(strip_tag "$cc59")"; qc59s="$(strip_tag "$qc59")"
+if [[ -n "$cc59s" && "$cc59s" == "$qc59s" ]] && printf '%s' "$cc59s" | grep -qF "main"; then
+    pass T59 "qc line1 identical to wren.py after badge strip ($cc59s)"
+else
+    fail T59 "cc=[$cc59s] qc=[$qc59s]"
+fi
+
+# ============================================================
+# T60: install qc → payload 副本（exec）+ statusLine 写绝对路径
+# ============================================================
+new_box
+printf '{"model":"m"}\n' >"$QODER_SETTINGS"
+run_wren install qc
+q60="$QODER/wren-qc.py"
+q60_cmd="$(json_field "$QODER_SETTINGS" 'd["statusLine"]["command"]')"
+q60_type="$(json_field "$QODER_SETTINGS" 'd["statusLine"]["type"]')"
+if [[ "$WREN_EXIT" == "0" && -f "$q60" && ! -L "$q60" ]] \
+   && cmp -s "$q60" "$QC_PAYLOAD" && [[ -x "$q60" ]] \
+   && [[ "$q60_cmd" == "$q60" && "$q60_type" == "command" ]]; then
+    pass T60 "install qc copies payload + writes absolute statusLine"
+else
+    fail T60 "exit=$WREN_EXIT cmd=[$q60_cmd] type=[$q60_type]"
+fi
+
+# ============================================================
+# T61: install qc 只动 qc 侧（cc/pi 目标与配置全不动）
+# ============================================================
+new_box
+printf '{"model":"opus"}\n' >"$SETTINGS"
+run_wren install qc
+if [[ "$WREN_EXIT" == "0" && -f "$QODER/wren-qc.py" ]] \
+   && [[ -z "$(ls -A "$BIN")" && -z "$(ls -A "$PIEXT")" ]] \
+   && [[ "$(json_field "$SETTINGS" 'd.get("statusLine")')" == "None" ]] \
+   && [[ ! -e "$SETTINGS.wren-bak" ]]; then
+    pass T61 "install qc only touches qc side"
+else
+    fail T61 "exit=$WREN_EXIT bin=[$(ls -A "$BIN")] piext=[$(ls -A "$PIEXT")] sl=[$(json_field "$SETTINGS" 'd.get("statusLine")')]"
+fi
+
+# ============================================================
+# T62: install qc → 键序保留 + 备份是安装前原始字节
+# ============================================================
+new_box
+printf '{\n  "model": "m",\n  "statusLine": { "type": "command", "command": "old-thing", "padding": 0 },\n  "env": {"A": "1"}\n}\n' >"$QODER_SETTINGS"
+run_wren install qc
+q62_keys="$(json_field "$QODER_SETTINGS" '"|".join(d.keys())')"
+q62_pad="$(json_field "$QODER_SETTINGS" 'd["statusLine"]["padding"]')"
+q62_env="$(json_field "$QODER_SETTINGS" 'd["env"]["A"]')"
+q62_bak="$QODER_SETTINGS.wren-bak"
+if [[ "$q62_keys" == "model|statusLine|env" && "$q62_pad" == "0" && "$q62_env" == "1" ]] \
+   && diff -q <(printf '{\n  "model": "m",\n  "statusLine": { "type": "command", "command": "old-thing", "padding": 0 },\n  "env": {"A": "1"}\n}\n') "$q62_bak" >/dev/null; then
+    pass T62 "qc install preserves keys/order and backs up original bytes"
+else
+    fail T62 "keys=[$q62_keys] pad=[$q62_pad] env=[$q62_env] bak=[$(cat "$q62_bak" 2>/dev/null)]"
+fi
+
+# ============================================================
+# T63: uninstall qc → 删 payload/statusLine/副产物，其他键保留
+# ============================================================
+new_box
+printf '{"model":"m","env":{"A":"1"}}\n' >"$QODER_SETTINGS"
+run_wren install qc
+: >"$QODER_SETTINGS.wren-tmp"
+run_wren uninstall qc
+q63_keys="$(json_field "$QODER_SETTINGS" '"|".join(d.keys())')"
+if [[ "$WREN_EXIT" == "0" ]] \
+   && [[ ! -e "$QODER/wren-qc.py" && ! -L "$QODER/wren-qc.py" ]] \
+   && [[ "$q63_keys" == "model|env" ]] \
+   && [[ ! -e "$QODER_SETTINGS.wren-bak" && ! -e "$QODER_SETTINGS.wren-tmp" ]]; then
+    pass T63 "uninstall qc removes payload/statusLine/sidecars, keeps rest"
+else
+    fail T63 "exit=$WREN_EXIT keys=[$q63_keys] qoder=[$(ls -A "$QODER")]"
+fi
+
+# ============================================================
+# T64: uninstall qc 遇 foreign statusLine → 不动，明说
+# ============================================================
+new_box
+run_wren install qc
+python3 - "$QODER_SETTINGS" <<'PY'
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d["statusLine"]["command"] = "someone-else"
+json.dump(d, open(p, "w"), indent=2)
+PY
+run_wren uninstall qc
+q64_cmd="$(json_field "$QODER_SETTINGS" 'd["statusLine"]["command"]')"
+if [[ "$WREN_EXIT" == "0" && "$q64_cmd" == "someone-else" ]] \
+   && [[ ! -e "$QODER/wren-qc.py" ]] \
+   && printf '%s' "$WREN_OUT" | grep -qi "left alone"; then
+    pass T64 "qc uninstall leaves a foreign statusLine alone (payload still ours, removed)"
+else
+    fail T64 "exit=$WREN_EXIT cmd=[$q64_cmd] out=[$WREN_OUT]"
+fi
+
+# ============================================================
+# T65: QODER_CONFIG_DIR 改道（不设 QODER_SETTINGS）→ 全部落新目录
+# ============================================================
+new_box
+QCFG="$BOX/qcfg"; mkdir -p "$QCFG"
+env NO_COLOR=1 PREFIX="$BIN" PI_EXT_DIR="$PIEXT" CLAUDE_SETTINGS="$SETTINGS" \
+    QODER_CONFIG_DIR="$QCFG" "$WREN" install qc >"$BOX/out.txt" 2>&1
+q65_rc=$?
+if [[ $q65_rc -eq 0 && -f "$QCFG/wren-qc.py" ]] \
+   && [[ "$(json_field "$QCFG/settings.json" 'd["statusLine"]["command"]')" == "$QCFG/wren-qc.py" ]] \
+   && [[ -z "$(ls -A "$QODER")" ]]; then
+    pass T65 "QODER_CONFIG_DIR honored; default dir untouched"
+else
+    fail T65 "rc=$q65_rc qcfg=[$(ls -A "$QCFG")] default=[$(ls -A "$QODER")]"
+fi
+
+# ============================================================
+# T66: install qoder 别名 = qc
+# ============================================================
+new_box
+run_wren install qoder
+if [[ "$WREN_EXIT" == "0" && -f "$QODER/wren-qc.py" ]] \
+   && [[ "$(json_field "$QODER_SETTINGS" 'd["statusLine"]["command"]')" == "$QODER/wren-qc.py" ]] \
+   && [[ -z "$(ls -A "$BIN")" && -z "$(ls -A "$PIEXT")" ]]; then
+    pass T66 "install qoder is an alias of qc"
+else
+    fail T66 "exit=$WREN_EXIT qoder=[$(ls -A "$QODER")]"
+fi
+
+# ============================================================
+# T67: qoder settings 非法 + install（all）→ 预检挡住，零副作用
+#（cc 配置合法、qc 非法：验证预检先行，不能装完 cc/pi 才发现 qc 写不进）
+# ============================================================
+new_box
+printf '{ bad json\n' >"$QODER_SETTINGS"
+printf '{"model":"opus"}\n' >"$SETTINGS"
+cp "$SETTINGS" "$BOX/before67"
+run_wren install
+if [[ "$WREN_EXIT" == "1" ]] \
+   && [[ -z "$(ls -A "$BIN")" && -z "$(ls -A "$PIEXT")" ]] \
+   && [[ ! -e "$QODER/wren-qc.py" ]] \
+   && diff -q "$BOX/before67" "$SETTINGS" >/dev/null \
+   && [[ ! -e "$SETTINGS.wren-bak" && ! -e "$QODER_SETTINGS.wren-bak" ]]; then
+    pass T67 "invalid qoder settings -> exit 1 before any install (pre-check gate)"
+else
+    fail T67 "exit=$WREN_EXIT bin=[$(ls -A "$BIN")] piext=[$(ls -A "$PIEXT")] qoder=[$(ls -A "$QODER")]"
+fi
+
+# ============================================================
+# T68: 目标父目录不存在且不可创建（只读祖先）→ 预检挡住，零副作用
+#（CR 轮 13 抓的缺口：check 只在 parent 已存在时探可写性，parent 缺失时放行，
+#  payload 先装、makedirs 失败后才 exit 1，留下半装状态。root 下 chmod 555 无效会 SKIP）
+# ============================================================
+if [[ "$(id -u)" == "0" ]]; then
+    skip T68 "running as root; read-only dir is not enforced"
+else
+    new_box
+    RO="$BOX/readonly"; mkdir -p "$RO"; chmod 555 "$RO"
+    printf '{"model":"opus"}\n' >"$SETTINGS"
+    cp "$SETTINGS" "$BOX/before68"
+    env NO_COLOR=1 PREFIX="$BIN" PI_EXT_DIR="$PIEXT" CLAUDE_SETTINGS="$SETTINGS" \
+        QODER_CONFIG_DIR="$RO/qoder/nested" "$WREN" install >"$BOX/out68.txt" 2>"$BOX/err68.txt"
+    E68=$?
+    if [[ "$E68" == "1" ]] \
+       && [[ -z "$(ls -A "$BIN")" && -z "$(ls -A "$PIEXT")" ]] \
+       && [[ ! -e "$RO/qoder" ]] \
+       && diff -q "$BOX/before68" "$SETTINGS" >/dev/null; then
+        pass T68 "uncreatable qoder parent -> exit 1, zero side effects"
+    else
+        fail T68 "exit=$E68 bin=[$(ls -A "$BIN")] piext=[$(ls -A "$PIEXT")] ro=[$(ls -A "$RO" 2>/dev/null)]"
+    fi
+    chmod 755 "$RO"
 fi
 
 # ---------- 汇总 ----------

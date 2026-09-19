@@ -13,13 +13,14 @@
 
 ## 隔离手段
 
-测试沙箱里三个目录 + 三个环境变量，**真实配置一个都不碰**：
+测试沙箱里四个目录 + 五个环境变量，**真实配置一个都不碰**：
 
 | 变量 | 指向 |
 |---|---|
 | `PREFIX` | `$BOX/bin` |
 | `PI_EXT_DIR` | `$BOX/piext` |
 | `CLAUDE_SETTINGS` | `$BOX/claude/settings.json` |
+| `QODER_CONFIG_DIR` / `QODER_SETTINGS` | `$BOX/qoder` 及其 `settings.json` |
 
 ## 测试用例
 
@@ -71,12 +72,35 @@
 | T44 | cc | 全 CJK 路径（全角算 2 格） | 行1 显示宽 ≤80 |
 | T45 | cc | 极端 CJK：长中文路径 + 长中文分支 + 10 脏文件，`NO_COLOR` 与 truecolor 各跑一次 | 两次整行显示宽均 ≤80 且剥色后逐字相同（**色档不得影响折叠**；末级截断按码点切会到 88） |
 | T46 | pi | 同一极端 CJK 场景跑 `wren.ts`（stub 宽度 80） | 行1 显示宽 ≤80（守宿主兜底 + 显示格切片同构） |
+| T47 | qc | 最小合成 payload（`cwd` + `model`）喂 `wren-qc.py` | 恰好 2 行；行1 `"/tmp \| qc"`；行2 `"↑0 ↓0 \| R0 \| Test-Model"`（无中生有的段一概不出现） |
+| T48 | qc | transcript 两条 assistant（Σin=3000 / Σout=400）+ 原生 `total_input_tokens=43138`（诱饵） | 行2 含 `↑3K ↓400`，不含 `↑43K` / `↓0`（原生字段是「最近一次请求」，不得当累计） |
+| T49 | qc | `used_percentage=22` 一次；缺失（只剩 `total_input_tokens=43138`）一次 | 前者 `22.00%/200K`；后者自算 `21.57%/200K` |
+| T50 | qc | transcript 末条 `input=26254, cache_read=24064`（qoder 口径：input 已含 cache） | 行2 含 `CH91.66%` 与 `R24K`，不含 CC 公式值 `CH47.82%` |
+| T51 | qc | 末条 `input=1000 < cache_read=3000, cache_creation=1000`（旧版不含 cache 的口径） | 自适应回退 CC 公式：`CH60.00%` |
+| T52 | qc | `cache_creation` 为对象形态（`ephemeral_5m/1h`）且 `input < cache_read` | 对象按 5m+1h 求和后走回退公式：`CH42.86%` |
+| T53 | qc | `cost.total_duration_ms=3900000` 一次；无 cost + transcript 首条时间戳在 9 分钟前一次 | 前者 `1h5m`；后者 `9m`（宿主目前不发送该字段，回退路径是常态） |
+| T54 | qc | transcript 含 `runtime-config`（`reasoningEffort=high`）一次；无该记录一次 | 前者行2 含 `Test-Model · high`；后者行2 恰为 `↑0 ↓0 \| R0 \| Test-Model`（真实 payload 无顶层思考字段） |
+| T55 | qc | 同一带 git 仓库 + CH + 思考等级的输入跑 truecolor / 256 / `NO_COLOR` | truecolor 含粉/青/灰/紫 `38;2;…` 码且无 256 码；256 含 `38;5;212/61/117/141`；`NO_COLOR` 无任何转义（与 T39/T40 同一张 Dracula 表） |
+| T56 | qc | stdin 喂非法 JSON | exit 0，仍出 2 行，模型名降级 `no-model`，行1 含 `\| qc` |
+| T57 | qc | 设 `WREN_DEBUG_DUMP` | dump 文件内容与 stdin 原始字节逐字相同（真实 payload 对齐钩子） |
+| T58 | qc | transcript：assistant 后跟 `compact_boundary`（`postTokens=50000`），原生 ctx 字段全缺 | 行2 含 `CP1` 与 `25.00%/200K`（ctx 回落链：native → postTokens → 末次请求） |
+| T59 | qc | 同一临时 git 仓库分别跑 `wren.py` 与 `wren-qc.py` | 行1 剥宿主徽标后逐字相同（跨实现同构守门，同 T32 思路） |
+| T60 | 安装 | `wren install qc` | `$QODER_CONFIG_DIR/wren-qc.py` 是普通文件、与 `wren-qc.py` 逐字节相同、带执行位；settings 的 `statusLine.command` == 该**绝对路径**、`type == command` |
+| T61 | 安装 | 预置 cc settings 后 `wren install qc` | 只动 qc 侧：`$PREFIX`/`$PI_EXT_DIR` 空、cc settings 无 `statusLine`、无 `.wren-bak` |
+| T62 | 安装 | qoder settings 预置 `model`/`statusLine.padding`/`env` | 顶层键序仍为 `model,statusLine,env`；`padding`/`env.A` 保留；`<settings>.wren-bak` == 安装前原始字节 |
+| T63 | 卸载 | install qc 后手工放 `.wren-tmp` 再 `wren uninstall qc` | payload 删、`statusLine` 键删（剩 `model,env`）、`.wren-bak`/`.wren-tmp` 清掉 |
+| T64 | 卸载 | install 后把 `statusLine.command` 改成 `someone-else` 再 uninstall qc | 该键原样保留 + stdout 含 `left alone`；自己的 payload 仍被删 |
+| T65 | 安装 | 只设 `QODER_CONFIG_DIR=$BOX/qcfg`（不设 `QODER_SETTINGS`）后 `install qc` | payload/`settings.json` 全落 `$BOX/qcfg`；默认 `$BOX/qoder` 目录未被碰 |
+| T66 | 安装 | `wren install qoder` | 等价于 `qc`（别名） |
+| T67 | 安装 | cc settings 合法、qoder settings 非法 JSON，跑 `wren install`（all） | exit 1；`$PREFIX`/`$PI_EXT_DIR`/qoder 目录均无 payload、两份 settings 均无 `.wren-bak`、cc settings 字节未变（**预检先行守门**） |
+| T68 | 安装 | `QODER_CONFIG_DIR` 指向只读目录下的不存在路径（父目录不可创建），跑 `install`（all） | exit 1；`$PREFIX`/`$PI_EXT_DIR` 均空、目标目录未被创建、cc settings 字节未变（**半装缺口守门**：check 探针需向上找存在祖先） |
 
 ## 条件用例（不满足条件时 SKIP，不算 FAIL）
 
 | ID | 跳过条件 |
 |---|---|
 | T24 | 以 root 运行时文件权限不生效（`chmod 555` 仍可写） |
+| T68 | 同上（依赖 chmod 555 生效） |
 | T27-T32、T38、T40、T43、T46 | 无 `node`，或 `node` 不支持直接执行 `.ts`（Node 22.6+ 的 type stripping） |
 
 其余用例只依赖 bash / python3 / coreutils，且全程在用户态临时目录作业。
@@ -105,6 +129,12 @@
   Linux 与自定义 HOME 下都不折叠，会在这里失败。
 - **T31 是 pi 侧 CH 位数的守门用例**：必须两位小数，与 `wren.py` 对齐。pi 内置 footer 是一位，
   所以这条同样守的是「有意不跟上游」。
+- **T48-T52 是 qc 侧数据源口径的守门用例**：↑in/↓out 必须取 transcript 累计：qoder 原生 `total_input_tokens`
+  是「最近一次请求」的上下文占用（官方文档注明 NOT a session total），`total_output_tokens` 宿主从不发送；
+  CH 必须按「input 已含 cache」的 qoder 口径 `cr/in`，仅当 `input < cache_read`（旧版口径）才回退 CC 公式。
+  这些结论来自对 qodercli 1.1.57 二进制内嵌 payload 文档/构造器的静态核对与真实会话抓包。
+- **T67 是 qc 侧「零副作用、不留半装状态」的守门用例**：前置校验对所有要写配置的宿主先行，
+  任一 settings 读不懂/写不进就一个 payload 都不装（与 T11/T12/T24 同强度，针对 `all` 含 qc 后的新顺序）。
 - settings.json 的断言一律走 `json_field`（`python3 -c` 读 JSON），不靠 grep 文本，避免缩进/换行变动导致误判。
 
 ## 测试脚本结构
