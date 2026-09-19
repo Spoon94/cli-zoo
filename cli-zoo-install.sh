@@ -2,14 +2,16 @@
 # cli-zoo-install.sh - 安装 cli-zoo 提供的工具到 $PREFIX (默认 /usr/local/bin)。
 #
 # 用法: ./cli-zoo-install.sh <tool>
-# 当前支持的 tool: otter
+# 当前支持的 tool: otter wren
+#
+# wren 装的是一个安装器；两个宿主的接线由 `wren install` 自己完成。
 
 set -u
 
 usage() {
     cat <<'EOF'
 Usage: ./cli-zoo-install.sh <tool>
-Supported tools: otter
+Supported tools: otter wren
 
 Environment:
   PREFIX  install destination directory (default: /usr/local/bin)
@@ -35,6 +37,11 @@ main() {
         otter)
             src="$repo_root/zoo-scripts/otter"
             target="$prefix/otter"
+            ;;
+        wren)
+            # 工具是多文件目录，入口脚本在里面
+            src="$repo_root/zoo-scripts/wren/wren"
+            target="$prefix/wren"
             ;;
         -h|--help)
             usage

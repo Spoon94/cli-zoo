@@ -2,14 +2,16 @@
 # cli-zoo-uninstall.sh - 从 $PREFIX (默认 /usr/local/bin) 卸载 cli-zoo 工具。
 #
 # 用法: ./cli-zoo-uninstall.sh <tool>
-# 当前支持的 tool: otter
+# 当前支持的 tool: otter wren
+#
+# 注意：这里只摘掉 $PREFIX/wren 本身。两个宿主上的接线请先跑 `wren uninstall`。
 
 set -u
 
 usage() {
     cat <<'EOF'
 Usage: ./cli-zoo-uninstall.sh <tool>
-Supported tools: otter
+Supported tools: otter wren
 
 Environment:
   PREFIX  install destination directory (default: /usr/local/bin)
@@ -31,8 +33,8 @@ main() {
     prefix="${PREFIX:-/usr/local/bin}"
 
     case "$tool" in
-        otter)
-            target="$prefix/otter"
+        otter|wren)
+            target="$prefix/$tool"
             ;;
         -h|--help)
             usage
