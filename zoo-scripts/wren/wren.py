@@ -14,6 +14,7 @@ import json
 import os
 import subprocess
 import sys
+import unicodedata
 from pathlib import Path
 
 CACHE_DIR = Path(os.getenv("WREN_CACHE_DIR") or (Path.home() / ".cache" / "wren"))
@@ -84,11 +85,20 @@ def fmt_duration(ms):
     return f"{h}h{(s % 3600)//60}m" if h > 0 else f"{s//60}m"
 
 
+def dwidth(s):
+    """显示宽度：CJK 全角字符占 2 格（与 pi 侧 visibleWidth 口径一致）。
+    只用于折叠预算的计算，不影响输出内容。"""
+    w = 0
+    for ch in s:
+        w += 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+    return w
+
+
 def fold_path(p, budget):
     """路径折叠：给定预算逐级降级（头2+尾2 → 头1+尾2 → 尾2 → 尾1），末级对尾段字符截断。
     触发按总长，不设段数门槛（CR 轮 9：'段少但段长'的路径在段数门槛下完全不折）。
     返回值保证 len ≤ budget（除非单段本身超预算，那也硬截到预算）。"""
-    if len(p) <= budget:
+    if dwidth(p) <= budget:
         return p
     segs = p.split("/")
     cands = [
@@ -98,11 +108,11 @@ def fold_path(p, budget):
         "…/" + segs[-1],
     ]
     for cand in cands:
-        if len(cand) <= budget:
+        if dwidth(cand) <= budget:
             return cand
     # 最后一档仍超：对尾段做字符截断
     last = "…/" + segs[-1]
-    if len(last) <= budget:
+    if dwidth(last) <= budget:
         return last
     keep = budget - 2  # "…" + 至少1字符
     if keep < 1:
@@ -114,7 +124,7 @@ def fold_branch(b, max_len=24):
     """分支折叠：超长截中段，尾重头轻（head 8 / tail 15）。
     CR 轮 9：50/50 等分时头部大半被 feature/ 这类前缀占掉、有效信息只剩几个字符；
     ticket 号在 slug 前的情况（PROJ-1234-add-xxx）任何截法都会丢，不做启发式。"""
-    if len(b) <= max_len:
+    if dwidth(b) <= max_len:
         return b
     return b[:8] + "…" + b[-15:]
 
@@ -328,8 +338,15 @@ def main():
         term_w = int(os.environ.get("COLUMNS") or 80)
     except ValueError:
         term_w = 80
-    # 行1 固定开销：git 段 + herdr + 徽标 + 分隔符的可见宽，粗算 40（含裕量）
-    path_budget = max(16, term_w - 40)
+    # 行1 预算 = 终端宽 − 其余段的真实可见宽（CR 轮 10：固定 40 在
+    # 长分支+多脏文件+herdr 场景下不够，整行可到 88 > 80，徽标被宿主截掉）
+    rest = 0
+    if branch:
+        rest += dwidth(f" | {fold_branch(branch, 24)}{ab}{dmg}")
+    if herdr_tag:
+        rest += dwidth(f" | {herdr_tag}")
+    rest += dwidth(" | cc")
+    path_budget = max(16, term_w - rest)
     display_cwd = fold_path(short_cwd, path_budget)
     line1 = (c("comment", display_cwd)
              + (f" {c('comment', '|')} {colored_git}" if colored_git else "")

@@ -1,5 +1,5 @@
 # wren 测试结果
-执行时间：2026-09-19 17:09:33
+执行时间：2026-09-19 17:36:44
 
 | ID | 状态 | 备注 |
 |----|------|------|
@@ -46,5 +46,6 @@
 | T41 | PASS | CH survives compaction (old value, pi-aligned) |
 | T42 | PASS | cc folding: path=…/with-a-long-name-that-will-overflow branch=feature/…esting-overflow |
 | T43 | PASS | pi branch folding (feature/…esting-overflow) |
+| T44 | PASS | CJK path display width 61 <= 80 |
 
-汇总：Total 43 / Pass 43 / Fail 0 / Skip 0
+汇总：Total 44 / Pass 44 / Fail 0 / Skip 0

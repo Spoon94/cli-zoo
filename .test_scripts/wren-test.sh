@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# wren-test.sh - 自动运行 .test_task/wren-test.md 中的 43 个用例。
+# wren-test.sh - 自动运行 .test_task/wren-test.md 中的 44 个用例。
 #
 # 用法: bash .test_scripts/wren-test.sh
 # 写出: .test_res/wren-test-res.md
@@ -1003,6 +1003,25 @@ else
     else
         fail T43 "line=[$pi43] branch=[$pi_branch]"
     fi
+fi
+
+# ============================================================
+# T44: CJK 路径的显示宽度（全角算 2 格，CR 轮 10 的宽度口径缺口）
+# ============================================================
+new_box
+CJK44="$BOX/这是一个很长的中文目录名称用来测试显示宽度/子目录"
+mkdir -p "$CJK44"
+cc44=$(COLUMNS=80 printf '{"cwd":"%s","model":{"display_name":"m"}}' "$CJK44" \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/c44" python3 "$CC_PAYLOAD" 2>/dev/null | head -1)
+w44=$(python3 -c "
+import sys, unicodedata
+line = sys.argv[1]
+print(sum(2 if unicodedata.east_asian_width(c) in ('W','F') else 1 for c in line))
+" "$cc44")
+if [[ -n "$cc44" ]] && [[ "$w44" -le 80 ]]; then
+    pass T44 "CJK path display width $w44 <= 80"
+else
+    fail T44 "display width=$w44 line=[$cc44]"
 fi
 
 # ---------- 汇总 ----------

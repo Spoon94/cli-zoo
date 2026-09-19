@@ -72,11 +72,10 @@ otter -h                         # 帮助
 - **软依赖降级**：`yazi` / `nvim` / `lazygit` 缺失或非 git 仓库时跳过对应步骤，主流程不报错。
 - **测试钩子**：`OTTER_NO_ATTACH=1` 跳过 `tmux attach`，方便自动化。
 
-详细设计见 [`.ai_task/otter/otter-brainstorm.md`](./.ai_task/otter/otter-brainstorm.md)。
 
 ### [wren](./zoo-scripts/wren)
 
-把 **statusline**（两行版）接到 Claude Code 与 pi 两个宿主上的安装器。鹪鹩般体量极小却持续输出。
+把两行 statusline 装到 Claude Code 与 pi 两个宿主上的安装器。
 
 `wren` 自己不实现 statusline，它负责把同目录下两个 payload **拷到**目标位置（装的是副本，不是指回仓库的软链，装完不依赖本仓库还在原处）：
 
@@ -103,15 +102,15 @@ wren -h                          # 帮助
 ↑12K ↓3K | R1.2M CH57.14% CP2 | 8.40%/200K | claude-opus-5 · high · 1h5m
 ```
 
-（Dracula 配色：cwd/herdr/CP/徽标灰、分支紫、`+`绿 `~`红 `✱`黄、token 白、CH/思考青、模型粉、ctx% 三档变色——见下方「Dracula 主题」。上图为 SVG 示意，真实终端渲染效果更佳。）
+（Dracula 配色：cwd/herdr/CP/徽标灰、分支紫、`+`绿 `~`红 `✱`黄、token 白、CH/思考青、模型粉、ctx% 三档变色。详见下方「Dracula 主题」。上图为示意图，真实终端效果更好。）
 
 | 行 | 内容 |
 |----|------|
 | 行 1 | cwd（`$HOME` 折为 `~`）+ git（分支 / `↑ahead↓behind` / `+增 ~删 ✱改`）+ herdr 位置（`ws:tab:pane`，仅环境变量存在时） |
 | 行 2 | 累计 token（`↑in ↓out`）+ 缓存（`R` 读取量、`CH` 命中率、`CP` 压缩次数）+ 上下文占用（`百分比/窗口`）+ 模型名 · 思考等级 · 时长 |
 
-> **两份 payload 布局同构**（同一段格式、同一套折叠规则、同一个色板）。仅存的语义差异
-> 来自宿主本身（statusline 与 TUI footer 的数据源不同）：
+> 两份 payload 布局同构，段格式、折叠规则、色板都一致。剩下几处差异来自宿主本身
+> （statusline 与 TUI footer 拿数据的路子不同）：
 
 | 位置 | `wren.py`（Claude Code） | `wren.ts`（pi） |
 |------|------|------|
@@ -120,28 +119,28 @@ wren -h                          # 帮助
 | ctx% | 按 `input + cache_read + cache_creation` 自算（与 CC 官方 `used_percentage` 同式） | 取 `ctx.getContextUsage()`（pi 的定义含 output，压缩后显示 `?`） |
 | CH 数据源 | `current_usage` 优先，回退 transcript 末条 assistant | `sessionManager` 末条 assistant |
 
-CH 公式两侧一致：`cacheRead / (input + cacheRead + cacheWrite)`，两位小数，压缩后显示旧值不消失
-（与 pi 内置 footer 的压缩后语义一致）。注：`ccstatusline` 用的是另一种口径
-`read / (read + creation)`（只看缓存内部转换率，分母不含 input），属定义差异非对错，此处取 pi 式。
+CH 公式两侧一致，都是 `cacheRead / (input + cacheRead + cacheWrite)`，两位小数，压缩后显示旧值
+不消失，这点跟 pi 内置 footer 一样。`ccstatusline` 用的是另一个口径
+`read / (read + creation)`，只看缓存内部转换率、分母不含 input，属定义差异不是对错，我们取 pi 式。
 
 装完在 pi 里用 `/footer` 切换自定义 footer。
 
-特性：
+### 安装器行为
 
-- **改配置前先校验**：`settings.json` 解析失败、或所在目录不可写，都在产生任何副作用**之前** exit 1，绝不覆盖读不懂的配置、也不留装到一半的状态。
-- **只动自己那一个键**：合并写入 `statusLine`，其余键与其顺序原样保留；已有 `statusLine` 是对象时往里合并，不整个替换。
-- **自动备份**：首次安装把原文件留底到 `<settings>.wren-bak`，重复安装不覆盖，保住 wren 介入前的原始状态。
-- **原子落盘**：写 `.wren-tmp` 再 `os.replace`。
-- **卸载只删自己的东西**：目标链接不是指向本工具 payload 的、`statusLine` 不指向 `wren-cc` 的，一律只提示 `left alone`，不动。
-- **幂等**：install / uninstall 重复执行都退出 0。
-- **可分侧安装**：`install cc` / `install pi` 只动一侧；只装 pi 时不需要 python3。
-- **重复加载告警**：`$PI_EXT_DIR` 里若还留着旧的手工副本 `odo.ts`，会提示 pi 会把两个 footer 都装上（不擅自删你的文件）。
-- **装的是副本**：`wren-cc` 与 `wren.ts` 都是 payload 的实际副本（`wren-cc` 带可执行位），仓库被移走/删掉也不影响已装好的东西；重复 `install` 覆盖为最新副本。
-- **覆盖外来文件会出声**：目标位置已有内容不同的同名文件（含软链，解引用后比较）时，先告警再覆盖，不默默抹掉。
-- **入口软链可回溯**：`wren` 自己经 `cli-zoo-install.sh` 软链到 `$PREFIX` 后，仍能定位同目录的 payload。
-- **宿主徽标**：行 1 尾部 ` | cc` / ` | pi`（灰），同屏多 agent 一眼区分；硬编码无开关。
-- **Dracula 主题**：见下方专节；`NO_COLOR` 必认。
-- **长路径/长分支折叠**：预算驱动，`len ≤ budget` 为不变量，行尾徽标永远保住（见「有意修改」清单末条）。
+改配置之前会先校验。`settings.json` 解析失败、或它所在目录不可写，都在产生任何副作用之前 exit 1。
+写入时只动 `statusLine` 一个键，其余键和它们的顺序原样保留，已有 `statusLine` 是对象时往里合并。
+首次安装把原文件留底到 `<settings>.wren-bak`，重复安装不覆盖。落盘是写 `.wren-tmp` 再 `os.replace`。
+
+卸载只删自己的东西。目标链接不是指向本工具 payload 的、`statusLine` 不指向 `wren-cc` 的，只提示
+`left alone` 不动。`install` 和 `uninstall` 重复执行都退出 0。
+
+`install cc` 与 `install pi` 各只动一侧，只装 pi 时不需要 python3。装机前若目标位置已有内容不同的
+同名文件（含软链，解引用后比较），先告警再覆盖。`$PI_EXT_DIR` 里若还留着旧的手工副本 `odo.ts`，
+会提示 pi 会把两个 footer 都装上，不会替你删。
+
+`wren` 自己经 `cli-zoo-install.sh` 软链到 `$PREFIX` 后，仍能定位同目录的 payload。行 1 尾部有一个
+灰字宿主徽标 ` | cc` 或 ` | pi`，同屏开多个 agent 时一眼能区分。长路径和长分支按预算折叠，规则见
+下方「有意修改」末条。
 
 环境变量：
 
@@ -154,21 +153,21 @@ CH 公式两侧一致：`cacheRead / (input + cacheRead + cacheWrite)`，两位�
 
 退出码：`0` 成功 / `1` 写入失败 / `2` 参数错误 / `3` 依赖缺失（python3 或 payload）。
 
-`wren.ts` 相对 pi 上游有几处**有意修改**（`wren.py` 未改），每处都先做了调研并配了守门用例：
+`wren.ts` 相对 pi 上游做了这几处修改（`wren.py` 未改），括号里是对应的守门用例：
 
 - **`fmt` 补 1000K 守卫**：`999_500~999_999` 显示 `1.0M`。pi 内置的 `formatTokens` 上游同样会渲染 `1000k`，
   `ccstatusline` 与 `wren.py` 都守这条，这里有意不跟上游（T28）。
 - **ctx% 改用 `ctx.getContextUsage()`**：不再手算。手算会漏 `cacheWrite`，且压缩后会把压缩前的旧值一直挂着
-  —— 改用权威 API 后，压缩后暂不可知时显示 `?`（T29）。
+  改用权威 API 后，压缩后暂不可知时显示 `?`（T29）。
 - **家目录折叠改用 `os.homedir()`**：原来的 `/Users/...` 硬编码在 Linux 与自定义 `HOME` 下不生效（T30）。
 - **`CH` 改两位小数**：与 `wren.py` 对齐（pi 内置 footer 是一位）（T31）。
 - **git 段改为与 `wren.py` 同一套解析**：一次 `git status --porcelain=v2 --branch` 全拿分支 / ahead-behind / 增删改，
   渲染 `↑a↓b +增 ~删 ✱改`。旧的 `⇡a⇣b` 与「porcelain 行数当脏文件数」都不分类、还混进重命名，
   且要跑三次 git 子进程（T32 做跨实现比对）。
 - **detached HEAD 判定改由 porcelain 的 `# branch.head` 推导**（`(` 开头即无分支），
-  不用 `getGitBranch()` 的返回值——pi 对真 detached 与名为 `detached` 的真分支返回同一字符串，无法区分（T38）。
+  不用 `getGitBranch()` 的返回值：pi 对真 detached 与名为 `detached` 的真分支返回同一字符串，无法区分（T38）。
 - **CH 无缓存不显示、压缩后显示旧值**：与 `wren.py` 统一（T41）。
-- **行内布局**：删掉右对齐/pad，`·` 分隔，thinking 缺省不显示——与 `wren.py` 逐字同构（用户要求样式一致）。
+- **行内布局**：删掉右对齐/pad，`·` 分隔，thinking 缺省不显示，与 `wren.py` 逐字同构。
 - **长目录/长分支折叠**：预算驱动（宽度−40），逐级降级（头2尾2 → 头1尾2 → 尾2 → 尾1 → 尾段字符截断），
   保证 `len ≤ budget`；分支 >24 折叠为头 8 + `…` + 尾 15。宽度来源分宿主：pi 用 `render(width)`，
   CC 用 `COLUMNS` 有则用、无则 80 兜底（T42/T43）。
@@ -185,7 +184,7 @@ CH 公式两侧一致：`cacheRead / (input + cacheRead + cacheWrite)`，两位�
 | token / 时长 | 前景白 | `#f8f8f2` |
 | CH / 思考等级 | 青 | `#8be9fd` |
 | 模型名 | 粉 | `#ff79c6` |
-| ctx% | 三档：绿 ≤70 / 黄 >70 / 红 >90（pi 内置语义，突变不渐变） | |
+| ctx% | 绿 ≤70、黄 70<p≤90、红 >90 | 三档突变，pi 内置语义；不做渐变 |
 
 降级与开关：
 
@@ -196,9 +195,8 @@ CH 公式两侧一致：`cacheRead / (input + cacheRead + cacheWrite)`，两位�
 - 两档色值都离线预计算硬编码（256 档按 pi 宿主的 `rgbTo256` 算法算好，两侧同一张表）。
 - **假定深色终端底色**：Dracula 为暗底设计（白底下黄/前景/绿/青的 WCAG 对比度 <1.5:1 基本不可读），
   光背景需求请用官方 Alucard 色板，此处不支持。
-- 已知降级：tmux 默认不透传 `COLORTERM`，tmux 内 CC 侧会落在 256 色档——预期行为。
+- 已知降级：tmux 默认不透传 `COLORTERM`，tmux 内 CC 侧会落在 256 色档，属预期行为。
 
-详细设计见 [`.ai_task/wren/wren-brainstorm.md`](./.ai_task/wren/wren-brainstorm.md)。
 
 ## 安装方式
 
@@ -240,30 +238,30 @@ wren uninstall              # 拆掉两个宿主的接线
 
 ## 测试
 
-每个工具的测试用例放在 [`.test_task/`](./.test_task)、可执行测试脚本放在 [`.test_scripts/`](./.test_scripts)、运行结果写入 [`.test_res/`](./.test_res)。
+每个工具配一套 shell 测试，跑在临时沙箱里，结果写入 `<tool>-test-res.md`。
 
 | 工具 | 用例数 | 运行 |
 |------|--------|------|
 | `otter` | 25 | `bash .test_scripts/otter-test.sh` |
-| `wren` | 43 | `bash .test_scripts/wren-test.sh` |
+| `wren` | 44 | `bash .test_scripts/wren-test.sh` |
 
 输出格式：
 
 ```
 PASS T01 ...
 ...
-Total: 43  Pass: 43  Fail: 0  Skip: 0
+Total: 44  Pass: 44  Fail: 0  Skip: 0
 ```
 
-任一 FAIL → 退出码 1，结果文件 `.test_res/<tool>-test-res.md` 会被覆盖写。
+任一 FAIL → 退出码 1，结果文件 `<tool>-test-res.md` 会被覆盖写。
 
-`wren` 的测试全程在 `mktemp -d` 沙箱里作业：`PREFIX` / `PI_EXT_DIR` / `CLAUDE_SETTINGS` 三个变量把安装目标全部改道，真实的 `/usr/local/bin`、`~/.pi`、`~/.claude` 一个都不碰。T27-T32、T38-T43 还会 stub 掉 `@earendil-works/pi-tui`，用 fixture 驱动 `wren.ts` 的 footer 真实渲染；缺 node（或 node 不支持直接执行 `.ts`）时这几条整体 SKIP。
+`wren` 的测试全程在 `mktemp -d` 沙箱里作业：`PREFIX` / `PI_EXT_DIR` / `CLAUDE_SETTINGS` 三个变量把安装目标全部改道，真实的 `/usr/local/bin`、`~/.pi`、`~/.claude` 一个都不碰。T27-T32、T38-T44 还会 stub 掉 `@earendil-works/pi-tui`，用 fixture 驱动 `wren.ts` 的 footer 真实渲染；缺 node（或 node 不支持直接执行 `.ts`）时这几条整体 SKIP。
 
 ## 贡献
 
 欢迎 PR 和 Issue：
 
-- 新增工具：把脚本放到 `zoo-scripts/`，在本 README "工具列表" 中追加一节，并配套补齐 `cli-zoo-install.sh` / `cli-zoo-uninstall.sh` 的 `case` 分支与测试用例。
+- 新增工具：把脚本放到 `zoo-scripts/`，在本 README「工具列表」中追加一节，并配套补齐 `cli-zoo-install.sh` / `cli-zoo-uninstall.sh` 的 `case` 分支与测试用例。
 - 修复/改进现有工具：建议先在 Issue 中讨论后再提 PR。
 - 提交规范：建议遵循 [Conventional Commits](https://www.conventionalcommits.org/)。
 
