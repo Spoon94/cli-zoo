@@ -25,7 +25,7 @@ payload 文档 + 构造器静态核对 + 真会话抓包，由 T48-T58 守门）
 | 位置 | 来源 |
 |------|------|
 | cwd | `workspace.current_dir` 优先，回退 `cwd` |
-| ↑in/↓out | transcript 累计。原生 `context_window.total_input_tokens` 是「最近一次请求」的上下文占用（官方文档注明 NOT a session total），`total_output_tokens` 宿主从不发送，都不能当累计 |
+| ↑in/↓out | transcript 累计。原生 `context_window.total_input_tokens` 是「最近一次请求」的上下文占用（官方文档注明 NOT a session total），`total_output_tokens` 宿主从不发送（1.1.57：调用方不填该字段），都不能当累计 |
 | ctx% | 原生 `used_percentage`（整数）优先；缺失回落 `total_input_tokens`（= 当前占用）→ `postTokens` → transcript 末次请求 |
 | CH | qoder 的 `usage.input_tokens` 已含 cache → `cacheRead / input`；仅当 `input < cache_read`（旧版口径）回退 cc 公式；`cache_creation` 可能是对象（`ephemeral_5m/1h` 求和） |
 | 时长 | `cost.total_duration_ms`（宿主目前不发送）→ 回落 transcript 首条时间戳 |
