@@ -4,7 +4,7 @@
 
 ## 宿主差异（cc / pi / qc）
 
-三份 payload 布局同构，段格式、折叠规则、色板都一致。剩下几处差异来自宿主本身
+三份 payload 布局同构，段格式、折叠规则、色板都一致（qc 的差异拆到下方小节）。剩下几处差异来自宿主本身
 （statusline 与 TUI footer 拿数据的路子不同）：
 
 | 位置 | `wren.py`（Claude Code） | `wren.ts`（pi） |
@@ -19,7 +19,7 @@ CH 公式 cc/pi 两侧一致，都是 `cacheRead / (input + cacheRead + cacheWri
 
 ### qc（Qoder CLI）侧数据源
 
-`wren-qc.py` 与上表两侧同构，差异全部在数据源（结论来自 qodercli 1.1.57 二进制内嵌
+`wren-qc.py` 与上两列同构，差异主要在数据源（结论来自 qodercli 1.1.57 二进制内嵌
 payload 文档 + 构造器静态核对 + 真会话抓包，由 T48-T58 守门）：
 
 | 位置 | 来源 |
@@ -29,12 +29,15 @@ payload 文档 + 构造器静态核对 + 真会话抓包，由 T48-T58 守门）
 | ctx% | 原生 `used_percentage`（整数）优先；缺失回落 `total_input_tokens`（= 当前占用）→ `postTokens` → transcript 末次请求 |
 | CH | qoder 的 `usage.input_tokens` 已含 cache → `cacheRead / input`；仅当 `input < cache_read`（旧版口径）回退 cc 公式；`cache_creation` 可能是对象（`ephemeral_5m/1h` 求和） |
 | 时长 | `cost.total_duration_ms`（宿主目前不发送）→ 回落 transcript 首条时间戳 |
-| 思考等级 | transcript 的 `runtime-config` 记录（真实 payload 无顶层字段，顶层 / `model.preferences` 路径仅作兼容保留） |
+| 思考等级 | `model.preferences[id].reasoning.effort` ＞ 顶层字段 ＞ transcript 的 `runtime-config` 记录（真实 payload 通常只命中第三级） |
 
 渲染差异一则：qoder 对 statusline 输出按 span 逐段重断言 `\x1b[2m`（Ink dimColor），
-同色板观感比 cc/pi 偏暗，属宿主样式，脚本内补偿 `\x1b[22m` 无效。
+同色板观感比 cc/pi 偏暗，属宿主样式。
 
-调试钩子：`WREN_DEBUG_DUMP=<path>` 把 stdin 原始 payload 落盘，用于未来 schema 变化时对齐。
+另有三处降级/工具行为差异：`WREN_DEBUG_DUMP` 写 stdin 原始字节（cc 侧重排 JSON）；
+非法 JSON 走空对象降级出两行（cc 侧只出裸 cwd）；模型名去 `" Model"` 后缀归一化。
+
+调试钩子：`WREN_DEBUG_DUMP=<path>` 把 stdin 原始字节落盘（qc 侧；cc 侧同名变量写重排后的 JSON），用于未来 schema 变化时对齐。
 
 ## 安装器行为
 

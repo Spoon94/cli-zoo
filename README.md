@@ -74,7 +74,7 @@ wren -h                          # 帮助
 ↑12K ↓3K | R1.2M CH57.14% CP2 | 8.40%/200K | claude-opus-5 · high · 1h5m
 ```
 
-qc 侧同构，仅数据源不同（真会话实测样例）：
+qc 侧同构，仅数据源不同（另一 workspace 的真会话实测样例，故分支与 pane 编号不同）：
 
 ```
 ~/Code/cli-zoo | feat/x ↑0↓0 | wW:t1:p2 | qc
@@ -104,7 +104,7 @@ qc 侧同构，仅数据源不同（真会话实测样例）：
 **wren 卸载要先拆线再卸本体**，否则会留下 `$PREFIX/wren-cc`、两份 `settings.json` 里的 `statusLine`、pi 扩展目录里的 `wren.ts`、以及 `$QODER_CONFIG_DIR/wren-qc.py`：
 
 ```bash
-wren uninstall              # 拆掉两个宿主的接线
+wren uninstall              # 拆掉三个宿主的接线
 ./cli-zoo-uninstall.sh wren # 再摘掉 wren 本体
 ```
 

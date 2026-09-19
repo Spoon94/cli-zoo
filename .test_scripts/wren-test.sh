@@ -1177,7 +1177,7 @@ printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$BO
 q50="$(tail -1 "$BOX/q50.txt")"
 if printf '%s' "$q50" | grep -qF "CH91.66%" \
    && printf '%s' "$q50" | grep -qF "R24K" \
-   && ! printf '%s' "$q50" | grep -qF "CH47.81%"; then
+   && ! printf '%s' "$q50" | grep -qF "CH47.82%"; then
     pass T50 "qc CH = cache_read/input_tokens (qoder input already includes cache)"
 else
     fail T50 "l2=[$q50]"
