@@ -157,12 +157,14 @@ export default function (pi: ExtensionAPI) {
 					// 分支有无由 porcelain 的 # branch.head 判断（"(" 开头 = detached = 无分支），
 					// 与 wren.py 完全同规则；getGitBranch() 只提供显示名与 onBranchChange 响应性
 					const hasBranch = !!branch && git.head !== "" && !git.head.startsWith("(");
-					// 路径折叠的预算：按"目录 + 分支段 + git 段 + herdr 段"的可见宽算
-					const gitSuffix = git.repo && hasBranch ? `${git.ab}${git.counts}` : "";
-					const branchSuffix = hasBranch ? ` | ${branch}` : "";
 					// 路径折叠：预算驱动逐级降级（与 wren.py 的 fold_path 同规则）。
-					// 预算 = render width − 行1其余段可见宽 − 分隔符裕量
-					const maxPath = Math.max(16, width - 40);
+					// 行1 预算 = render width − 其余段真实可见宽（CR 轮 10：固定 −40
+					// 在长分支+多脏文件+herdr 场景不够，整行可 88 > 80、徽标被截）
+					const rest =
+						(hasBranch ? visibleWidth(` | ${foldBranch(branch)}${git.ab}${git.counts}`) : 0) +
+						(herdrTag ? visibleWidth(` | ${herdrTag}`) : 0) +
+						visibleWidth(" | pi");
+					const maxPath = Math.max(16, width - rest);
 					const segs = cwd.split("/");
 					let displayPath = cwd;
 					if (visibleWidth(cwd) > maxPath) {
