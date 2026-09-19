@@ -7,7 +7,7 @@
 | 依赖 | 用在哪 | 检查 |
 |------|--------|------|
 | bash | 安装脚本、测试 | `command -v bash` |
-| python3 | wren 的 CC 侧 payload（`wren.py`）、wren 测试的 JSON 断言 | `command -v python3` |
+| python3 | wren 的 python payload（`wren.py` / `wren-qc.py`）、wren 测试的 JSON 断言 | `command -v python3` |
 | claude | otter 测试 T06+ 前置检查（缺则 otter 测试 exit 2） | `command -v claude` |
 | git | otter 布局里的 lazygit window、wren 的 statusline git 段 | `command -v git` |
 | node ≥ 22.18（或 23.6） | 仅 wren 测试的 T27-T32/T38/T40/T43/T46（需不带 flag 直接执行 `.ts` 的版本；22.6-22.17 要显式 flag，probe 不加，会 SKIP）；wren 运行本身不需要 | `node -v`（缺时测试 SKIP，不算 FAIL） |
@@ -33,13 +33,15 @@ wren install            # 两个宿主都装；或 wren install cc / wren instal
 
 该步会写 `$CLAUDE_SETTINGS` 的 `statusLine` 键（只动这一个键，首次自动备份到 `<settings>.wren-bak`），并把 payload 拷到 `$PREFIX/wren-cc` 与 `$PI_EXT_DIR/wren.ts`。目录默认 `$HOME/.claude` 与 `$HOME/.pi/agent/extensions`，可用 `CLAUDE_CONFIG_DIR` / `CLAUDE_SETTINGS` / `PI_EXT_DIR` 改道。
 
+qc（Qoder CLI）侧暂无 `wren install` 目标，手动接线：拷 `zoo-scripts/wren/wren-qc.py` 到 `~/.qoder/` 并加执行位，再把 `~/.qoder/settings.json` 的 `statusLine` 写成 `{"type":"command","command":"<绝对路径>"}`（只动该键）。
+
 ## 验证
 
 ```bash
 otter -h                                # otter 装好
 wren -h                                 # wren 本体装好
 bash .test_scripts/otter-test.sh        # expect: Total: 25  Pass: 25
-bash .test_scripts/wren-test.sh         # expect: Total: 46  Pass: 46（缺 node 时部分 SKIP）
+bash .test_scripts/wren-test.sh         # expect: Total: 59  Pass: 59（缺 node 时部分 SKIP）
 ```
 
 wren 装好后可再喂一份 statusline JSON 冒烟：
@@ -47,6 +49,8 @@ wren 装好后可再喂一份 statusline JSON 冒烟：
 ```bash
 printf '{"cwd":"/tmp","model":{"display_name":"m"}}' | NO_COLOR=1 wren-cc
 # expect: 两行输出，行1 以 "| cc" 结尾，exit 0（wren-cc 在 PATH，即 $PREFIX 默认 /usr/local/bin）
+printf '{"cwd":"/tmp","model":{"display_name":"m"}}' | NO_COLOR=1 python3 zoo-scripts/wren/wren-qc.py
+# expect: 两行输出，行1 以 "| qc" 结尾，exit 0
 ```
 
 ## 卸载

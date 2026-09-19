@@ -58,13 +58,16 @@ otter -h                         # 帮助
 
 ### [wren](./zoo-scripts/wren)
 
-把两行 statusline（Dracula 配色）装到 Claude Code 与 pi 两个宿主上的安装器。装的是文件副本，装完不依赖本仓库还在原处。
+把两行 statusline（Dracula 配色）装到 Claude Code 与 pi 两个宿主上的安装器。装的是文件副本，装完不依赖本仓库还在原处。另带 Qoder CLI 的同构 payload（`wren-qc.py`），暂未进安装器、手动接线（见下）。
 
 ```bash
 ./cli-zoo-install.sh wren        # 先把 wren 装到 $PREFIX
 wren install [cc|pi|all]         # 装到宿主（默认 all；幂等；cc 的别名 claude）
 wren uninstall [cc|pi|all]       # 卸载（默认 all）
 wren -h                          # 帮助
+# qc（Qoder CLI）暂未进安装器，手动接线：
+cp zoo-scripts/wren/wren-qc.py ~/.qoder/wren-qc.py && chmod +x ~/.qoder/wren-qc.py
+# 再把 ~/.qoder/settings.json 的 statusLine 写成 {"type":"command","command":"<绝对路径>"}（只动该键）
 ```
 
 ![wren statusline preview](./docs/wren-preview.svg)
@@ -74,9 +77,16 @@ wren -h                          # 帮助
 ↑12K ↓3K | R1.2M CH57.14% CP2 | 8.40%/200K | claude-opus-5 · high · 1h5m
 ```
 
+qc 侧同构，仅数据源不同（真会话实测样例）：
+
+```
+~/Code/cli-zoo | feat/x ↑0↓0 | wW:t1:p2 | qc
+↑4.5M ↓65K | R4.2M CH98.21% | 15.00%/1M | Qwen3.8-Max · xhigh · 16m
+```
+
 行 1 = cwd + git + herdr 位置 + 宿主徽标；行 2 = 累计 token + 缓存（读取量 / `CH` 命中率 / `CP` 压缩次数）+ 上下文占用 + 模型 · 思考 · 时长。长路径长分支自动折叠不溢出。装完在 pi 里用 `/footer` 切换。
 
-两宿主差异、安装器细节、`wren.ts` 相对 pi 上游的有意修改、Dracula 色板，见 [zoo-scripts/wren/README.md](./zoo-scripts/wren/README.md)；测试见 [docs/testing.md](./docs/testing.md)。
+三宿主差异（cc / pi / qc）、安装器细节、`wren.ts` 相对 pi 上游的有意修改、Dracula 色板，见 [zoo-scripts/wren/README.md](./zoo-scripts/wren/README.md)；测试见 [docs/testing.md](./docs/testing.md)。
 
 ## 安装与卸载
 
