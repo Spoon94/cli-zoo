@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# wren-test.sh - 自动运行 .test_task/wren-test.md 中的 59 个用例。
+# wren-test.sh - 自动运行 .test_task/wren-test.md 中的 67 个用例。
 #
 # 用法: bash .test_scripts/wren-test.sh
 # 写出: .test_res/wren-test-res.md
@@ -55,22 +55,25 @@ TMPROOT="$(mktemp -d 2>/dev/null || mktemp -d -t wren)"
 cleanup_all() { rm -rf "$TMPROOT"; }
 trap cleanup_all EXIT
 
-# 每个场景一个新沙箱：BIN / PIEXT / CLAUDE 三个目录 + wren 运行环境
+# 每个场景一个新沙箱：BIN / PIEXT / CLAUDE / QODER 四个目录 + wren 运行环境
 new_box() {
     BOX="$TMPROOT/box$((BOX_N += 1))"
     BIN="$BOX/bin"
     PIEXT="$BOX/piext"
     CLAUDE="$BOX/claude"
     SETTINGS="$CLAUDE/settings.json"
-    mkdir -p "$BIN" "$PIEXT" "$CLAUDE"
+    QODER="$BOX/qoder"
+    QODER_SETTINGS="$QODER/settings.json"
+    mkdir -p "$BIN" "$PIEXT" "$CLAUDE" "$QODER"
 }
 BOX_N=0
-BOX="" BIN="" PIEXT="" CLAUDE="" SETTINGS=""
+BOX="" BIN="" PIEXT="" CLAUDE="" SETTINGS="" QODER="" QODER_SETTINGS=""
 
 # 用沙箱环境调用 wren；输出落 OUT_FILE，退出码进 WREN_EXIT
 run_wren() {
     # NO_COLOR=1：旧用例断言的是明文子串，色档统一关掉（带色断言在 T39+ 单独跑）
     env NO_COLOR=1 PREFIX="$BIN" PI_EXT_DIR="$PIEXT" CLAUDE_SETTINGS="$SETTINGS" \
+        QODER_CONFIG_DIR="$QODER" QODER_SETTINGS="$QODER_SETTINGS" \
         "$WREN" "$@" >"$BOX/out.txt" 2>"$BOX/err.txt"
     WREN_EXIT=$?
     WREN_OUT="$(<"$BOX/out.txt")"
@@ -1343,6 +1346,143 @@ if [[ -n "$cc59s" && "$cc59s" == "$qc59s" ]] && printf '%s' "$cc59s" | grep -qF 
     pass T59 "qc line1 identical to wren.py after badge strip ($cc59s)"
 else
     fail T59 "cc=[$cc59s] qc=[$qc59s]"
+fi
+
+# ============================================================
+# T60: install qc → payload 副本（exec）+ statusLine 写绝对路径
+# ============================================================
+new_box
+printf '{"model":"m"}\n' >"$QODER_SETTINGS"
+run_wren install qc
+q60="$QODER/wren-qc.py"
+q60_cmd="$(json_field "$QODER_SETTINGS" 'd["statusLine"]["command"]')"
+q60_type="$(json_field "$QODER_SETTINGS" 'd["statusLine"]["type"]')"
+if [[ "$WREN_EXIT" == "0" && -f "$q60" && ! -L "$q60" ]] \
+   && cmp -s "$q60" "$QC_PAYLOAD" && [[ -x "$q60" ]] \
+   && [[ "$q60_cmd" == "$q60" && "$q60_type" == "command" ]]; then
+    pass T60 "install qc copies payload + writes absolute statusLine"
+else
+    fail T60 "exit=$WREN_EXIT cmd=[$q60_cmd] type=[$q60_type]"
+fi
+
+# ============================================================
+# T61: install qc 只动 qc 侧（cc/pi 目标与配置全不动）
+# ============================================================
+new_box
+printf '{"model":"opus"}\n' >"$SETTINGS"
+run_wren install qc
+if [[ "$WREN_EXIT" == "0" && -f "$QODER/wren-qc.py" ]] \
+   && [[ -z "$(ls -A "$BIN")" && -z "$(ls -A "$PIEXT")" ]] \
+   && [[ "$(json_field "$SETTINGS" 'd.get("statusLine")')" == "None" ]] \
+   && [[ ! -e "$SETTINGS.wren-bak" ]]; then
+    pass T61 "install qc only touches qc side"
+else
+    fail T61 "exit=$WREN_EXIT bin=[$(ls -A "$BIN")] piext=[$(ls -A "$PIEXT")] sl=[$(json_field "$SETTINGS" 'd.get("statusLine")')]"
+fi
+
+# ============================================================
+# T62: install qc → 键序保留 + 备份是安装前原始字节
+# ============================================================
+new_box
+printf '{\n  "model": "m",\n  "statusLine": { "type": "command", "command": "old-thing", "padding": 0 },\n  "env": {"A": "1"}\n}\n' >"$QODER_SETTINGS"
+run_wren install qc
+q62_keys="$(json_field "$QODER_SETTINGS" '"|".join(d.keys())')"
+q62_pad="$(json_field "$QODER_SETTINGS" 'd["statusLine"]["padding"]')"
+q62_env="$(json_field "$QODER_SETTINGS" 'd["env"]["A"]')"
+q62_bak="$QODER_SETTINGS.wren-bak"
+if [[ "$q62_keys" == "model|statusLine|env" && "$q62_pad" == "0" && "$q62_env" == "1" ]] \
+   && diff -q <(printf '{\n  "model": "m",\n  "statusLine": { "type": "command", "command": "old-thing", "padding": 0 },\n  "env": {"A": "1"}\n}\n') "$q62_bak" >/dev/null; then
+    pass T62 "qc install preserves keys/order and backs up original bytes"
+else
+    fail T62 "keys=[$q62_keys] pad=[$q62_pad] env=[$q62_env] bak=[$(cat "$q62_bak" 2>/dev/null)]"
+fi
+
+# ============================================================
+# T63: uninstall qc → 删 payload/statusLine/副产物，其他键保留
+# ============================================================
+new_box
+printf '{"model":"m","env":{"A":"1"}}\n' >"$QODER_SETTINGS"
+run_wren install qc
+: >"$QODER_SETTINGS.wren-tmp"
+run_wren uninstall qc
+q63_keys="$(json_field "$QODER_SETTINGS" '"|".join(d.keys())')"
+if [[ "$WREN_EXIT" == "0" ]] \
+   && [[ ! -e "$QODER/wren-qc.py" && ! -L "$QODER/wren-qc.py" ]] \
+   && [[ "$q63_keys" == "model|env" ]] \
+   && [[ ! -e "$QODER_SETTINGS.wren-bak" && ! -e "$QODER_SETTINGS.wren-tmp" ]]; then
+    pass T63 "uninstall qc removes payload/statusLine/sidecars, keeps rest"
+else
+    fail T63 "exit=$WREN_EXIT keys=[$q63_keys] qoder=[$(ls -A "$QODER")]"
+fi
+
+# ============================================================
+# T64: uninstall qc 遇 foreign statusLine → 不动，明说
+# ============================================================
+new_box
+run_wren install qc
+python3 - "$QODER_SETTINGS" <<'PY'
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d["statusLine"]["command"] = "someone-else"
+json.dump(d, open(p, "w"), indent=2)
+PY
+run_wren uninstall qc
+q64_cmd="$(json_field "$QODER_SETTINGS" 'd["statusLine"]["command"]')"
+if [[ "$WREN_EXIT" == "0" && "$q64_cmd" == "someone-else" ]] \
+   && [[ ! -e "$QODER/wren-qc.py" ]] \
+   && printf '%s' "$WREN_OUT" | grep -qi "left alone"; then
+    pass T64 "qc uninstall leaves a foreign statusLine alone (payload still ours, removed)"
+else
+    fail T64 "exit=$WREN_EXIT cmd=[$q64_cmd] out=[$WREN_OUT]"
+fi
+
+# ============================================================
+# T65: QODER_CONFIG_DIR 改道（不设 QODER_SETTINGS）→ 全部落新目录
+# ============================================================
+new_box
+QCFG="$BOX/qcfg"; mkdir -p "$QCFG"
+env NO_COLOR=1 PREFIX="$BIN" PI_EXT_DIR="$PIEXT" CLAUDE_SETTINGS="$SETTINGS" \
+    QODER_CONFIG_DIR="$QCFG" "$WREN" install qc >"$BOX/out.txt" 2>&1
+q65_rc=$?
+if [[ $q65_rc -eq 0 && -f "$QCFG/wren-qc.py" ]] \
+   && [[ "$(json_field "$QCFG/settings.json" 'd["statusLine"]["command"]')" == "$QCFG/wren-qc.py" ]] \
+   && [[ -z "$(ls -A "$QODER")" ]]; then
+    pass T65 "QODER_CONFIG_DIR honored; default dir untouched"
+else
+    fail T65 "rc=$q65_rc qcfg=[$(ls -A "$QCFG")] default=[$(ls -A "$QODER")]"
+fi
+
+# ============================================================
+# T66: install qoder 别名 = qc
+# ============================================================
+new_box
+run_wren install qoder
+if [[ "$WREN_EXIT" == "0" && -f "$QODER/wren-qc.py" ]] \
+   && [[ "$(json_field "$QODER_SETTINGS" 'd["statusLine"]["command"]')" == "$QODER/wren-qc.py" ]] \
+   && [[ -z "$(ls -A "$BIN")" && -z "$(ls -A "$PIEXT")" ]]; then
+    pass T66 "install qoder is an alias of qc"
+else
+    fail T66 "exit=$WREN_EXIT qoder=[$(ls -A "$QODER")]"
+fi
+
+# ============================================================
+# T67: qoder settings 非法 + install（all）→ 预检挡住，零副作用
+#（cc 配置合法、qc 非法：验证预检先行，不能装完 cc/pi 才发现 qc 写不进）
+# ============================================================
+new_box
+printf '{ bad json\n' >"$QODER_SETTINGS"
+printf '{"model":"opus"}\n' >"$SETTINGS"
+cp "$SETTINGS" "$BOX/before67"
+run_wren install
+if [[ "$WREN_EXIT" == "1" ]] \
+   && [[ -z "$(ls -A "$BIN")" && -z "$(ls -A "$PIEXT")" ]] \
+   && [[ ! -e "$QODER/wren-qc.py" ]] \
+   && diff -q "$BOX/before67" "$SETTINGS" >/dev/null \
+   && [[ ! -e "$SETTINGS.wren-bak" && ! -e "$QODER_SETTINGS.wren-bak" ]]; then
+    pass T67 "invalid qoder settings -> exit 1 before any install (pre-check gate)"
+else
+    fail T67 "exit=$WREN_EXIT bin=[$(ls -A "$BIN")] piext=[$(ls -A "$PIEXT")] qoder=[$(ls -A "$QODER")]"
 fi
 
 # ---------- 汇总 ----------

@@ -13,13 +13,14 @@
 
 ## 隔离手段
 
-测试沙箱里三个目录 + 三个环境变量，**真实配置一个都不碰**：
+测试沙箱里四个目录 + 五个环境变量，**真实配置一个都不碰**：
 
 | 变量 | 指向 |
 |---|---|
 | `PREFIX` | `$BOX/bin` |
 | `PI_EXT_DIR` | `$BOX/piext` |
 | `CLAUDE_SETTINGS` | `$BOX/claude/settings.json` |
+| `QODER_CONFIG_DIR` / `QODER_SETTINGS` | `$BOX/qoder` 及其 `settings.json` |
 
 ## 测试用例
 
@@ -84,6 +85,14 @@
 | T57 | qc | 设 `WREN_DEBUG_DUMP` | dump 文件内容与 stdin 原始字节逐字相同（真实 payload 对齐钩子） |
 | T58 | qc | transcript：assistant 后跟 `compact_boundary`（`postTokens=50000`），原生 ctx 字段全缺 | 行2 含 `CP1` 与 `25.00%/200K`（ctx 回落链：native → postTokens → 末次请求） |
 | T59 | qc | 同一临时 git 仓库分别跑 `wren.py` 与 `wren-qc.py` | 行1 剥宿主徽标后逐字相同（跨实现同构守门，同 T32 思路） |
+| T60 | 安装 | `wren install qc` | `$QODER_CONFIG_DIR/wren-qc.py` 是普通文件、与 `wren-qc.py` 逐字节相同、带执行位；settings 的 `statusLine.command` == 该**绝对路径**、`type == command` |
+| T61 | 安装 | 预置 cc settings 后 `wren install qc` | 只动 qc 侧：`$PREFIX`/`$PI_EXT_DIR` 空、cc settings 无 `statusLine`、无 `.wren-bak` |
+| T62 | 安装 | qoder settings 预置 `model`/`statusLine.padding`/`env` | 顶层键序仍为 `model,statusLine,env`；`padding`/`env.A` 保留；`<settings>.wren-bak` == 安装前原始字节 |
+| T63 | 卸载 | install qc 后手工放 `.wren-tmp` 再 `wren uninstall qc` | payload 删、`statusLine` 键删（剩 `model,env`）、`.wren-bak`/`.wren-tmp` 清掉 |
+| T64 | 卸载 | install 后把 `statusLine.command` 改成 `someone-else` 再 uninstall qc | 该键原样保留 + stdout 含 `left alone`；自己的 payload 仍被删 |
+| T65 | 安装 | 只设 `QODER_CONFIG_DIR=$BOX/qcfg`（不设 `QODER_SETTINGS`）后 `install qc` | payload/`settings.json` 全落 `$BOX/qcfg`；默认 `$BOX/qoder` 目录未被碰 |
+| T66 | 安装 | `wren install qoder` | 等价于 `qc`（别名） |
+| T67 | 安装 | cc settings 合法、qoder settings 非法 JSON，跑 `wren install`（all） | exit 1；`$PREFIX`/`$PI_EXT_DIR`/qoder 目录均无 payload、两份 settings 均无 `.wren-bak`、cc settings 字节未变（**预检先行守门**） |
 
 ## 条件用例（不满足条件时 SKIP，不算 FAIL）
 
@@ -122,6 +131,8 @@
   是「最近一次请求」的上下文占用（官方文档注明 NOT a session total），`total_output_tokens` 宿主从不发送；
   CH 必须按「input 已含 cache」的 qoder 口径 `cr/in`，仅当 `input < cache_read`（旧版口径）才回退 CC 公式。
   这些结论来自对 qodercli 1.1.57 二进制内嵌 payload 文档/构造器的静态核对与真实会话抓包。
+- **T67 是 qc 侧「零副作用、不留半装状态」的守门用例**：前置校验对所有要写配置的宿主先行，
+  任一 settings 读不懂/写不进就一个 payload 都不装（与 T11/T12/T24 同强度，针对 `all` 含 qc 后的新顺序）。
 - settings.json 的断言一律走 `json_field`（`python3 -c` 读 JSON），不靠 grep 文本，避免缩进/换行变动导致误判。
 
 ## 测试脚本结构

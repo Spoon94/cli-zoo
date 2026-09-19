@@ -1,5 +1,5 @@
 # wren 测试结果
-执行时间：2026-09-19 20:27:49
+执行时间：2026-09-19 20:57:36
 
 | ID | 状态 | 备注 |
 |----|------|------|
@@ -62,5 +62,13 @@
 | T57 | PASS | qc WREN_DEBUG_DUMP captures raw stdin bytes |
 | T58 | PASS | qc ctx fallback chain: postTokens after compact_boundary; CP counted |
 | T59 | PASS | qc line1 identical to wren.py after badge strip (/var/…/box43/r59 \| main +1 ✱1) |
+| T60 | PASS | install qc copies payload + writes absolute statusLine |
+| T61 | PASS | install qc only touches qc side |
+| T62 | PASS | qc install preserves keys/order and backs up original bytes |
+| T63 | PASS | uninstall qc removes payload/statusLine/sidecars, keeps rest |
+| T64 | PASS | qc uninstall leaves a foreign statusLine alone (payload still ours, removed) |
+| T65 | PASS | QODER_CONFIG_DIR honored; default dir untouched |
+| T66 | PASS | install qoder is an alias of qc |
+| T67 | PASS | invalid qoder settings -> exit 1 before any install (pre-check gate) |
 
-汇总：Total 59 / Pass 59 / Fail 0 / Skip 0
+汇总：Total 67 / Pass 67 / Fail 0 / Skip 0

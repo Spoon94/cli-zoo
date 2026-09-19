@@ -45,12 +45,13 @@ payload 文档 + 构造器静态核对 + 真会话抓包，由 T48-T58 守门）
 卸载只删自己的东西。目标链接不是指向本工具 payload 的、`statusLine` 不指向 `wren-cc` 的，只提示
 `left alone` 不动。`install` 和 `uninstall` 重复执行都退出 0。
 
-`install cc` 与 `install pi` 各只动一侧，只装 pi 时不需要 python3。装机前若目标位置已有内容不同的
+`install cc` 与 `install pi` 各只动一侧，`install qc`（别名 `qoder`）只动 Qoder 侧；只装 pi 时不需要 python3。qc 的 `statusLine.command` 写绝对路径（`$QODER_CONFIG_DIR/wren-qc.py`，与 qoder 官方引导一致）。装机前若目标位置已有内容不同的
 同名文件（含软链，解引用后比较），先告警再覆盖。`$PI_EXT_DIR` 里若还留着旧的手工副本 `odo.ts`，
 会提示 pi 会把两个 footer 都装上，不会替你删。
 
-qc 侧未进安装器：手动拷 `wren-qc.py` 到 `~/.qoder/` 加执行位，`~/.qoder/settings.json` 的
-`statusLine.command` 指向该绝对路径（同样只动该键；卸载反向操作）。
+qc 侧：`install qc` 拷 payload 到 `$QODER_CONFIG_DIR/wren-qc.py` 并写 `$QODER_SETTINGS`；
+卸载反向操作（同样只删自己的东西）。前置校验对所有要写配置的宿主先行：任一 settings
+读不懂或写不进，连一个 payload 都不装（T67 守门）。
 
 `wren` 自己经 `cli-zoo-install.sh` 软链到 `$PREFIX` 后，仍能定位同目录的 payload。行 1 尾部有一个
 灰字宿主徽标 ` | cc`、` | pi` 或 ` | qc`，同屏开多个 agent 时一眼能区分。
@@ -63,6 +64,8 @@ qc 侧未进安装器：手动拷 `wren-qc.py` 到 `~/.qoder/` 加执行位，`~
 | `PI_EXT_DIR` | `$HOME/.pi/agent/extensions` | pi 扩展目录 |
 | `CLAUDE_CONFIG_DIR` | `$HOME/.claude` | Claude Code 配置目录（CC 官方支持的重定向变量，wren 跟随它定位 settings） |
 | `CLAUDE_SETTINGS` | `$CLAUDE_CONFIG_DIR/settings.json` | 要改的 settings 文件（显式设置时优先级最高） |
+| `QODER_CONFIG_DIR` | `$HOME/.qoder` | Qoder CLI 配置目录（qoder 官方同名重定向变量，wren 跟随它定位 settings 与 payload 落点） |
+| `QODER_SETTINGS` | `$QODER_CONFIG_DIR/settings.json` | qc 侧要改的 settings 文件（显式设置时优先级最高） |
 
 退出码：`0` 成功 / `1` 写入失败 / `2` 参数错误 / `3` 依赖缺失（python3 或 payload）。
 

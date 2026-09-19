@@ -28,12 +28,10 @@
 wren 装完本体后还需一步接线（装的是文件副本，幂等）：
 
 ```bash
-wren install            # 两个宿主都装；或 wren install cc / wren install pi 分侧装
+wren install            # 三个宿主都装；或 wren install cc / pi / qc 分侧装（qc 别名 qoder）
 ```
 
-该步会写 `$CLAUDE_SETTINGS` 的 `statusLine` 键（只动这一个键，首次自动备份到 `<settings>.wren-bak`），并把 payload 拷到 `$PREFIX/wren-cc` 与 `$PI_EXT_DIR/wren.ts`。目录默认 `$HOME/.claude` 与 `$HOME/.pi/agent/extensions`，可用 `CLAUDE_CONFIG_DIR` / `CLAUDE_SETTINGS` / `PI_EXT_DIR` 改道。
-
-qc（Qoder CLI）侧暂无 `wren install` 目标，手动接线：拷 `zoo-scripts/wren/wren-qc.py` 到 `~/.qoder/` 并加执行位，再把 `~/.qoder/settings.json` 的 `statusLine` 写成 `{"type":"command","command":"<绝对路径>"}`（只动该键）。
+该步会写 `$CLAUDE_SETTINGS` 的 `statusLine` 键（只动这一个键，首次自动备份到 `<settings>.wren-bak`），并把 payload 拷到 `$PREFIX/wren-cc` 与 `$PI_EXT_DIR/wren.ts`。目录默认 `$HOME/.claude` 与 `$HOME/.pi/agent/extensions`，可用 `CLAUDE_CONFIG_DIR` / `CLAUDE_SETTINGS` / `PI_EXT_DIR` 改道。qc 侧同理：payload 拷到 `$QODER_CONFIG_DIR/wren-qc.py`（默认 `~/.qoder`，可用 `QODER_CONFIG_DIR` / `QODER_SETTINGS` 改道），`statusLine.command` 写该绝对路径。
 
 ## 验证
 
@@ -41,7 +39,7 @@ qc（Qoder CLI）侧暂无 `wren install` 目标，手动接线：拷 `zoo-scrip
 otter -h                                # otter 装好
 wren -h                                 # wren 本体装好
 bash .test_scripts/otter-test.sh        # expect: Total: 25  Pass: 25
-bash .test_scripts/wren-test.sh         # expect: Total: 59  Pass: 59（缺 node 时部分 SKIP）
+bash .test_scripts/wren-test.sh         # expect: Total: 67  Pass: 67（缺 node 时部分 SKIP）
 ```
 
 wren 装好后可再喂一份 statusline JSON 冒烟：
@@ -56,12 +54,12 @@ printf '{"cwd":"/tmp","model":{"display_name":"m"}}' | NO_COLOR=1 python3 zoo-sc
 ## 卸载
 
 ```bash
-wren uninstall                          # 先拆两个宿主的接线（幂等）
+wren uninstall                          # 先拆三个宿主的接线（幂等）
 ./cli-zoo-uninstall.sh wren             # 再摘 wren 本体
 ./cli-zoo-uninstall.sh otter            # otter 直接卸
 ```
 
-顺序重要：`cli-zoo-uninstall.sh wren` 摘掉 `$PREFIX/wren` 软链后，`wren uninstall` 就没入口了，会留下 `$PREFIX/wren-cc`、settings 里的 `statusLine`、`$PI_EXT_DIR/wren.ts`。uninstall 只删 wren 自己装的文件；内容被改过的目标会 `left alone` 不动。
+顺序重要：`cli-zoo-uninstall.sh wren` 摘掉 `$PREFIX/wren` 软链后，`wren uninstall` 就没入口了，会留下 `$PREFIX/wren-cc`、两份 settings 里的 `statusLine`、`$PI_EXT_DIR/wren.ts`、`$QODER_CONFIG_DIR/wren-qc.py`。uninstall 只删 wren 自己装的文件；内容被改过的目标会 `left alone` 不动。
 
 ## 退出码（wren）
 
