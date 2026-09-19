@@ -49,6 +49,12 @@ function colorMode(theme: any): "truecolor" | "256" | "none" {
 
 export default function (pi: ExtensionAPI) {
 	let enabled = false;
+	// timer/tuiRef 必须在 install() 外：此前是函数局部变量，第 N 次 install() 时
+	// 守卫 if (timer) 看到的永远是本帧的 null，clearInterval 从不触发，
+	// 每次 session_start / /footer 重开都泄漏一个 15s interval（每 15s 多起一个
+	// git 子进程 + 对失效 tuiRef 的 requestRender）。CR 轮 12 实测 x3 次装 3 个残留。
+	let timer: ReturnType<typeof setInterval> | null = null;
+	let installedTui: any = null;
 
 	const install = (ctx: any) => {
 		const sessionStart = Date.now();
@@ -61,8 +67,6 @@ export default function (pi: ExtensionAPI) {
 			.join(":");
 		// 与 wren.py 一致：herdr 位置不加中括号（右对齐时代的残留样式）
 		const herdrTag = herdrId;
-		let tuiRef: any = null;
-		let timer: ReturnType<typeof setInterval> | null = null;
 		// git 状态：一次 `status --porcelain=v2 --branch` 全拿（分支 / ahead-behind / 增删改），
 		// 与 Claude Code 侧的 wren.py 同一套解析，两侧输出才能逐字对齐。
 		// 旧实现拆成 rev-parse + rev-list + status 三次子进程，且脏文件只数 porcelain 行数，
@@ -86,7 +90,7 @@ export default function (pi: ExtensionAPI) {
 				if (out === null) {
 					git.ab = "";
 					git.counts = "";
-					tuiRef?.requestRender();
+					installedTui?.requestRender();
 					return;
 				}
 				let ab = "";
@@ -125,7 +129,7 @@ export default function (pi: ExtensionAPI) {
 				git.ab = ab;
 				git.counts = parts.length ? ` ${parts.join(" ")}` : "";
 				git.head = head;
-				tuiRef?.requestRender();
+				installedTui?.requestRender();
 			});
 		};
 		const fmtDuration = (ms: number) => {
@@ -136,11 +140,11 @@ export default function (pi: ExtensionAPI) {
 		if (timer) clearInterval(timer);
 		timer = setInterval(() => {
 			refreshGit();
-			tuiRef?.requestRender();
+			installedTui?.requestRender();
 		}, 15000);
 		refreshGit();
 		ctx.ui.setFooter((tui: any, theme: any, footerData: any) => {
-			tuiRef = tui;
+			installedTui = tui;
 			const unsub = footerData.onBranchChange(() => tui.requestRender());
 			// Dracula 上色器：色档取 theme.getColorMode()，footer 工厂重建（含主题热切换）时
 			// 重求值并同步进 colorCache（refreshGit 的 counts 拼接也用它）
@@ -157,7 +161,10 @@ export default function (pi: ExtensionAPI) {
 			return {
 				dispose() {
 					unsub();
-					if (timer) clearInterval(timer);
+					if (timer) {
+						clearInterval(timer);
+						timer = null;
+					}
 				},
 				invalidate() {},
 				render(width: number): string[] {
