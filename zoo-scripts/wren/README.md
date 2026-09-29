@@ -10,6 +10,7 @@
 | 位置 | `wren-cc.py`（Claude Code） | `wren-pi.ts`（pi） |
 |------|------|------|
 | 时长 | `cost.total_duration_ms` | footer 装载起的 wall-clock |
+| TTFT（首片延迟） | transcript 配对：真 user → 首条 assistant（排除 tool_result 回填） | 事件流：`turn_start` → 首个 `message_update`（内存态，扩展重载后下一轮才有值） |
 | ctx% | 按 `input + cache_read + cache_creation` 自算（与 CC 官方 `used_percentage` 同式） | 取 `ctx.getContextUsage()`（pi 的定义含 output，压缩后显示 `?`） |
 | CH 数据源 | `current_usage` 优先，回退 transcript 末条 assistant | `sessionManager` 末条 assistant |
 
@@ -28,7 +29,8 @@ payload 文档 + 构造器静态核对 + 真会话抓包，由 T48-T58 守门）
 | ↑in/↓out | transcript 累计。原生 `context_window.total_input_tokens` 是「最近一次请求」的上下文占用（官方文档注明 NOT a session total），`total_output_tokens` 宿主从不发送（1.1.57：调用方不填该字段），都不能当累计 |
 | ctx% | 原生 `used_percentage`（整数）优先；缺失回落 `total_input_tokens`（= 当前占用）→ `postTokens` → transcript 末次请求 |
 | CH | qoder 的 `usage.input_tokens` 已含 cache → `cacheRead / input`；仅当 `input < cache_read`（旧版口径）回退 cc 公式；`cache_creation` 可能是对象（`ephemeral_5m/1h` 求和） |
-| 时长 | `cost.total_duration_ms`（宿主目前不发送）→ 回落 transcript 首条时间戳 |
+| 时长 | transcript 推算的会话年龄（首条记录 ts → now；宿主不发 `total_duration_ms`，v6 起不读 cost） |
+| TTFT（首片延迟） | transcript 配对（与 cc 同式）：真 user → 首条 assistant，排除 tool_result 回填；`ttft_ms` 存量制，轮中显示上一轮值不闪烁 |
 | 思考等级 | `model.preferences[id].reasoning.effort` ＞ 顶层字段 ＞ transcript 的 `runtime-config` 记录（真实 payload 通常只命中第三级） |
 
 渲染差异一则：qoder 对 statusline 输出按 span 逐段重断言 `\x1b[2m`（Ink dimColor），

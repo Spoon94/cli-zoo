@@ -70,18 +70,18 @@ wren -h                          # 帮助
 ![wren statusline preview](./docs/wren-preview.svg)
 
 ```
-~/Code/cli-zoo | main ↑0↓0 +4 ✱2 | wC:t1:p1 | cc
-↑12K ↓3K | R1.2M CH57.14% CP2 | 8.40%/200K | claude-opus-5 · high · 1h5m
+~/Code/cli-zoo | main ↑0↓0 +4 ✱2 | wC:t1:p1 | cc · 1h5m
+↑12K ↓3K | R1.2M CH57.14% CP2 | 8.40%/200K TTFT 6.6s | claude-opus-5 · high
 ```
 
 qc 侧同构，仅数据源不同（另一 workspace 的真会话实测样例，故分支与 pane 编号不同）：
 
 ```
-~/Code/cli-zoo | feat/x ↑0↓0 | wW:t1:p2 | qc
-↑4.5M ↓65K | R4.2M CH98.21% | 15.00%/1M | Qwen3.8-Max · xhigh · 16m
+~/Code/cli-zoo | feat/x ↑0↓0 | wW:t1:p2 | qc · 16m
+↑4.5M ↓65K | R4.2M CH98.21% | 15.00%/1M TTFT 4.2s | Qwen3.8-Max · xhigh
 ```
 
-行 1 = cwd + git + herdr 位置 + 宿主徽标；行 2 = 累计 token + 缓存（读取量 / `CH` 命中率 / `CP` 压缩次数）+ 上下文占用 + 模型 · 思考 · 时长。长路径长分支自动折叠不溢出。装完在 pi 里用 `/footer` 切换。
+行 1 = cwd + git + herdr 位置 + 宿主徽标 · 会话时长；行 2 = 累计 token + 缓存（读取量 / `CH` 命中率 / `CP` 压缩次数）+ 上下文占用 + 首片延迟（`TTFT`）+ 模型 · 思考。长路径长分支自动折叠不溢出，窄终端按固定梯子丢弃次要段（TTFT → CH → CP）。装完在 pi 里用 `/footer` 切换。
 
 三宿主差异（cc / pi / qc）、安装器细节、`wren-pi.ts` 相对 pi 上游的有意修改、Dracula 色板，见 [zoo-scripts/wren/README.md](./zoo-scripts/wren/README.md)；测试见 [docs/testing.md](./docs/testing.md)。
 

@@ -11,14 +11,14 @@
 
   <!-- CC 侧（行首标签在 SVG 外用文本注释代替） -->
   <text x="24" y="46" fill="#6272a4" font-size="11">Claude Code</text>
-  <text x="24" y="70" xml:space="preserve"><tspan fill="#6272a4">~/Code/cli-zoo | </tspan><tspan fill="#bd93f9">main</tspan><tspan fill="#f8f8f2"> ↑0↓0 </tspan><tspan fill="#50fa7b">+5</tspan><tspan fill="#f8f8f2"> </tspan><tspan fill="#f1fa8c">✱4</tspan><tspan fill="#6272a4"> | wC:t1:p1 | cc</tspan></text>
-  <text x="24" y="92" xml:space="preserve"><tspan fill="#f8f8f2">↑12K ↓3K</tspan><tspan fill="#6272a4"> | </tspan><tspan fill="#f8f8f2">R1.2M </tspan><tspan fill="#8be9fd">CH98.77%</tspan><tspan fill="#6272a4"> CP2 | </tspan><tspan fill="#ff5555">121.50%/1M</tspan><tspan fill="#6272a4"> | </tspan><tspan fill="#ff79c6">claude-opus-5</tspan><tspan fill="#f8f8f2"> · </tspan><tspan fill="#8be9fd">high</tspan><tspan fill="#f8f8f2"> · 2h5m</tspan></text>
+  <text x="24" y="70" xml:space="preserve"><tspan fill="#6272a4">~/Code/cli-zoo | </tspan><tspan fill="#bd93f9">main</tspan><tspan fill="#f8f8f2"> ↑0↓0 </tspan><tspan fill="#50fa7b">+5</tspan><tspan fill="#f8f8f2"> </tspan><tspan fill="#f1fa8c">✱4</tspan><tspan fill="#6272a4"> | wC:t1:p1 | cc</tspan><tspan fill="#6272a4"> · </tspan><tspan fill="#f8f8f2">1h5m</tspan></text>
+  <text x="24" y="92" xml:space="preserve"><tspan fill="#f8f8f2">↑12K ↓3K</tspan><tspan fill="#6272a4"> | </tspan><tspan fill="#f8f8f2">R1.2M </tspan><tspan fill="#8be9fd">CH98.77%</tspan><tspan fill="#6272a4"> CP2 | </tspan><tspan fill="#ff5555">121.50%/1M</tspan><tspan fill="#f8f8f2"> TTFT 6.8s</tspan><tspan fill="#6272a4"> | </tspan><tspan fill="#ff79c6">claude-opus-5</tspan><tspan fill="#f8f8f2"> · </tspan><tspan fill="#8be9fd">high</tspan></text>
 
   <!-- 分隔线 -->
   <line x1="24" y1="104" x2="896" y2="104" stroke="#44475a" stroke-width="1"/>
 
   <!-- pi 侧（与 CC 区同构：标签→行1 间距 24，行距 22，两行同 x 左对齐） -->
   <text x="24" y="124" fill="#6272a4" font-size="11">pi</text>
-  <text x="24" y="148" xml:space="preserve"><tspan fill="#6272a4">~/Code/cli-zoo | </tspan><tspan fill="#bd93f9">main</tspan><tspan fill="#f8f8f2"> ↑0↓0 </tspan><tspan fill="#50fa7b">+5</tspan><tspan fill="#f8f8f2"> </tspan><tspan fill="#f1fa8c">✱4</tspan><tspan fill="#6272a4"> | wC:t1:p4 | pi</tspan></text>
-  <text x="24" y="170" xml:space="preserve"><tspan fill="#f8f8f2">↑743K ↓117K | R19.6M </tspan><tspan fill="#8be9fd">CH99.31%</tspan><tspan fill="#6272a4"> | </tspan><tspan fill="#50fa7b">28.42%/1M</tspan><tspan fill="#6272a4"> | </tspan><tspan fill="#ff79c6">claude-opus-5</tspan><tspan fill="#f8f8f2"> · </tspan><tspan fill="#8be9fd">high</tspan><tspan fill="#f8f8f2"> · 46m</tspan></text>
+  <text x="24" y="148" xml:space="preserve"><tspan fill="#6272a4">~/Code/cli-zoo | </tspan><tspan fill="#bd93f9">main</tspan><tspan fill="#f8f8f2"> ↑0↓0 </tspan><tspan fill="#50fa7b">+5</tspan><tspan fill="#f8f8f2"> </tspan><tspan fill="#f1fa8c">✱4</tspan><tspan fill="#6272a4"> | wC:t1:p4 | pi</tspan><tspan fill="#6272a4"> · </tspan><tspan fill="#f8f8f2">46m</tspan></text>
+  <text x="24" y="170" xml:space="preserve"><tspan fill="#f8f8f2">↑743K ↓117K | R19.6M </tspan><tspan fill="#8be9fd">CH99.31%</tspan><tspan fill="#6272a4"> | </tspan><tspan fill="#50fa7b">28.42%/1M</tspan><tspan fill="#f8f8f2"> TTFT 4.2s</tspan><tspan fill="#6272a4"> | </tspan><tspan fill="#ff79c6">zap</tspan><tspan fill="#f8f8f2"> · </tspan><tspan fill="#8be9fd">high</tspan></text>
 </svg>
