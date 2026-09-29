@@ -83,7 +83,7 @@ qc 侧同构，仅数据源不同（另一 workspace 的真会话实测样例，
 
 行 1 = cwd + git + herdr 位置 + 宿主徽标；行 2 = 累计 token + 缓存（读取量 / `CH` 命中率 / `CP` 压缩次数）+ 上下文占用 + 模型 · 思考 · 时长。长路径长分支自动折叠不溢出。装完在 pi 里用 `/footer` 切换。
 
-三宿主差异（cc / pi / qc）、安装器细节、`wren.ts` 相对 pi 上游的有意修改、Dracula 色板，见 [zoo-scripts/wren/README.md](./zoo-scripts/wren/README.md)；测试见 [docs/testing.md](./docs/testing.md)。
+三宿主差异（cc / pi / qc）、安装器细节、`wren-pi.ts` 相对 pi 上游的有意修改、Dracula 色板，见 [zoo-scripts/wren/README.md](./zoo-scripts/wren/README.md)；测试见 [docs/testing.md](./docs/testing.md)。
 
 ## 安装与卸载
 
@@ -99,9 +99,9 @@ qc 侧同构，仅数据源不同（另一 workspace 的真会话实测样例，
 安装时检查源脚本存在且可执行（必要时 `chmod +x`），目标位置已有文件或软链则先 `rm -f`，再 `ln -s <repo>/zoo-scripts/<tool> $PREFIX/<tool>`（wren 因是多文件工具，软链的是目录内的入口脚本 `zoo-scripts/wren/wren`）。写入失败（权限不足）时会提示用 `sudo PREFIX=$PREFIX ./cli-zoo-install.sh <tool>` 重试。
 
 > **wren 的两级安装是刻意的**：`cli-zoo-install.sh` 装的 `$PREFIX/wren` 是**软链**（跟随仓库，改脚本即时生效）；
-> 而 `wren install` 装到宿主的 `$PREFIX/wren-cc` / `$PI_EXT_DIR/wren.ts` / `$QODER_CONFIG_DIR/wren-qc.py` 是**文件副本**（仓库被移走/删除后 statusline 照常工作，更新需重跑 `wren install`）。
+> 而 `wren install` 装到宿主的 `$PREFIX/wren-cc` / `$PI_EXT_DIR/wren-pi.ts` / `$QODER_CONFIG_DIR/wren-qc.py` 是**文件副本**（仓库被移走/删除后 statusline 照常工作，更新需重跑 `wren install`）。
 
-**wren 卸载要先拆线再卸本体**，否则会留下 `$PREFIX/wren-cc`、两份 `settings.json` 里的 `statusLine`、pi 扩展目录里的 `wren.ts`、以及 `$QODER_CONFIG_DIR/wren-qc.py`：
+**wren 卸载要先拆线再卸本体**，否则会留下 `$PREFIX/wren-cc`、两份 `settings.json` 里的 `statusLine`、pi 扩展目录里的 `wren-pi.ts`、以及 `$QODER_CONFIG_DIR/wren-qc.py`：
 
 ```bash
 wren uninstall              # 拆掉三个宿主的接线

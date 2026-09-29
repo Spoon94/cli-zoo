@@ -7,7 +7,7 @@
 三份 payload 布局同构，段格式、折叠规则、色板都一致（qc 的差异拆到下方小节）。剩下几处差异来自宿主本身
 （statusline 与 TUI footer 拿数据的路子不同）：
 
-| 位置 | `wren.py`（Claude Code） | `wren.ts`（pi） |
+| 位置 | `wren-cc.py`（Claude Code） | `wren-pi.ts`（pi） |
 |------|------|------|
 | 时长 | `cost.total_duration_ms` | footer 装载起的 wall-clock |
 | ctx% | 按 `input + cache_read + cache_creation` 自算（与 CC 官方 `used_percentage` 同式） | 取 `ctx.getContextUsage()`（pi 的定义含 output，压缩后显示 `?`） |
@@ -72,23 +72,23 @@ qc 侧：`install qc` 拷 payload 到 `$QODER_CONFIG_DIR/wren-qc.py` 并写 `$QO
 
 退出码：`0` 成功 / `1` 写入失败 / `2` 参数错误 / `3` 依赖缺失（python3 或 payload）。
 
-## `wren.ts` 相对 pi 上游的有意修改
+## `wren-pi.ts` 相对 pi 上游的有意修改
 
-（`wren.py` 未改；括号里是对应的守门用例）
+（`wren-cc.py` 未改；括号里是对应的守门用例）
 
 - **`fmt` 补 1000K 守卫**：`999_500~999_999` 显示 `1.0M`。pi 内置的 `formatTokens` 上游同样会渲染 `1000k`，
-  `ccstatusline` 与 `wren.py` 都守这条，这里有意不跟上游（T28）。
+  `ccstatusline` 与 `wren-cc.py` 都守这条，这里有意不跟上游（T28）。
 - **ctx% 改用 `ctx.getContextUsage()`**：不再手算。手算会漏 `cacheWrite`，且压缩后会把压缩前的旧值一直挂着
   改用权威 API 后，压缩后暂不可知时显示 `?`（T29）。
 - **家目录折叠改用 `os.homedir()`**：原来的 `/Users/...` 硬编码在 Linux 与自定义 `HOME` 下不生效（T30）。
-- **`CH` 改两位小数**：与 `wren.py` 对齐（pi 内置 footer 是一位）（T31）。
-- **git 段改为与 `wren.py` 同一套解析**：一次 `git status --porcelain=v2 --branch` 全拿分支 / ahead-behind / 增删改，
+- **`CH` 改两位小数**：与 `wren-cc.py` 对齐（pi 内置 footer 是一位）（T31）。
+- **git 段改为与 `wren-cc.py` 同一套解析**：一次 `git status --porcelain=v2 --branch` 全拿分支 / ahead-behind / 增删改，
   渲染 `↑a↓b +增 ~删 ✱改`。旧的 `⇡a⇣b` 与「porcelain 行数当脏文件数」都不分类、还混进重命名，
   且要跑三次 git 子进程（T32 做跨实现比对）。
 - **detached HEAD 判定改由 porcelain 的 `# branch.head` 推导**（`(` 开头即无分支），
   不用 `getGitBranch()` 的返回值：pi 对真 detached 与名为 `detached` 的真分支返回同一字符串，无法区分（T38）。
-- **CH 无缓存不显示、压缩后显示旧值**：与 `wren.py` 统一（T41）。
-- **行内布局**：删掉右对齐/pad，`·` 分隔，thinking 缺省不显示，与 `wren.py` 逐字同构。
+- **CH 无缓存不显示、压缩后显示旧值**：与 `wren-cc.py` 统一（T41）。
+- **行内布局**：删掉右对齐/pad，`·` 分隔，thinking 缺省不显示，与 `wren-cc.py` 逐字同构。
 - **长目录/长分支折叠**：预算驱动，逐级降级（头2尾2 → 头1尾2 → 尾2 → 尾1 → 末级字符截断），
   按显示宽计算（全角算 2 格），折叠结果与色档无关；分支 >24 折叠为头 8 + `…` + 尾 15。
   宽度来源分宿主：pi 用 `render(width)`，
