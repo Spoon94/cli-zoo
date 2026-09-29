@@ -117,6 +117,31 @@ def fmt_ttft(ms):
     return f"TTFT {h}h{(total % 3600) // 60:02d}m"
 
 
+def ttft_secs(ms):
+    """TTFT 显示值（秒）：<10s 保留一位小数（与 :.1f 同口径），≥10s 四舍五入到整秒。
+    色档判定用它而非原始 ms —— 否则「TTFT 20s」在 19.6s~20.4s 之间会白黄跳。"""
+    if ms is None:
+        return None
+    if ms < 10_000:
+        return round(ms / 1000, 1)
+    return (ms + 500) // 1000
+
+
+def ttft_color(ms):
+    """TTFT 四档着色（与 ctx% 同为突变式，不做渐变）：绿 <5s、白 5-20s、黄 20-60s、
+    红 >60s。判据取 ttft_secs(ms)（显示器渲染值），保证同屏同值同色。"""
+    v = ttft_secs(ms)
+    if v is None:
+        return "fg"
+    if v < 5:
+        return "green"
+    if v <= 20:
+        return "fg"
+    if v <= 60:
+        return "yellow"
+    return "red"
+
+
 def _epoch(ts):
     if not ts:
         return None
@@ -511,7 +536,7 @@ def main():
         if ctx_pct:
             stat, stat_p = c(pct_name, ctx_pct), ctx_pct
         if use_ttft and ttft:
-            t = c("fg", ttft)
+            t = c(ttft_color(st["ttft_ms"]), ttft)
             stat = f"{stat} {t}" if stat else t
             stat_p = f"{stat_p} {TTFT_BUDGET_S}" if stat_p else TTFT_BUDGET_S
         line = f"{c('fg', f'↑{fmt(input_t)} ↓{fmt(output_t)}')} {sep} {ledger}"

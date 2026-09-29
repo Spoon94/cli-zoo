@@ -65,7 +65,7 @@ qc 侧：`install qc` 拷 payload 到 `$QODER_CONFIG_DIR/wren-qc.py` 并写 `$QO
 
 | 变量 | 默认 | 作用 |
 |------|------|------|
-| `PREFIX` | `/usr/local/bin` | CC 侧可执行文件目录 |
+| `PREFIX` | `/usr/local/bin` | **只用于 `wren` 本体**（`cli-zoo-install.sh` 的软链）；cc payload 落点跟随 settings.json 同目录 |
 | `PI_EXT_DIR` | `$HOME/.pi/agent/extensions` | pi 扩展目录 |
 | `CLAUDE_CONFIG_DIR` | `$HOME/.claude` | Claude Code 配置目录（CC 官方支持的重定向变量，wren 跟随它定位 settings） |
 | `CLAUDE_SETTINGS` | `$CLAUDE_CONFIG_DIR/settings.json` | 要改的 settings 文件（显式设置时优先级最高） |
@@ -108,6 +108,7 @@ qc 侧：`install qc` 拷 payload 到 `$QODER_CONFIG_DIR/wren-qc.py` 并写 `$QO
 | `✱改` | 黄 | `#f1fa8c` |
 | token / 时长 | 前景白 | `#f8f8f2` |
 | CH / 思考等级 | 青 | `#8be9fd` |
+| `TTFT` | 绿 <5s、白 5-20s、黄 20-60s、红 >60s | 四档突变（同 ctx% 的哲学，不做渐变）；阈值取自实测分布（中位 13.2s / p90 92.6s）。**判据是屏幕显示值**（<10s 一位小数、≥10s 四舍五入整秒）：`TTFT 20s` 恒白、`TTFT 21s` 起恒黄，避免同值两色 |
 | 模型名 | 粉 | `#ff79c6` |
 | ctx% | 绿 ≤70、黄 70<p≤90、红 >90 | 三档突变，pi 内置语义；不做渐变 |
 

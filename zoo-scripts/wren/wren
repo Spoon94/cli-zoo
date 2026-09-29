@@ -6,7 +6,7 @@
 #   行2: ↑in ↓out R cacheR CH% CPn | ctx%/win | 模型名 · 思考等级 · 时长
 #
 # 本目录内三个 payload 拷出去安装:
-#   wren-cc.py -> $PREFIX/wren-cc            并在 ~/.claude/settings.json 写入 statusLine
+#   wren-cc.py -> <settings.json 同目录>/wren-cc   并在 settings.json 写入 statusLine（绝对路径）
 #   wren-pi.ts -> $PI_EXT_DIR/wren-pi.ts        pi 自动加载该目录下的 .ts
 #   wren-qc.py -> $QODER_CONFIG_DIR/wren-qc.py 并在 ~/.qoder/settings.json 写入 statusLine（绝对路径）
 #
@@ -19,7 +19,8 @@
 
 set -u
 
-CC_CMD_NAME="wren-cc"
+# cc 部署目标：与 settings.json 同目录的 wren-cc（绝对路径；v8 起不再放 $PREFIX，
+# 与 qc 侧一致：command 写绝对路径，且重定向 settings 就重定向了 payload）
 
 usage() {
     cat <<'EOF'
@@ -27,7 +28,7 @@ Usage: wren <command> [target]
 
 将本目录下的 statusline payload 装到三个宿主:
 
-  wren-cc.py ->  $PREFIX/wren-cc              并在 $CLAUDE_SETTINGS 写入 statusLine
+  wren-cc.py ->  <settings.json 同目录>/wren-cc  并在 $CLAUDE_SETTINGS 写入 statusLine（绝对路径）
   wren-pi.ts ->  $PI_EXT_DIR/wren-pi.ts          pi 自动加载该目录下的 .ts
   wren-qc.py ->  $QODER_CONFIG_DIR/wren-qc.py  并在 $QODER_SETTINGS 写入 statusLine（command 写绝对路径，与 qoder 官方引导一致）
 
@@ -43,7 +44,6 @@ target（省略则为 all）:
   qc                   只装 Qoder CLI 侧（别名 qoder）
 
 Environment:
-  PREFIX             Claude Code 侧可执行文件目录 (default: /usr/local/bin)
   PI_EXT_DIR         pi 扩展目录 (default: $HOME/.pi/agent/extensions)
   CLAUDE_SETTINGS    要改的 settings.json  (default: $CLAUDE_CONFIG_DIR/settings.json,
                      未设则 $HOME/.claude/settings.json)
@@ -94,12 +94,12 @@ require_cmd() {
 # 改 settings.json。mode=check 只做只读校验与可写性探针，不落任何盘。
 # 解析不了、或目录不可写，都在产生副作用之前退出。
 write_statusline() {
-    local mode="${1:-write}" settings="${2:-$CLAUDE_SETTINGS}" cmd="${3:-$CC_CMD_NAME}"
-    CLAUDE_SETTINGS="$settings" CC_CMD_NAME="$cmd" WREN_MODE="$mode" python3 - <<'PY'
+    local mode="${1:-write}" settings="${2:-$CLAUDE_SETTINGS}" cmd="${3:-$CC_CMD}"
+    CLAUDE_SETTINGS="$settings" WREN_CC_CMD="$cmd" WREN_MODE="$mode" python3 - <<'PY'
 import json, os, shutil, sys
 
 path = os.environ["CLAUDE_SETTINGS"]
-cmd = os.environ["CC_CMD_NAME"]
+cmd = os.environ["WREN_CC_CMD"]
 mode = os.environ["WREN_MODE"]
 parent = os.path.dirname(path) or "."
 
@@ -179,13 +179,13 @@ PY
 
 # 只在 statusLine 确实指向本工具时才删，避免抹掉用户自己的配置
 clear_statusline() {
-    local settings="${1:-$CLAUDE_SETTINGS}" cmd="${2:-$CC_CMD_NAME}"
+    local settings="${1:-$CLAUDE_SETTINGS}" cmd="${2:-$CC_CMD}"
     [[ -f "$settings" ]] || return 0
-    CLAUDE_SETTINGS="$settings" CC_CMD_NAME="$cmd" python3 - <<'PY'
+    CLAUDE_SETTINGS="$settings" WREN_CC_CMD="$cmd" python3 - <<'PY'
 import json, os, sys
 
 path = os.environ["CLAUDE_SETTINGS"]
-cmd = os.environ["CC_CMD_NAME"]
+cmd = os.environ["WREN_CC_CMD"]
 try:
     with open(path, "r", encoding="utf-8") as fh:
         raw = fh.read().strip()
@@ -295,14 +295,24 @@ cmd_install() {
     fi
 
     if want_target "$target" cc; then
-        install_payload "$cc_payload" "$PREFIX/$CC_CMD_NAME" "cc" exec
-        if ! backup="$(write_statusline write)"; then
+        install_payload "$cc_payload" "$CC_CMD" "cc" exec
+        if ! backup="$(write_statusline write "$CLAUDE_SETTINGS" "$CC_CMD")"; then
             exit 1
         fi
         if [[ -n "$backup" ]]; then
             log_info "[cc] backed up $CLAUDE_SETTINGS -> $backup"
         fi
-        log_info "[cc] statusLine -> $CC_CMD_NAME"
+        log_info "[cc] statusLine -> $CC_CMD"
+        # v8 迁移：旧目标 $PREFIX/wren-cc 是我们装的副本（python 脚本含 wren 指纹），
+        # 留在 PATH 上会与 ~/.claude/wren-cc 并存，删掉
+        local legacy="$PREFIX/wren-cc"
+        if [[ -e "$legacy" || -L "$legacy" ]]; then
+            if grep -q "wren" "$legacy" 2>/dev/null; then
+                rm -f "$legacy" && log_info "[cc] migrated: removed legacy $legacy"
+            else
+                log_err "[cc] warning: $legacy exists and is not a wren payload; left alone"
+            fi
+        fi
     fi
 
     if want_target "$target" pi; then
@@ -374,11 +384,16 @@ cmd_uninstall() {
     fi
 
     if want_target "$target" cc; then
-        remove_payload "$PREFIX/$CC_CMD_NAME" "$cc_payload" "cc"
+        remove_payload "$CC_CMD" "$cc_payload" "cc"
+        # v8 迁移残留：老版本装过 $PREFIX/wren-cc，uninstall 一并清（指纹校验）
+        local legacy="$PREFIX/wren-cc"
+        if [[ -e "$legacy" || -L "$legacy" ]] && grep -q "wren" "$legacy" 2>/dev/null; then
+            rm -f "$legacy" && log_info "[cc] migrated: removed legacy $legacy"
+        fi
 
         if command -v python3 >/dev/null 2>&1; then
             if [[ "$(clear_statusline)" == "leftalone" ]]; then
-                log_info "[cc] statusLine does not point at $CC_CMD_NAME; left alone"
+                log_info "[cc] statusLine does not point at $CC_CMD; left alone"
             else
                 log_info "[cc] statusLine removed"
             fi
@@ -439,6 +454,12 @@ main() {
     local qoder_cfg="${QODER_CONFIG_DIR:-$HOME/.qoder}"
     QODER_SETTINGS="${QODER_SETTINGS:-$qoder_cfg/settings.json}"
     QC_CMD="$qoder_cfg/wren-qc.py"
+    # payload 与 settings 同目录：CLAUDE_SETTINGS 是唯一开关，重定向它就
+    # 完全沙箱化（此前从 CLAUDE_CONFIG_DIR 派生，只改 SETTINGS 时会漏到真实 ~/.claude）
+    case "$CLAUDE_SETTINGS" in
+        */*) CC_CMD="${CLAUDE_SETTINGS%/*}/wren-cc" ;;
+        *)   CC_CMD="$claude_cfg/wren-cc" ;;
+    esac
     TARGET=all
 
     case "$1" in

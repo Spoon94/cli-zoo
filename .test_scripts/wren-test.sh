@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# wren-test.sh - 自动运行 .test_task/wren-test.md 中的 78 个用例。
+# wren-test.sh - 自动运行 .test_task/wren-test.md 中的 85 个用例。
 #
 # 用法: bash .test_scripts/wren-test.sh
 # 写出: .test_res/wren-test-res.md
@@ -73,7 +73,7 @@ BOX="" BIN="" PIEXT="" CLAUDE="" SETTINGS="" QODER="" QODER_SETTINGS=""
 # 用沙箱环境调用 wren；输出落 OUT_FILE，退出码进 WREN_EXIT
 run_wren() {
     # NO_COLOR=1：旧用例断言的是明文子串，色档统一关掉（带色断言在 T39+ 单独跑）
-    env NO_COLOR=1 PREFIX="$BIN" PI_EXT_DIR="$PIEXT" CLAUDE_SETTINGS="$SETTINGS" \
+    env NO_COLOR=1 PREFIX="$BIN" PI_EXT_DIR="$PIEXT" CLAUDE_CONFIG_DIR="$CLAUDE" CLAUDE_SETTINGS="$SETTINGS" \
         QODER_CONFIG_DIR="$QODER" QODER_SETTINGS="$QODER_SETTINGS" \
         "$WREN" "$@" >"$BOX/out.txt" 2>"$BOX/err.txt"
     WREN_EXIT=$?
@@ -154,15 +154,15 @@ else
 fi
 
 # ============================================================
-# T04: install → $PREFIX/wren-cc 是 wren-cc.py 副本
+# T04: install → $CLAUDE_CONFIG_DIR/wren-cc 是 wren-cc.py 副本
 # ============================================================
 new_box
 printf '{"model":"opus"}\n' >"$SETTINGS"
 run_wren install
-target="$BIN/wren-cc"
+target="$CLAUDE/wren-cc"
 if [[ "$WREN_EXIT" == "0" && -f "$target" && ! -L "$target" ]] \
    && cmp -s "$target" "$CC_PAYLOAD" && [[ -x "$target" ]]; then
-    pass T04 "install copies wren-cc.py to \$PREFIX/wren-cc (regular, exec, byte-identical)"
+    pass T04 "install copies wren-cc.py to \$CLAUDE_CONFIG_DIR/wren-cc (regular, exec, byte-identical)"
 else
     fail T04 "exit=$WREN_EXIT type=$( [[ -L $target ]] && echo symlink || echo other ) exec=$([[ -x $target ]] && echo yes || echo no)"
 fi
@@ -182,8 +182,8 @@ fi
 # ============================================================
 got="$(json_field "$SETTINGS" 'd["statusLine"]["command"]')"
 got_type="$(json_field "$SETTINGS" 'd["statusLine"]["type"]')"
-if [[ "$got" == "wren-cc" && "$got_type" == "command" ]]; then
-    pass T06 "statusLine.command=wren-cc type=command"
+if [[ "$got" == "$CLAUDE/wren-cc" && "$got_type" == "command" ]]; then
+    pass T06 "statusLine.command=绝对路径（\$CLAUDE/wren-cc）"
 else
     fail T06 "command=[$got] type=[$got_type]"
 fi
@@ -229,7 +229,7 @@ fi
 new_box
 run_wren install
 if [[ "$WREN_EXIT" == "0" && -f "$SETTINGS" ]] \
-   && [[ "$(json_field "$SETTINGS" 'd["statusLine"]["command"]')" == "wren-cc" ]]; then
+   && [[ "$(json_field "$SETTINGS" 'd["statusLine"]["command"]')" == "$CLAUDE/wren-cc" ]]; then
     pass T10 "missing settings.json is created"
 else
     fail T10 "exit=$WREN_EXIT exists=$([[ -f $SETTINGS ]] && echo yes || echo no)"
@@ -273,7 +273,7 @@ fi
 new_box
 run_wren install
 payload_json='{"cwd":"/tmp","model":{"display_name":"claude-opus-5"},"context_window":{"current_usage":{"input_tokens":100,"cache_read_input_tokens":200,"cache_creation_input_tokens":50},"context_window_size":200000},"cost":{"total_duration_ms":3900000},"effort":{"level":"high"}}'
-printf '%s' "$payload_json" | WREN_CACHE_DIR="$TMPROOT/cccache" "$BIN/wren-cc" >"$BOX/cc.txt" 2>&1
+printf '%s' "$payload_json" | WREN_CACHE_DIR="$TMPROOT/cccache" "$CLAUDE/wren-cc" >"$BOX/cc.txt" 2>&1
 rc=$?
 lines=$(awk 'END{printf "%d", NR}' "$BOX/cc.txt")
 body="$(<"$BOX/cc.txt")"
@@ -302,7 +302,7 @@ fi
 # ============================================================
 run_wren uninstall
 if [[ "$WREN_EXIT" == "0" ]] \
-   && [[ ! -e "$BIN/wren-cc" && ! -L "$BIN/wren-cc" ]] \
+   && [[ ! -e "$CLAUDE/wren-cc" && ! -L "$CLAUDE/wren-cc" ]] \
    && [[ ! -e "$PIEXT/wren-pi.ts" && ! -L "$PIEXT/wren-pi.ts" ]]; then
     pass T15 "uninstall removes both installed copies"
 else
@@ -353,12 +353,12 @@ fi
 # T19: 目标位置是别人的文件（内容与 payload 不同）→ 不删
 # ============================================================
 new_box
-printf '#!/bin/sh\necho someone-else\n' >"$BIN/wren-cc"
+printf '#!/bin/sh\necho someone-else\n' >"$CLAUDE/wren-cc"
 run_wren uninstall
-if [[ -f "$BIN/wren-cc" ]] && grep -qF "someone-else" "$BIN/wren-cc"; then
+if [[ -f "$CLAUDE/wren-cc" ]] && grep -qF "someone-else" "$CLAUDE/wren-cc"; then
     pass T19 "uninstall does not remove a foreign file"
 else
-    fail T19 "foreign file gone or changed: [$(cat "$BIN/wren-cc" 2>/dev/null)]"
+    fail T19 "foreign file gone or changed: [$(cat "$CLAUDE/wren-cc" 2>/dev/null)]"
 fi
 
 # ============================================================
@@ -380,11 +380,11 @@ env PREFIX="$BIN" PI_EXT_DIR="$PIEXT" CLAUDE_SETTINGS="$SETTINGS" \
     "$BIN/wren" install >/dev/null 2>&1
 rc=$?
 if [[ $rc -eq 0 ]] \
-   && cmp -s "$BIN/wren-cc" "$CC_PAYLOAD" 2>/dev/null \
+   && cmp -s "$CLAUDE/wren-cc" "$CC_PAYLOAD" 2>/dev/null \
    && cmp -s "$PIEXT/wren-pi.ts" "$PI_PAYLOAD" 2>/dev/null; then
     pass T21 "entry via symlink still finds payloads"
 else
-    fail T21 "rc=$rc cc-identical=$(cmp -s "$BIN/wren-cc" "$CC_PAYLOAD" && echo yes || echo no) pi-identical=$(cmp -s "$PIEXT/wren-pi.ts" "$PI_PAYLOAD" && echo yes || echo no)"
+    fail T21 "rc=$rc cc-identical=$(cmp -s "$CLAUDE/wren-cc" "$CC_PAYLOAD" && echo yes || echo no) pi-identical=$(cmp -s "$PIEXT/wren-pi.ts" "$PI_PAYLOAD" && echo yes || echo no)"
 fi
 
 # ============================================================
@@ -452,12 +452,12 @@ new_box
 printf '{}\n' >"$SETTINGS"
 run_wren install
 first_err="$WREN_ERR"
-printf '\n# locally patched\n' >>"$BIN/wren-cc"
+printf '\n# locally patched\n' >>"$CLAUDE/wren-cc"
 run_wren install
 second_err="$WREN_ERR"
 if ! printf '%s' "$first_err" | grep -qi "differs" \
    && printf '%s' "$second_err" | grep -qi "differs" \
-   && cmp -s "$BIN/wren-cc" "$CC_PAYLOAD"; then
+   && cmp -s "$CLAUDE/wren-cc" "$CC_PAYLOAD"; then
     pass T25 "quiet when identical, warns when overwriting a modified copy"
 else
     fail T25 "first_err=[$first_err] second_err=[$second_err]"
@@ -861,8 +861,8 @@ new_box
 printf '{"model":"opus"}\n' >"$SETTINGS"
 run_wren install cc
 if [[ "$WREN_EXIT" == "0" ]] \
-   && [[ -f "$BIN/wren-cc" && ! -e "$PIEXT/wren-pi.ts" ]] \
-   && [[ "$(json_field "$SETTINGS" 'd["statusLine"]["command"]')" == "wren-cc" ]]; then
+   && [[ -f "$CLAUDE/wren-cc" && ! -e "$PIEXT/wren-pi.ts" ]] \
+   && [[ "$(json_field "$SETTINGS" 'd["statusLine"]["command"]')" == "$CLAUDE/wren-cc" ]]; then
     pass T33 "install cc only touches CC side"
 else
     fail T33 "exit=$WREN_EXIT bin=[$(ls -A "$BIN")] piext=[$(ls -A "$PIEXT")]"
@@ -875,7 +875,7 @@ new_box
 printf '{"model":"opus"}\n' >"$SETTINGS"
 run_wren install pi
 if [[ "$WREN_EXIT" == "0" ]] \
-   && [[ -f "$PIEXT/wren-pi.ts" && ! -e "$BIN/wren-cc" ]] \
+   && [[ -f "$PIEXT/wren-pi.ts" && ! -e "$CLAUDE/wren-cc" ]] \
    && [[ "$(json_field "$SETTINGS" 'd.get("statusLine")')" == "None" ]] \
    && [[ ! -e "$SETTINGS.wren-bak" ]]; then
     pass T34 "install pi only touches pi side"
@@ -889,7 +889,7 @@ fi
 new_box
 printf '{}\n' >"$SETTINGS"
 run_wren install claude
-if [[ "$WREN_EXIT" == "0" && -f "$BIN/wren-cc" ]] && [[ ! -e "$PIEXT/wren-pi.ts" ]]; then
+if [[ "$WREN_EXIT" == "0" && -f "$CLAUDE/wren-cc" ]] && [[ ! -e "$PIEXT/wren-pi.ts" ]]; then
     pass T35 "install claude is an alias of cc"
 else
     fail T35 "exit=$WREN_EXIT bin=[$(ls -A "$BIN")] piext=[$(ls -A "$PIEXT")]"
@@ -905,7 +905,7 @@ env PREFIX="$BIN" PI_EXT_DIR="$PIEXT" CLAUDE_CONFIG_DIR="$CCFG" \
     "$WREN" install cc >"$BOX/out.txt" 2>&1
 rc=$?
 if [[ $rc -eq 0 && -f "$CCFG/settings.json" ]] \
-   && [[ "$(python3 -c "import json;print(json.load(open('$CCFG/settings.json'))['statusLine']['command'])" 2>/dev/null)" == "wren-cc" ]] \
+   && [[ "$(python3 -c "import json;print(json.load(open('$CCFG/settings.json'))['statusLine']['command'])" 2>/dev/null)" == "$CCFG/wren-cc" ]] \
    && [[ ! -f "$CLAUDE/settings.json" ]]; then
     pass T37 "CLAUDE_CONFIG_DIR honored, ~/.claude untouched"
 else
@@ -1838,6 +1838,207 @@ EOF2
     else
         fail T80 "seen:[$t80_seen] mismatch:$t80_err"
     fi
+fi
+
+# ============================================================
+# T81: v8 迁移——install cc 时旧目标 $PREFIX/wren-cc 被识别为 wren 系并删除，
+#      新目标落在 settings 同目录（绝对路径写进 statusLine）
+# ============================================================
+new_box
+mkdir -p "$BIN"
+cp "$CC_PAYLOAD" "$BIN/wren-cc"     # 模拟旧版部署（wren 系副本，旧落点）
+run_wren install cc
+if [[ "$WREN_EXIT" == "0" && ! -e "$BIN/wren-cc" && -f "$CLAUDE/wren-cc" ]] \
+   && cmp -s "$CLAUDE/wren-cc" "$CC_PAYLOAD" \
+   && [[ "$(json_field "$SETTINGS" 'd["statusLine"]["command"]')" == "$CLAUDE/wren-cc" ]] \
+   && printf '%s' "$WREN_OUT" | grep -qF "migrated"; then
+    pass T81 "install cc migrates legacy \$PREFIX/wren-cc, writes absolute command"
+else
+    fail T81 "exit=$WREN_EXIT out=[$WREN_OUT] bin=[$(ls -A "$BIN")]"
+fi
+
+# ============================================================
+# T82: 对照——非 wren 系的同名文件不动（只告警）
+# ============================================================
+new_box
+mkdir -p "$BIN"
+printf '#!/bin/sh\necho foreign\n' >"$BIN/wren-cc"
+run_wren install cc
+if [[ "$WREN_EXIT" == "0" ]] && grep -qF "foreign" "$BIN/wren-cc" 2>/dev/null \
+   && printf '%s' "$WREN_ERR" | grep -qi "not a wren payload"; then
+    pass T82 "foreign \$PREFIX/wren-cc left alone"
+else
+    fail T82 "foreign file gone/changed: [$(cat "$BIN/wren-cc" 2>/dev/null)]"
+fi
+
+# ============================================================
+# T83: TTFT 四档着色——三侧同值同色；探针含「原始 ms 档界」与「舍入后真档界」
+# ============================================================
+new_box
+# 判据已改为显示值 ttft_secs（问题 3），所以真档界在舍入后：4950 / 20500 / 60500。
+# 探针分两组：
+#   a) 原始 ms 档界 5000/20000/60000 — 新语义下必须跟「显示同值」同档（问题 3 回归锚）
+#   b) 真档界 ±10ms — 钉住阈值确实落在舍入点上。
+#      （曾用 ±3ms，实测 harness 两个 Date.now() 间抖动 1~3ms，20497 会跳到 20500 而翻档；
+#       ±10ms 下抖动不可达 20500，探针才是确定性的）
+T83_PROBES="3000:green 4940:green 4960:fg 4999:fg 5000:fg 12000:fg 19999:fg 20000:fg \
+20001:fg 20490:fg 20510:yellow 30000:yellow 59999:yellow 60000:yellow 60001:yellow \
+60490:yellow 60510:red 90000:red"
+t83_code() {
+    case "$1" in
+        green)  printf '38;2;80;250;123' ;;
+        fg)     printf '38;2;248;248;242' ;;
+        yellow) printf '38;2;241;250;140' ;;
+        red)    printf '38;2;255;85;85' ;;
+    esac
+}
+# 抽「TTFT 段自己的」文本与色码：取紧邻 "TTFT " 之前的那个转义码。
+# 不能用整行 grep —— ctx% 可能同色（0.5% 也是绿），那样测不出「色配错段」。
+t83_extract() {
+    python3 -c "
+import re, sys
+m = re.search(r'\x1b\[([0-9;]+)m(TTFT [^\x1b]+)', sys.stdin.read())
+print((m.group(2).strip() + '|' + m.group(1)) if m else '无|无')
+"
+}
+t83_ok=1
+t83_fixture() {  # $1 = ttft ms，$2 = 输出文件；用 python 生成合法 ISO 时间戳
+    python3 - "$1" "$2" <<'PYEOF'
+import json, sys
+ms = int(sys.argv[1])
+from datetime import datetime, timedelta, timezone
+base = datetime(2026, 9, 28, 10, 0, 0, tzinfo=timezone.utc)
+t0 = base.isoformat().replace("+00:00", "Z")
+t1 = (base + timedelta(milliseconds=ms)).isoformat().replace("+00:00", "Z")
+with open(sys.argv[2], "w") as fh:
+    fh.write(json.dumps({"type": "user", "timestamp": t0, "message": {"content": "a"}}) + "\n")
+    fh.write(json.dumps({"type": "assistant", "timestamp": t1,
+                         "message": {"usage": {"input_tokens": 100, "output_tokens": 10,
+                                               "cache_read_input_tokens": 80}}}) + "\n")
+PYEOF
+}
+: >"$BOX/t83_table.txt"
+for pair in $T83_PROBES; do
+    ms="${pair%%:*}"; tier="${pair##*:}"; want="$(t83_code "$tier")"
+    t83_fixture "$ms" "$BOX/t83_$ms.jsonl"
+    cc_x="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$BOX/t83_$ms.jsonl" \
+        | COLORTERM=truecolor WREN_CACHE_DIR="$BOX/c83_$ms" python3 "$CC_PAYLOAD" 2>/dev/null \
+        | tail -1 | t83_extract)"
+    qc_x="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$BOX/t83_$ms.jsonl" \
+        | COLORTERM=truecolor WREN_CACHE_DIR="$BOX/q83_$ms" python3 "$QC_PAYLOAD" 2>/dev/null \
+        | tail -1 | t83_extract)"
+    [[ "${cc_x#*|}" == "$want" ]] || { t83_ok=0; echo "  cc ms=$ms 期望=${tier}(${want}) 实得=[$cc_x]" >&2; }
+    [[ "$cc_x" == "$qc_x" ]] || { t83_ok=0; echo "  cc/qc 不同值同色 ms=$ms cc=[$cc_x] qc=[$qc_x]" >&2; }
+    printf '%s %s\n' "$ms" "$cc_x" >>"$BOX/t83_table.txt"
+done
+if [[ $t83_ok -eq 1 ]]; then
+    pass T83 "cc/qc TTFT 4-tier colour: 18 probes (raw-ms + rounded boundaries), text+code identical"
+else
+    fail T83 "tier colour mismatch (see stderr)"
+fi
+
+# ============================================================
+# T84: pi 侧同表 + 与 cc 逐探针同值同色（读 T83 写下的表）
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T84 "node with .ts type-stripping not available"
+else
+    t84_ok=1
+    # 必须绕开 run_pi（它硬编 NO_COLOR=1，色码不会出现），直接调 harness；取行2
+    t84_run() {
+        env COLOR_MODE=truecolor BRANCH='[]' CTX_USAGE="$USAGE_OK" WREN_TS="$WREN_TS" \
+            TUI_STUB="$PI_DIR/tui-stub.mjs" TTFT_MS="$1" MSG_UPDATES=0 \
+            node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null | tail -1
+    }
+    while read -r ms ccx; do
+        want_text="${ccx%%|*}"; want_code="${ccx#*|}"
+        pi_x="$(t84_run "$ms" | t83_extract)"
+        pi_text="${pi_x%%|*}"; pi_code="${pi_x#*|}"
+        [[ "$pi_code" == "$want_code" ]] || { t84_ok=0; echo "  pi ms=$ms 色码 期望=$want_code 实得=[$pi_x]" >&2; }
+        [[ "$pi_text" == "$want_text" ]] || { t84_ok=0; echo "  pi ms=$ms 显示 期望=$want_text 实得=[$pi_text]" >&2; }
+    done <"$BOX/t83_table.txt"
+    if [[ $t84_ok -eq 1 ]]; then
+        pass T84 "pi TTFT 4-tier colour + display identical to cc/qc, same probe table"
+    else
+        fail T84 "pi tier colour/text differs from cc/qc (see stderr)"
+    fi
+fi
+
+# ============================================================
+# T85: TTFT 边界探针（盲区守门：T83/T84 只测档中值，<= 改 < 注入 bug 仍绿）
+#      判据 = ttft_secs（显示值）：
+#        绿 <5.0s / 白 ≤20s / 黄 ≤60s / 红 >60s（.5s 处换档：20499 白、20500 黄）
+#      共享值三侧同值同色；±1ms 边界串（4999/5000、19999/20000/20001、
+#      59999/60000/60001）断言全部同档——防边界归属回退成原始 ms 判定。
+#      pi 侧事件流有 ε（Date.now 粒度），只用 ε 单调安全（≥）的边：20500/60500。
+# ============================================================
+new_box
+t85_extract() {  # 从渲染行2 抽 "code TTFT 文本"
+    cat -v | LC_ALL=C grep -o '38;2;[0-9;]*mTTFT [^ ]*' | sed 's/\^\[\[0m$//' | tail -1
+}
+t85_qc() {  # $1 = ms → "code TTFT x"
+    t83_fixture "$1" "$BOX/t85_$1.jsonl"
+    printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$BOX/t85_$1.jsonl" \
+        | COLORTERM=truecolor WREN_CACHE_DIR="$BOX/c85_$1" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1 | t85_extract
+}
+t85_cc() {
+    t83_fixture "$1" "$BOX/t85c_$1.jsonl"
+    printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$BOX/t85c_$1.jsonl" \
+        | COLORTERM=truecolor WREN_CACHE_DIR="$BOX/c85c_$1" python3 "$CC_PAYLOAD" 2>/dev/null | tail -1 | t85_extract
+}
+t85_pi() {
+    env COLOR_MODE=truecolor BRANCH='[]' CTX_USAGE="$USAGE_OK" WREN_TS="$WREN_TS" \
+        TUI_STUB="$PI_DIR/tui-stub.mjs" TTFT_MS="$1" MSG_UPDATES=0 \
+        node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null | tail -1 | t85_extract
+}
+t85_ok=1
+t85_expect() {  # $1 = ms → 期望 "code TTFT 文本"
+    case "$1" in
+        4700)  echo "38;2;80;250;123mTTFT 4.7s" ;;
+        4949)  echo "38;2;80;250;123mTTFT 4.9s" ;;
+        4999)  echo "38;2;248;248;242mTTFT 5.0s" ;;
+        5000)  echo "38;2;248;248;242mTTFT 5.0s" ;;
+        19999) echo "38;2;248;248;242mTTFT 20s" ;;
+        20000) echo "38;2;248;248;242mTTFT 20s" ;;
+        20001) echo "38;2;248;248;242mTTFT 20s" ;;
+        20499) echo "38;2;248;248;242mTTFT 20s" ;;
+        20500) echo "38;2;241;250;140mTTFT 21s" ;;
+        59999) echo "38;2;241;250;140mTTFT 1m00s" ;;
+        60000) echo "38;2;241;250;140mTTFT 1m00s" ;;
+        60001) echo "38;2;241;250;140mTTFT 1m00s" ;;
+        60499) echo "38;2;241;250;140mTTFT 1m00s" ;;
+        60500) echo "38;2;255;85;85mTTFT 1m01s" ;;
+        61000) echo "38;2;255;85;85mTTFT 1m01s" ;;
+    esac
+}
+# 共享值：三侧都要同值同色
+for ms in 4999 5000 19999 20000 20001 20500 59999 60000 60001 60500; do
+    want="$(t85_expect "$ms")"
+    q="$(t85_qc "$ms")"; c="$(t85_cc "$ms")"; p="$(t85_pi "$ms")"
+    if [[ "$q" != "$want" || "$c" != "$want" || "$p" != "$want" ]]; then
+        t85_ok=0; echo "  ms=$ms want=[$want] qc=[$q] cc=[$c] pi=[$p]" >&2
+    fi
+done
+# 精确边（±1ms / .5s 换档点）：qc/cc transcript 数学确定，可测 ε 敏感侧
+for ms in 4949 20499 60499; do
+    want="$(t85_expect "$ms")"
+    q="$(t85_qc "$ms")"; c="$(t85_cc "$ms")"
+    if [[ "$q" != "$want" || "$c" != "$want" ]]; then
+        t85_ok=0; echo "  edge ms=$ms want=[$want] qc=[$q] cc=[$c]" >&2
+    fi
+done
+# pi 补绿/红档 ε 安全见证
+for ms in 4700 61000; do
+    want="$(t85_expect "$ms")"
+    p="$(t85_pi "$ms")"
+    if [[ "$p" != "$want" ]]; then
+        t85_ok=0; echo "  pi ms=$ms want=[$want] pi=[$p]" >&2
+    fi
+done
+if [[ $t85_ok -eq 1 ]]; then
+    pass T85 "TTFT boundary probes: display-synced tiers, +/-1ms bands same tier, 3-side identical"
+else
+    fail T85 "boundary mismatch (see stderr)"
 fi
 
 # ---------- 汇总 ----------

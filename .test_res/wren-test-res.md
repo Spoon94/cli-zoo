@@ -1,14 +1,14 @@
 # wren 测试结果
-执行时间：2026-09-29 13:15:34
+执行时间：2026-09-29 17:06:32
 
 | ID | 状态 | 备注 |
 |----|------|------|
 | T01 | PASS | no args -> exit 2 + usage |
 | T02 | PASS | -h prints usage (exit 0) |
 | T03 | PASS | unknown subcommand -> exit 2 |
-| T04 | PASS | install copies wren-cc.py to $PREFIX/wren-cc (regular, exec, byte-identical) |
+| T04 | PASS | install copies wren-cc.py to $CLAUDE_CONFIG_DIR/wren-cc (regular, exec, byte-identical) |
 | T05 | PASS | install copies wren.ts to $PI_EXT_DIR/wren-pi.ts (byte-identical) |
-| T06 | PASS | statusLine.command=wren-cc type=command |
+| T06 | PASS | statusLine.command=绝对路径（$CLAUDE/wren-cc） |
 | T07 | PASS | other keys and key order preserved |
 | T08 | PASS | backup holds pre-install bytes |
 | T09 | PASS | repeat install keeps the original backup |
@@ -83,5 +83,10 @@
 | T78 | PASS | first chunk atomically replaces TTFT (TTFT 12s, old value gone) |
 | T79 | PASS | qc line2 ladder color-agnostic; TTFT survives truecolor at width 80 |
 | T80 | PASS | 3-host line2 ladder identical & ordered (w90/81/80/70/65/55: TCP TCP -CP -CP --P ---) |
+| T81 | PASS | install cc migrates legacy $PREFIX/wren-cc, writes absolute command |
+| T82 | PASS | foreign $PREFIX/wren-cc left alone |
+| T83 | PASS | cc/qc TTFT 4-tier colour: 18 probes (raw-ms + rounded boundaries), text+code identical |
+| T84 | PASS | pi TTFT 4-tier colour + display identical to cc/qc, same probe table |
+| T85 | PASS | TTFT boundary probes: display-synced tiers, +/-1ms bands same tier, 3-side identical |
 
-汇总：Total 80 / Pass 80 / Fail 0 / Skip 0
+汇总：Total 85 / Pass 85 / Fail 0 / Skip 0

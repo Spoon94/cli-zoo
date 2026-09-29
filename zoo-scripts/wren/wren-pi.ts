@@ -42,6 +42,28 @@ function sliceCells(s: string, maxW: number, fromEnd: boolean): string {
 
 // 预算上界常量（设计 §1.1-2 / §4）：按上界预留而不是当前值宽度，折叠决策才不随数值抖动。
 // TTFT 上界 `TTFT 99m59s` = 11 格；时长段上界 ` · 99h59m` = 9 格（含 " · " 分隔符 3 格）。
+// TTFT 显示值（秒）：<10s 保留一位小数，≥10s 四舍五入到整秒（与 fmtTtft 同口径）。
+// 色档判定用它而非原始 ms —— 否则「TTFT 20s」在 19.6s~20.4s 之间会白黄跳。
+// <10s 档必须直接取「显示器渲染出来的那个数」（toFixed(1)），不能用
+// Math.round(ms/100)/10：后者是半进、而 toFixed 作用在 double 上（如 150ms：
+// toFixed→0.1 而 round→0.2），会与同屏显示的 "TTFT 0.1s" 不同步。
+function ttftSecs(ms: number | null | undefined): number | null {
+	if (ms == null) return null;
+	if (ms < 10_000) return Number((ms / 1000).toFixed(1));
+	return Math.round(ms / 1000);
+}
+
+// TTFT 四档着色（与 ctx% 同为突变式，不做渐变）：绿 <5s、白 5-20s、黄 20-60s、
+// 红 >60s。判据取 ttftSecs（显示器渲染值），保证同屏同值同色。三侧同一张表。
+function ttftColor(ms: number | null | undefined): string {
+	const v = ttftSecs(ms);
+	if (v == null) return "fg";
+	if (v < 5) return "green";
+	if (v <= 20) return "fg";
+	if (v <= 60) return "yellow";
+	return "red";
+}
+
 const TTFT_BUDGET = 11;
 const DUR_BUDGET = visibleWidth(" · 99h59m");
 
@@ -354,7 +376,7 @@ export default function (pi: ExtensionAPI) {
 						+ (k.ch ? " " + c("cyan", chText) : "")
 						+ (k.cp ? " " + c("comment", cpText) : "")
 						+ ` ${sep2} ` + c(ctxColorName, ctxPercentText)
-						+ (k.ttft ? " " + c("fg", ttftText) : "")
+						+ (k.ttft ? " " + c(ttftColor(lastTtftMs), ttftText) : "")
 						+ ` ${sep2} ${right}`;
 					const budget2 = (k: { ttft: boolean; ch: boolean; cp: boolean }) =>
 						visibleWidth(assemble2(k)) + (k.ttft ? Math.max(0, TTFT_BUDGET - visibleWidth(ttftText)) : 0);

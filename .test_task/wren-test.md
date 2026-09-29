@@ -95,6 +95,11 @@
 | T67 | 安装 | cc settings 合法、qoder settings 非法 JSON，跑 `wren install`（all） | exit 1；`$PREFIX`/`$PI_EXT_DIR`/qoder 目录均无 payload、两份 settings 均无 `.wren-bak`、cc settings 字节未变（**预检先行守门**） |
 | T68 | 安装 | `QODER_CONFIG_DIR` 指向只读目录下的不存在路径（父目录不可创建），跑 `install`（all） | exit 1；`$PREFIX`/`$PI_EXT_DIR` 均空、目标目录未被创建、cc settings 字节未变（**半装缺口守门**：check 探针需向上找存在祖先） |
 | T74 | 安装 | 预置旧名 `$PIEXT/wren.ts`（wren 系副本）后 `wren install pi` | 旧文件被删、新目标 `wren-pi.ts` 与 payload 逐字节相同、stdout 含 `migrated`（**v7 改名迁移守门**） |
+| T81 | 安装 | 预置旧落点 `$PREFIX/wren-cc`（wren 系副本）后 `wren install cc` | 旧文件被删、新目标 `$CLAUDE_SETTINGS` 同目录的 `wren-cc` 与 payload 逐字节相同、`statusLine.command` 为绝对路径、stdout 含 `migrated`（**v8 落点迁移守门**） |
+| T82 | 安装 | 同上但预置的是非 wren 系同名文件 | 该文件原样保留、stderr 含 `not a wren payload`（**只删自己的东西**） |
+| T83 | cc/qc | 18 个探针：四档代表值 + **原始 ms 档界** `4999/5000`、`19999/20000/20001`、`59999/60000/60001` + **舍入后真档界 ±10ms**（`4940/4960`、`20490/20510`、`60490/60510`）；抽「紧邻 `TTFT ` 的转义码 + 文本」 | 每条命中期望档色；且 cc 与 qc 的「文本\|色码」逐字相同（**TTFT 四档着色守门**；同时修掉原 `t83_colors` 未定义 → `want` 为空 → `grep -F ""` 恒真的**空转**） |
+| T84 | pi | 读 T83 写下的 `(ms, 文本\|色码)` 表逐条重跑 harness（绕开 `run_pi` 的 `NO_COLOR=1`） | 色码**与显示文本**都与 cc/qc 相同（**三侧同值同色守门**；原来对整行 `grep`，ctx% 同色（0.5% 也绿）时会误过，现改为只取 `TTFT ` 段自己的码） |
+| T85 | 三侧 | 边界探针：共享值 `4999/5000/19999/20000/20001/20500/59999/60000/60001/60500` 三侧同值同色；`4949/20499/60499` 精确边仅 qc/cc；pi 补 `4700/61000` | 全部命中期望 `code+TTFT 文本`（**判据=显示值 `ttft_secs`：±1ms 边界串同档、.5s 处换档 20499 白/20500 黄、60499 黄/60500 红；注入 `<=`→`<` 或回退原始 ms 判定都会红**） |
 | T76 | qc | round1 配对后 round2 只有 user（等待期）→ 追加 round2 两条 assistant 增量续读 | 等待期行2 含 round1 旧值 `TTFT 7.4s`；续读后含 `TTFT 3.1s` 且不含 `TTFT 7.4s`/`TTFT 9.0s`（**turn_first_ts 不清空、比较判开；首片定值守门**） |
 | T77 | pi | 次轮 `turn_start` 已发、首片未到（`TTFT_MS='6600,12400'`、`MSG_UPDATES='0|'`）；另跑首轮进行中 | 前者含旧值 `TTFT 6.6s` 且不含 `TTFT 12s`；首轮进行中无任何 `T`（**方案 B：轮中不闪空、不提前显新值**） |
 | T78 | pi | `TTFT_MS='6600,12400'`、`MSG_UPDATES='0|0'`（次轮首片已到） | 含 `TTFT 12s` 且不含 `TTFT 6.6s`（**首片落地原子覆盖**） |
