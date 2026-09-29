@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# wren-test.sh - 自动运行 .test_task/wren-test.md 中的 68 个用例。
+# wren-test.sh - 自动运行 .test_task/wren-test.md 中的 85 个用例。
 #
 # 用法: bash .test_scripts/wren-test.sh
 # 写出: .test_res/wren-test-res.md
@@ -17,8 +17,8 @@ unset HERDR_WORKSPACE_ID HERDR_TAB_ID HERDR_PANE_ID 2>/dev/null || true
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 WREN="$REPO_ROOT/zoo-scripts/wren/wren"
-CC_PAYLOAD="$REPO_ROOT/zoo-scripts/wren/wren.py"
-PI_PAYLOAD="$REPO_ROOT/zoo-scripts/wren/wren.ts"
+CC_PAYLOAD="$REPO_ROOT/zoo-scripts/wren/wren-cc.py"
+PI_PAYLOAD="$REPO_ROOT/zoo-scripts/wren/wren-pi.ts"
 QC_PAYLOAD="$REPO_ROOT/zoo-scripts/wren/wren-qc.py"
 INSTALL_SH="$REPO_ROOT/cli-zoo-install.sh"
 UNINSTALL_SH="$REPO_ROOT/cli-zoo-uninstall.sh"
@@ -73,7 +73,7 @@ BOX="" BIN="" PIEXT="" CLAUDE="" SETTINGS="" QODER="" QODER_SETTINGS=""
 # 用沙箱环境调用 wren；输出落 OUT_FILE，退出码进 WREN_EXIT
 run_wren() {
     # NO_COLOR=1：旧用例断言的是明文子串，色档统一关掉（带色断言在 T39+ 单独跑）
-    env NO_COLOR=1 PREFIX="$BIN" PI_EXT_DIR="$PIEXT" CLAUDE_SETTINGS="$SETTINGS" \
+    env NO_COLOR=1 PREFIX="$BIN" PI_EXT_DIR="$PIEXT" CLAUDE_CONFIG_DIR="$CLAUDE" CLAUDE_SETTINGS="$SETTINGS" \
         QODER_CONFIG_DIR="$QODER" QODER_SETTINGS="$QODER_SETTINGS" \
         "$WREN" "$@" >"$BOX/out.txt" 2>"$BOX/err.txt"
     WREN_EXIT=$?
@@ -87,6 +87,8 @@ WREN_ERR=""
 # 行1 尾有 " | cc"/" | pi" 宿主徽标（v6 起），跨实现比对前剥掉
 strip_tag() {
     local seg="$1"
+    # 行1 尾的时长（v7 起，紧跟在徽标之后）：` · 1h5m` / ` · 16m` / ` · 99h+`
+    seg="$(printf '%s' "$seg" | sed -E 's/ · ([0-9]+h[0-9]+m|[0-9]+h\+|[0-9]+m)$//')"
     # 段尾的宿主徽标（v6 起）：无 git/herdr 时整段就是裸徽标，剥完为空
     seg="${seg% | cc}"
     seg="${seg% | pi}"
@@ -152,25 +154,25 @@ else
 fi
 
 # ============================================================
-# T04: install → $PREFIX/wren-cc 是 wren.py 副本
+# T04: install → $CLAUDE_CONFIG_DIR/wren-cc 是 wren-cc.py 副本
 # ============================================================
 new_box
 printf '{"model":"opus"}\n' >"$SETTINGS"
 run_wren install
-target="$BIN/wren-cc"
+target="$CLAUDE/wren-cc"
 if [[ "$WREN_EXIT" == "0" && -f "$target" && ! -L "$target" ]] \
    && cmp -s "$target" "$CC_PAYLOAD" && [[ -x "$target" ]]; then
-    pass T04 "install copies wren.py to \$PREFIX/wren-cc (regular, exec, byte-identical)"
+    pass T04 "install copies wren-cc.py to \$CLAUDE_CONFIG_DIR/wren-cc (regular, exec, byte-identical)"
 else
     fail T04 "exit=$WREN_EXIT type=$( [[ -L $target ]] && echo symlink || echo other ) exec=$([[ -x $target ]] && echo yes || echo no)"
 fi
 
 # ============================================================
-# T05: install → $PI_EXT_DIR/wren.ts 是 wren.ts 副本
+# T05: install → $PI_EXT_DIR/wren-pi.ts 是 wren.ts 副本
 # ============================================================
-pi_target="$PIEXT/wren.ts"
+pi_target="$PIEXT/wren-pi.ts"
 if [[ -f "$pi_target" && ! -L "$pi_target" ]] && cmp -s "$pi_target" "$PI_PAYLOAD"; then
-    pass T05 "install copies wren.ts to \$PI_EXT_DIR/wren.ts (byte-identical)"
+    pass T05 "install copies wren.ts to \$PI_EXT_DIR/wren-pi.ts (byte-identical)"
 else
     fail T05 "type=$( [[ -L "$pi_target" ]] && echo symlink || echo other ) expect byte-identical copy"
 fi
@@ -180,8 +182,8 @@ fi
 # ============================================================
 got="$(json_field "$SETTINGS" 'd["statusLine"]["command"]')"
 got_type="$(json_field "$SETTINGS" 'd["statusLine"]["type"]')"
-if [[ "$got" == "wren-cc" && "$got_type" == "command" ]]; then
-    pass T06 "statusLine.command=wren-cc type=command"
+if [[ "$got" == "$CLAUDE/wren-cc" && "$got_type" == "command" ]]; then
+    pass T06 "statusLine.command=绝对路径（\$CLAUDE/wren-cc）"
 else
     fail T06 "command=[$got] type=[$got_type]"
 fi
@@ -227,7 +229,7 @@ fi
 new_box
 run_wren install
 if [[ "$WREN_EXIT" == "0" && -f "$SETTINGS" ]] \
-   && [[ "$(json_field "$SETTINGS" 'd["statusLine"]["command"]')" == "wren-cc" ]]; then
+   && [[ "$(json_field "$SETTINGS" 'd["statusLine"]["command"]')" == "$CLAUDE/wren-cc" ]]; then
     pass T10 "missing settings.json is created"
 else
     fail T10 "exit=$WREN_EXIT exists=$([[ -f $SETTINGS ]] && echo yes || echo no)"
@@ -271,7 +273,7 @@ fi
 new_box
 run_wren install
 payload_json='{"cwd":"/tmp","model":{"display_name":"claude-opus-5"},"context_window":{"current_usage":{"input_tokens":100,"cache_read_input_tokens":200,"cache_creation_input_tokens":50},"context_window_size":200000},"cost":{"total_duration_ms":3900000},"effort":{"level":"high"}}'
-printf '%s' "$payload_json" | WREN_CACHE_DIR="$TMPROOT/cccache" "$BIN/wren-cc" >"$BOX/cc.txt" 2>&1
+printf '%s' "$payload_json" | WREN_CACHE_DIR="$TMPROOT/cccache" "$CLAUDE/wren-cc" >"$BOX/cc.txt" 2>&1
 rc=$?
 lines=$(awk 'END{printf "%d", NR}' "$BOX/cc.txt")
 body="$(<"$BOX/cc.txt")"
@@ -300,8 +302,8 @@ fi
 # ============================================================
 run_wren uninstall
 if [[ "$WREN_EXIT" == "0" ]] \
-   && [[ ! -e "$BIN/wren-cc" && ! -L "$BIN/wren-cc" ]] \
-   && [[ ! -e "$PIEXT/wren.ts" && ! -L "$PIEXT/wren.ts" ]]; then
+   && [[ ! -e "$CLAUDE/wren-cc" && ! -L "$CLAUDE/wren-cc" ]] \
+   && [[ ! -e "$PIEXT/wren-pi.ts" && ! -L "$PIEXT/wren-pi.ts" ]]; then
     pass T15 "uninstall removes both installed copies"
 else
     fail T15 "exit=$WREN_EXIT bin=[$(ls -A "$BIN")] piext=[$(ls -A "$PIEXT")]"
@@ -351,12 +353,12 @@ fi
 # T19: 目标位置是别人的文件（内容与 payload 不同）→ 不删
 # ============================================================
 new_box
-printf '#!/bin/sh\necho someone-else\n' >"$BIN/wren-cc"
+printf '#!/bin/sh\necho someone-else\n' >"$CLAUDE/wren-cc"
 run_wren uninstall
-if [[ -f "$BIN/wren-cc" ]] && grep -qF "someone-else" "$BIN/wren-cc"; then
+if [[ -f "$CLAUDE/wren-cc" ]] && grep -qF "someone-else" "$CLAUDE/wren-cc"; then
     pass T19 "uninstall does not remove a foreign file"
 else
-    fail T19 "foreign file gone or changed: [$(cat "$BIN/wren-cc" 2>/dev/null)]"
+    fail T19 "foreign file gone or changed: [$(cat "$CLAUDE/wren-cc" 2>/dev/null)]"
 fi
 
 # ============================================================
@@ -378,11 +380,11 @@ env PREFIX="$BIN" PI_EXT_DIR="$PIEXT" CLAUDE_SETTINGS="$SETTINGS" \
     "$BIN/wren" install >/dev/null 2>&1
 rc=$?
 if [[ $rc -eq 0 ]] \
-   && cmp -s "$BIN/wren-cc" "$CC_PAYLOAD" 2>/dev/null \
-   && cmp -s "$PIEXT/wren.ts" "$PI_PAYLOAD" 2>/dev/null; then
+   && cmp -s "$CLAUDE/wren-cc" "$CC_PAYLOAD" 2>/dev/null \
+   && cmp -s "$PIEXT/wren-pi.ts" "$PI_PAYLOAD" 2>/dev/null; then
     pass T21 "entry via symlink still finds payloads"
 else
-    fail T21 "rc=$rc cc-identical=$(cmp -s "$BIN/wren-cc" "$CC_PAYLOAD" && echo yes || echo no) pi-identical=$(cmp -s "$PIEXT/wren.ts" "$PI_PAYLOAD" && echo yes || echo no)"
+    fail T21 "rc=$rc cc-identical=$(cmp -s "$CLAUDE/wren-cc" "$CC_PAYLOAD" && echo yes || echo no) pi-identical=$(cmp -s "$PIEXT/wren-pi.ts" "$PI_PAYLOAD" && echo yes || echo no)"
 fi
 
 # ============================================================
@@ -450,12 +452,12 @@ new_box
 printf '{}\n' >"$SETTINGS"
 run_wren install
 first_err="$WREN_ERR"
-printf '\n# locally patched\n' >>"$BIN/wren-cc"
+printf '\n# locally patched\n' >>"$CLAUDE/wren-cc"
 run_wren install
 second_err="$WREN_ERR"
 if ! printf '%s' "$first_err" | grep -qi "differs" \
    && printf '%s' "$second_err" | grep -qi "differs" \
-   && cmp -s "$BIN/wren-cc" "$CC_PAYLOAD"; then
+   && cmp -s "$CLAUDE/wren-cc" "$CC_PAYLOAD"; then
     pass T25 "quiet when identical, warns when overwriting a modified copy"
 else
     fail T25 "first_err=[$first_err] second_err=[$second_err]"
@@ -481,7 +483,7 @@ fi
 # ============================================================
 # pi 侧（zoo-scripts/wren/odo.ts）—— stub 掉 @earendil-works/pi-tui 后真跑 footer 渲染
 # ============================================================
-WREN_TS="$REPO_ROOT/zoo-scripts/wren/wren.ts"
+WREN_TS="$REPO_ROOT/zoo-scripts/wren/wren-pi.ts"
 PI_DIR="$TMPROOT/pi"
 mkdir -p "$PI_DIR"
 
@@ -571,6 +573,31 @@ const footerData = {
   getGitBranch: () => process.env.BRANCHNAME || null,
   onBranchChange: () => () => {},
 };
+// TTFT 事件流（设计 §5 pi 侧）：harness 可发 turn_start / message_update，
+// 让 wren-pi.ts 的内存态收到真实事件形状。
+// TTFT_MS="a,b"：按顺序模拟多轮，每轮发一个 turn_start，时间戳回拨 a/b ms
+//                （用「当前时刻 − N」避免 node 启动耗时污染读数）；
+// MSG_UPDATES="x,y|"：用 | 分隔每轮的 update 延迟；某轮为空串 = 该轮不发 update
+//                （用来例化「轮进行中、首片未到」这条）。
+const fire = (name, event) => {
+  const h = handlers.find((x) => x[0] === name);
+  if (h) h[1](event, ctx);
+};
+const ttftTurns = (process.env.TTFT_MS || "").split(",").filter((s) => s !== "");
+// 注意用 !== undefined 而非 ||：MSG_UPDATES="" 表示「该轮不发 update」（轮进行中），
+// 不能被默认值 "0" 吃掉。
+const perTurnUpdates = (process.env.MSG_UPDATES !== undefined ? process.env.MSG_UPDATES : "0").split("|");
+for (let i = 0; i < ttftTurns.length; i++) {
+  fire("turn_start", {
+    type: "turn_start",
+    turnIndex: i,
+    timestamp: Date.now() - Number(ttftTurns[i]),
+  });
+  for (const ms of (perTurnUpdates[i] ?? "0").split(",").filter((s) => s !== "")) {
+    await new Promise((r) => setTimeout(r, Number(ms)));
+    fire("message_update", { type: "message_update", message: {}, assistantMessageEvent: {} });
+  }
+}
 const footer = footerFactory(tui, theme, footerData);
 // refreshGit 走 execFile 是异步的，等它落定再渲染（只有 T32 需要）
 await new Promise((r) => setTimeout(r, Number(process.env.GIT_WAIT_MS || 0)));
@@ -834,8 +861,8 @@ new_box
 printf '{"model":"opus"}\n' >"$SETTINGS"
 run_wren install cc
 if [[ "$WREN_EXIT" == "0" ]] \
-   && [[ -f "$BIN/wren-cc" && ! -e "$PIEXT/wren.ts" ]] \
-   && [[ "$(json_field "$SETTINGS" 'd["statusLine"]["command"]')" == "wren-cc" ]]; then
+   && [[ -f "$CLAUDE/wren-cc" && ! -e "$PIEXT/wren-pi.ts" ]] \
+   && [[ "$(json_field "$SETTINGS" 'd["statusLine"]["command"]')" == "$CLAUDE/wren-cc" ]]; then
     pass T33 "install cc only touches CC side"
 else
     fail T33 "exit=$WREN_EXIT bin=[$(ls -A "$BIN")] piext=[$(ls -A "$PIEXT")]"
@@ -848,7 +875,7 @@ new_box
 printf '{"model":"opus"}\n' >"$SETTINGS"
 run_wren install pi
 if [[ "$WREN_EXIT" == "0" ]] \
-   && [[ -f "$PIEXT/wren.ts" && ! -e "$BIN/wren-cc" ]] \
+   && [[ -f "$PIEXT/wren-pi.ts" && ! -e "$CLAUDE/wren-cc" ]] \
    && [[ "$(json_field "$SETTINGS" 'd.get("statusLine")')" == "None" ]] \
    && [[ ! -e "$SETTINGS.wren-bak" ]]; then
     pass T34 "install pi only touches pi side"
@@ -862,7 +889,7 @@ fi
 new_box
 printf '{}\n' >"$SETTINGS"
 run_wren install claude
-if [[ "$WREN_EXIT" == "0" && -f "$BIN/wren-cc" ]] && [[ ! -e "$PIEXT/wren.ts" ]]; then
+if [[ "$WREN_EXIT" == "0" && -f "$CLAUDE/wren-cc" ]] && [[ ! -e "$PIEXT/wren-pi.ts" ]]; then
     pass T35 "install claude is an alias of cc"
 else
     fail T35 "exit=$WREN_EXIT bin=[$(ls -A "$BIN")] piext=[$(ls -A "$PIEXT")]"
@@ -878,7 +905,7 @@ env PREFIX="$BIN" PI_EXT_DIR="$PIEXT" CLAUDE_CONFIG_DIR="$CCFG" \
     "$WREN" install cc >"$BOX/out.txt" 2>&1
 rc=$?
 if [[ $rc -eq 0 && -f "$CCFG/settings.json" ]] \
-   && [[ "$(python3 -c "import json;print(json.load(open('$CCFG/settings.json'))['statusLine']['command'])" 2>/dev/null)" == "wren-cc" ]] \
+   && [[ "$(python3 -c "import json;print(json.load(open('$CCFG/settings.json'))['statusLine']['command'])" 2>/dev/null)" == "$CCFG/wren-cc" ]] \
    && [[ ! -f "$CLAUDE/settings.json" ]]; then
     pass T37 "CLAUDE_CONFIG_DIR honored, ~/.claude untouched"
 else
@@ -1215,21 +1242,23 @@ else
 fi
 
 # ============================================================
-# T53: qc 时长：cost.total_duration_ms 优先 → transcript 首条时间戳回退
+# T53: qc 时长 = transcript 推算的会话年龄（首条 ts → now），上移行1 尾与徽标合并；
+#      cost.total_duration_ms 路径已删（宿主从不发送该字段，v6 起不读）
 # ============================================================
 new_box
-printf '{"cwd":"/tmp","model":{"display_name":"m"},"cost":{"total_duration_ms":3900000}}' \
-    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q53" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1 >"$BOX/q53a.txt"
 TS53=$(python3 -c "import datetime;print((datetime.datetime.now(datetime.timezone.utc)-datetime.timedelta(minutes=9)).isoformat())")
 printf '{"type":"assistant","timestamp":"%s","message":{"usage":{}}}\n' "$TS53" >"$BOX/tr53.jsonl"
 printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$BOX/tr53.jsonl" \
-    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q53b" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1 >"$BOX/q53b.txt"
-q53a="$(<"$BOX/q53a.txt")"; q53b="$(<"$BOX/q53b.txt")"
-if printf '%s' "$q53a" | grep -qF "1h5m" \
-   && printf '%s' "$q53b" | grep -qF "9m"; then
-    pass T53 "qc duration: cost field first, transcript first-ts fallback"
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q53a" python3 "$QC_PAYLOAD" 2>/dev/null >"$BOX/q53a.txt"
+printf '{"cwd":"/tmp","model":{"display_name":"m"},"cost":{"total_duration_ms":3900000}}' \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q53b" python3 "$QC_PAYLOAD" 2>/dev/null >"$BOX/q53b.txt"
+q53a1="$(head -1 "$BOX/q53a.txt")"; q53a2="$(tail -1 "$BOX/q53a.txt")"; q53b1="$(head -1 "$BOX/q53b.txt")"
+if printf '%s' "$q53a1" | grep -qF "qc · 9m" \
+   && ! printf '%s' "$q53a2" | grep -qF "9m" \
+   && printf '%s' "$q53b1" | grep -qF "| qc" && ! printf '%s' "$q53b1" | grep -qF "·"; then
+    pass T53 "qc duration: session age from transcript on line1, cost field not read"
 else
-    fail T53 "a=[$q53a] b=[$q53b]"
+    fail T53 "a1=[$q53a1] a2=[$q53a2] b1=[$q53b1]"
 fi
 
 # ============================================================
@@ -1331,7 +1360,7 @@ else
 fi
 
 # ============================================================
-# T59: qc 行1 与 wren.py 跨实现同构（剥宿主徽标后逐字相同）
+# T59: qc 行1 与 wren-cc.py 跨实现同构（剥宿主徽标后逐字相同）
 # ============================================================
 new_box
 R59="$BOX/r59"; mkdir -p "$R59"
@@ -1344,7 +1373,7 @@ qc59=$(printf '{"cwd":"%s","model":{"display_name":"m"}}' "$R59" \
     | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q59" python3 "$QC_PAYLOAD" 2>/dev/null | head -1)
 cc59s="$(strip_tag "$cc59")"; qc59s="$(strip_tag "$qc59")"
 if [[ -n "$cc59s" && "$cc59s" == "$qc59s" ]] && printf '%s' "$cc59s" | grep -qF "main"; then
-    pass T59 "qc line1 identical to wren.py after badge strip ($cc59s)"
+    pass T59 "qc line1 identical to wren-cc.py after badge strip ($cc59s)"
 else
     fail T59 "cc=[$cc59s] qc=[$qc59s]"
 fi
@@ -1510,6 +1539,506 @@ else
         fail T68 "exit=$E68 bin=[$(ls -A "$BIN")] piext=[$(ls -A "$PIEXT")] ro=[$(ls -A "$RO" 2>/dev/null)]"
     fi
     chmod 755 "$RO"
+fi
+
+# ============================================================
+# T69: pi 事件计时 TTFT（turn_start + 首个 message_update，内存态不入缓存）
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T69 "node with .ts type-stripping not available"
+else
+    pi_ttft() {  # $1 = TTFT_MS（多轮用 , 分隔）, $2 = MSG_UPDATES（每轮用 | 分隔，空 = 该轮不发首片）
+        env NO_COLOR=1 TTFT_MS="$1" MSG_UPDATES="$2" CTX_USAGE="$USAGE_OK" WREN_TS="$WREN_TS" \
+            TUI_STUB="$PI_DIR/tui-stub.mjs" node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null \
+            | head -2 | tail -1
+    }
+    t69_a="$(pi_ttft 6600 0)"     # <10s：一位小数
+    t69_b="$(pi_ttft 12000 0)"    # ≥10s：整数
+    t69_c="$(pi_ttft 65000 0)"    # ≥60s：TTFT 1m05s
+    t69_d="$(pi_ttft 6600 "0,300")"   # 第二个 message_update 不得改写首片时刻
+    if printf '%s' "$t69_a" | grep -qF "TTFT 6.6s" \
+       && printf '%s' "$t69_b" | grep -qF "TTFT 12s" \
+       && printf '%s' "$t69_c" | grep -qF "TTFT 1m05s" \
+       && printf '%s' "$t69_d" | grep -qF "TTFT 6.6s"; then
+        pass T69 "pi TTFT from event stream (3 tiers + first-update-only)"
+    else
+        fail T69 "a=[$t69_a] b=[$t69_b] c=[$t69_c] d=[$t69_d]"
+    fi
+fi
+
+# ============================================================
+# T70: 时长归位——落在行1 徽标段，行2 不再出现（设计 §7）
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T70 "node with .ts type-stripping not available"
+else
+    t70_out=$(env NO_COLOR=1 CTX_USAGE="$USAGE_OK" WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs" \
+        node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null)
+    t70_l1="$(printf '%s' "$t70_out" | head -1)"
+    t70_l2="$(printf '%s' "$t70_out" | tail -1)"
+    if printf '%s' "$t70_l1" | grep -qE '\| pi · ([0-9]+h[0-9]+m|[0-9]+h\+|[0-9]+m)$' \
+       && ! printf '%s' "$t70_l2" | grep -qE '([0-9]+h[0-9]+m|[0-9]+h\+|[0-9]+m)$'; then
+        pass T70 "duration in line1 badge slot, absent from line2"
+    else
+        fail T70 "l1=[$t70_l1] l2=[$t70_l2]"
+    fi
+fi
+
+# ============================================================
+# T71: 段缺失不留悬空分隔符（时长在、TTFT 缺）
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T71 "node with .ts type-stripping not available"
+else
+    t71_l2=$(env NO_COLOR=1 CTX_USAGE="$USAGE_OK" WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs" \
+        node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null | tail -1)
+    t71_bad=0
+    printf '%s' "$t71_l2" | grep -qE '  ' && t71_bad=1           # 双空格（段被剔除后未清干净）
+    printf '%s' "$t71_l2" | grep -qE '(\||·) *$' && t71_bad=1   # 悬空分隔符
+    printf '%s' "$t71_l2" | grep -qF '· |' && t71_bad=1
+    printf '%s' "$t71_l2" | grep -qF '| |' && t71_bad=1
+    if [[ $t71_bad -eq 0 ]] && printf '%s' "$t71_l2" | grep -qF "0.50%/200K | claude-opus-5"; then
+        pass T71 "no dangling separator when TTFT absent"
+    else
+        fail T71 "l2=[$t71_l2] bad=$t71_bad"
+    fi
+fi
+
+# ============================================================
+# T72: 行1 梯子——预算不够先丢时长，徽标保住（设计 §4）
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T72 "node with .ts type-stripping not available"
+else
+    T72_REPO="$BOX/r72"; mkdir -p "$T72_REPO"
+    (cd "$T72_REPO" && git -c init.defaultBranch=main init -q && git config user.email t@e.com \
+        && git config user.name t && : >f && git add -A && git commit -qm i >/dev/null 2>&1 \
+        && git checkout -q -b feature/some-extremely-long-branch-name-for-testing-overflow && : >g) >/dev/null 2>&1
+    t72_run() {  # $1 = WIDTH
+        (cd "$T72_REPO" && env NO_COLOR=1 WIDTH="$1" BRANCHNAME="feature/some-extremely-long-branch-name-for-testing-overflow" \
+            CTX_USAGE="$USAGE_OK" GIT_WAIT_MS=1500 WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs" \
+            node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null | head -1)
+    }
+    t72_narrow="$(t72_run 55)"    # 预算会掉到 16 地板以下 → 先丢时长
+    t72_wide="$(t72_run 120)"     # 宽终端：时长应在
+    t72_w="$(cjk_strip "$t72_narrow")"; t72_w="${t72_w%%$'\n'*}"
+    if printf '%s' "$t72_narrow" | grep -qF "| pi" \
+       && ! printf '%s' "$t72_narrow" | grep -qF " · " \
+       && [[ "$t72_w" -le 55 ]] \
+       && printf '%s' "$t72_wide" | grep -qF " · "; then
+        pass T72 "line1 ladder drops duration first (${t72_w} <= 55, badge kept)"
+    else
+        fail T72 "narrow(w=${t72_w})=[$t72_narrow] wide=[$t72_wide]"
+    fi
+fi
+
+# ============================================================
+# T73: 行2 梯子逐段剔——顺序 TTFT → CH → CP；永不剔 ↑in↓out / ctx% / 模型名（设计 §4）
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T73 "node with .ts type-stripping not available"
+else
+    T73_BR='[{"type":"compaction"},{"type":"message","message":{"role":"assistant","usage":{"input":743000,"output":117000,"cacheRead":19560000,"cacheWrite":0}}}]'
+    t73_run() {  # $1 = WIDTH
+        env NO_COLOR=1 WIDTH="$1" BRANCH="$T73_BR" TTFT_MS=12400 MSG_UPDATES=0 THINKING=xhigh \
+            CTX_USAGE='{"tokens":284200,"contextWindow":1000000,"percent":28.42}' \
+            WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs" \
+            node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null | tail -1
+    }
+    # 梯子阀值随 TTFT_BUDGET 变（现 11 格）：全在 ≥ 81 / 丢TTFT 69-80 / 丢CH 60-68 / 丢CP ≤ 59
+    t73_w90="$(t73_run 90)"; t73_w75="$(t73_run 75)"
+    t73_w65="$(t73_run 65)"; t73_w55="$(t73_run 55)"
+    t73_ok=1
+    # 90：三段全在
+    printf '%s' "$t73_w90" | grep -qF "TTFT 12s" || t73_ok=0
+    printf '%s' "$t73_w90" | grep -qF "CH96.34%" || t73_ok=0
+    printf '%s' "$t73_w90" | grep -qF "CP1" || t73_ok=0
+    # 75：先丢 TTFT
+    printf '%s' "$t73_w75" | grep -qE 'TTFT [0-9]' && t73_ok=0
+    printf '%s' "$t73_w75" | grep -qF "CH96.34%" || t73_ok=0
+    # 65：再丢 CH
+    printf '%s' "$t73_w65" | grep -qF "CH96.34%" && t73_ok=0
+    printf '%s' "$t73_w65" | grep -qF "CP1" || t73_ok=0
+    # 55：再丢 CP
+    printf '%s' "$t73_w55" | grep -qF "CP1" && t73_ok=0
+    # 四档都不剔：账本头、ctx%、模型名
+    for l in "$t73_w90" "$t73_w75" "$t73_w65" "$t73_w55"; do
+        printf '%s' "$l" | grep -qF "↑743K ↓117K" || t73_ok=0
+        printf '%s' "$l" | grep -qF "28.42%/1M" || t73_ok=0
+        printf '%s' "$l" | grep -qF "claude-opus-5" || t73_ok=0
+    done
+    if [[ $t73_ok -eq 1 ]]; then
+        pass T73 "line2 ladder drop order TTFT -> CH -> CP; core segments never dropped"
+    else
+        fail T73 "w90=[$t73_w90] w75=[$t73_w75] w65=[$t73_w65] w55=[$t73_w55]"
+    fi
+fi
+
+# ============================================================
+# T74: v7 改名迁移——install pi 时旧目标名 wren.ts 被识别为 wren 系并删除
+# ============================================================
+new_box
+cp "$PI_PAYLOAD" "$PIEXT/wren.ts"   # 模拟旧版部署（wren 系副本）
+run_wren install pi
+if [[ "$WREN_EXIT" == "0" && ! -e "$PIEXT/wren.ts" && -f "$PIEXT/wren-pi.ts" ]] \
+   && cmp -s "$PIEXT/wren-pi.ts" "$PI_PAYLOAD" \
+   && printf '%s' "$WREN_OUT" | grep -qF "migrated"; then
+    pass T74 "install pi migrates legacy wren.ts -> wren-pi.ts"
+else
+    fail T74 "exit=$WREN_EXIT out=[$WREN_OUT] files=[$(ls -A "$PIEXT")]"
+fi
+
+# ============================================================
+# T75: qc TTFT 等待期保持上一轮旧值（ttft_ms 存量，与 cc/pi 同语义）
+# ============================================================
+new_box
+printf '{"type":"user","timestamp":"2026-09-28T10:00:00Z","message":{"content":"a"}}\n' >"$BOX/tr75.jsonl"
+printf '{"type":"assistant","timestamp":"2026-09-28T10:00:07.4Z","message":{"usage":{"input_tokens":100,"output_tokens":10,"cache_read_input_tokens":80}}}\n' >>"$BOX/tr75.jsonl"
+# 新轮开窗：只有 user、没有 assistant（生成等待期的 transcript 形态）
+printf '{"type":"user","timestamp":"2026-09-28T10:05:00Z","message":{"content":"b"}}\n' >>"$BOX/tr75.jsonl"
+printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$BOX/tr75.jsonl" \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q75" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1 >"$BOX/q75a.txt"
+# 对照：完全无配对记录（首个新会话等待期）→ 段隐藏
+printf '{"type":"user","timestamp":"2026-09-28T11:00:00Z","message":{"content":"c"}}\n' >"$BOX/tr75b.jsonl"
+printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$BOX/tr75b.jsonl" \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q75b" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1 >"$BOX/q75b.txt"
+q75a="$(<"$BOX/q75a.txt")"; q75b="$(<"$BOX/q75b.txt")"
+if printf '%s' "$q75a" | grep -qF "TTFT 7.4s" \
+   && ! printf '%s' "$q75b" | grep -qE 'TTFT [0-9]'; then
+    pass T75 "qc TTFT keeps previous turn value during wait; hidden when never paired"
+else
+    fail T75 "a=[$q75a] b=[$q75b]"
+fi
+
+# ============================================================
+# T76: qc TTFT 等待期后新配对仍成功（turn_first_ts 不清空、比较判开）
+#      round1 配对 → round2 只有 user（等待期，缓存里留着旧 turn_first_ts）
+#      → 追加 round2 两条 assistant → 增量续读后 T 应为 round2 首片值，
+#      第二条 assistant 不得改写（首片定值），也不得停留在 round1 旧值
+# ============================================================
+new_box
+: >"$BOX/tr76.jsonl"
+printf '{"type":"user","timestamp":"2026-09-28T10:00:00Z","message":{"content":"a"}}\n' >"$BOX/tr76.jsonl"
+printf '{"type":"assistant","timestamp":"2026-09-28T10:00:07.4Z","message":{"usage":{"input_tokens":100,"output_tokens":10,"cache_read_input_tokens":80}}}\n' >>"$BOX/tr76.jsonl"
+printf '{"type":"user","timestamp":"2026-09-28T10:05:00Z","message":{"content":"b"}}\n' >>"$BOX/tr76.jsonl"
+run_qc76() {
+    printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$BOX/tr76.jsonl" \
+        | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q76" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1
+}
+t76_wait="$(run_qc76)"   # 等待期：显示 round1 旧值 TTFT 7.4s
+printf '{"type":"assistant","timestamp":"2026-09-28T10:05:03.1Z","message":{"usage":{"input_tokens":120,"output_tokens":5,"cache_read_input_tokens":90}}}\n' >>"$BOX/tr76.jsonl"
+printf '{"type":"assistant","timestamp":"2026-09-28T10:05:09Z","message":{"usage":{"input_tokens":130,"output_tokens":6,"cache_read_input_tokens":95}}}\n' >>"$BOX/tr76.jsonl"
+t76_done="$(run_qc76)"   # 增量续读：配对 round2 首片，第二条不改写
+if printf '%s' "$t76_wait" | grep -qF "TTFT 7.4s" \
+   && printf '%s' "$t76_done" | grep -qF "TTFT 3.1s" \
+   && ! printf '%s' "$t76_done" | grep -qF "TTFT 7.4s" \
+   && ! printf '%s' "$t76_done" | grep -qF "TTFT 9.0s"; then
+    pass T76 "qc TTFT re-pairs after wait via retained turn_first_ts; first piece wins"
+else
+    fail T76 "wait=[$t76_wait] done=[$t76_done]"
+fi
+
+# ============================================================
+# T77: 方案 B —— 轮进行中保留上一轮的已完成值（不闪空白、也不提前显示新值）
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T77 "node with .ts type-stripping not available"
+else
+    t77_inflight="$(pi_ttft '6600,12400' '0|')"   # 次轮 turn_start 已发、首片未到
+    t77_first="$(pi_ttft 6600 '')"                # 首轮进行中：无已完成轮
+    if printf '%s' "$t77_inflight" | grep -qF "TTFT 6.6s" \
+       && ! printf '%s' "$t77_inflight" | grep -qF "TTFT 12s" \
+       && ! printf '%s' "$t77_first" | grep -qE 'TTFT [0-9]'; then
+        pass T77 "inflight turn keeps last completed TTFT (no flash / no early value)"
+    else
+        fail T77 "inflight=[$t77_inflight] first=[$t77_first]"
+    fi
+fi
+
+# ============================================================
+# T78: 首片落地时才原子覆盖为新一轮值
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T78 "node with .ts type-stripping not available"
+else
+    t78="$(pi_ttft '6600,12400' '0|0')"
+    if printf '%s' "$t78" | grep -qF "TTFT 12s" && ! printf '%s' "$t78" | grep -qF "TTFT 6.6s"; then
+        pass T78 "first chunk atomically replaces TTFT (TTFT 12s, old value gone)"
+    else
+        fail T78 "l2=[$t78]"
+    fi
+fi
+
+# ============================================================
+# T79: qc 行2 梯子不受色档影响（预算串必须无色）
+#      无色宽 61 ≤ 80 → 三档都应保留 TTFT；若预算串混入 ANSI，
+#      truecolor 虚高 ~23 格误丢 TTFT（历史 bug：宿主 T 值「被吃」真凶）
+# ============================================================
+new_box
+: >"$BOX/tr77.jsonl"
+printf '{"type":"user","timestamp":"2026-09-28T10:00:00Z","message":{"content":"a"}}\n' >"$BOX/tr77.jsonl"
+printf '{"type":"assistant","timestamp":"2026-09-28T10:00:07.4Z","message":{"usage":{"input_tokens":52100,"output_tokens":236,"cache_read_input_tokens":47000}}}\n' >>"$BOX/tr77.jsonl"
+run_qc77() {
+    printf '{"cwd":"/tmp","model":{"display_name":"GLM-4.7"},"transcript_path":"%s","context_window":{"total_input_tokens":30000,"context_window_size":1000000,"used_percentage":3}}' "$BOX/tr77.jsonl" \
+        | env -u COLORTERM COLUMNS=80 WREN_CACHE_DIR="$BOX/q77" "$@" python3 "$QC_PAYLOAD" 2>/dev/null \
+        | tail -1 | sed $'s/\x1b\\[[0-9;]*m//g'
+}
+t77_nc="$(NO_COLOR=1 run_qc77)"
+t77_tc="$(COLORTERM=truecolor run_qc77)"
+t77_256="$(run_qc77)"
+if [ "$t77_nc" = "$t77_tc" ] && [ "$t77_nc" = "$t77_256" ] \
+   && printf '%s' "$t77_nc" | grep -qF "TTFT 7.4s" \
+   && printf '%s' "$t77_nc" | grep -qF "CH90.21%"; then
+    pass T79 "qc line2 ladder color-agnostic; TTFT survives truecolor at width 80"
+else
+    fail T79 "nc=[$t77_nc] tc=[$t77_tc] 256=[$t77_256]"
+fi
+
+# ============================================================
+# T80: 行2 梯子三宿主同构——同 COLUMNS 下三侧丢同一组段（设计 §7「梯子同构」）
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T80 "node with .ts type-stripping not available"
+else
+    new_box
+    # 匹配夹具：三侧同一组数字（input 743K / output 117K / R19.6M → CH96.34%；
+    # postTokens 284200 → 28.42%/1M；CP1；user→assistant 12.4s → TTFT 12s）
+    T80_TR="$BOX/tr80.jsonl"
+    cat >"$T80_TR" <<'EOF2'
+{"type":"user","timestamp":"2026-09-19T04:18:46.065Z","message":{"content":"hi"}}
+{"type":"assistant","timestamp":"2026-09-19T04:18:58.465Z","message":{"usage":{"input_tokens":743000,"output_tokens":117000,"cache_read_input_tokens":19560000,"cache_creation_input_tokens":0}}}
+{"type":"system","subtype":"compact_boundary","isSidechain":false,"compactMetadata":{"trigger":"manual","postTokens":284200}}
+EOF2
+    T80_BR='[{"type":"compaction"},{"type":"message","message":{"role":"assistant","usage":{"input":743000,"output":117000,"cacheRead":19560000,"cacheWrite":0}}}]'
+    t80_sig() {  # 从行2 抽签名：T=TTFT / C=CH / P=CP
+        local s=""
+        printf '%s' "$1" | grep -qE 'TTFT [0-9]' && s="${s}T" || s="${s}-"
+        printf '%s' "$1" | grep -qF "CH96.34%" && s="${s}C" || s="${s}-"
+        printf '%s' "$1" | grep -qF "CP1" && s="${s}P" || s="${s}-"
+        printf '%s' "$s"
+    }
+    t80_ok=1; t80_seen=""; t80_err=""
+    for w in 90 81 80 70 65 55; do
+        cc80=$(printf '{"cwd":"/tmp","model":{"display_name":"claude-opus-5"},"effort":{"level":"xhigh"},"context_window":{"context_window_size":1000000},"transcript_path":"%s"}' "$T80_TR" \
+            | NO_COLOR=1 COLUMNS=$w WREN_CACHE_DIR="$BOX/c80-$w" python3 "$CC_PAYLOAD" 2>/dev/null | tail -1)
+        qc80=$(printf '{"cwd":"/tmp","model":{"display_name":"claude-opus-5"},"effort":"xhigh","context_window":{"context_window_size":1000000},"transcript_path":"%s"}' "$T80_TR" \
+            | NO_COLOR=1 COLUMNS=$w WREN_CACHE_DIR="$BOX/q80-$w" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1)
+        pi80=$(env NO_COLOR=1 WIDTH=$w BRANCH="$T80_BR" TTFT_MS=12400 MSG_UPDATES=0 THINKING=xhigh \
+            CTX_USAGE='{"tokens":284200,"contextWindow":1000000,"percent":28.42}' \
+            WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs" \
+            node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null | tail -1)
+        t80_a="$(t80_sig "$cc80")"; t80_b="$(t80_sig "$qc80")"; t80_c="$(t80_sig "$pi80")"
+        [[ "$t80_a" == "$t80_b" && "$t80_b" == "$t80_c" ]] || { t80_ok=0; t80_err="$t80_err[W=$w cc=$t80_a qc=$t80_b pi=$t80_c]"; }
+        t80_seen="$t80_seen $t80_a"
+    done
+    # 三侧同签名之外，再钉住丢序与阀值：90/81→TCP 80/70→-CP 65→--P 55→---
+    # （81 是「全在」的临界点：预算常量差 1 格就会在这一档暴露）
+    if [[ $t80_ok -eq 1 && "$t80_seen" == " TCP TCP -CP -CP --P ---" ]]; then
+        pass T80 "3-host line2 ladder identical & ordered (w90/81/80/70/65/55:$t80_seen)"
+    else
+        fail T80 "seen:[$t80_seen] mismatch:$t80_err"
+    fi
+fi
+
+# ============================================================
+# T81: v8 迁移——install cc 时旧目标 $PREFIX/wren-cc 被识别为 wren 系并删除，
+#      新目标落在 settings 同目录（绝对路径写进 statusLine）
+# ============================================================
+new_box
+mkdir -p "$BIN"
+cp "$CC_PAYLOAD" "$BIN/wren-cc"     # 模拟旧版部署（wren 系副本，旧落点）
+run_wren install cc
+if [[ "$WREN_EXIT" == "0" && ! -e "$BIN/wren-cc" && -f "$CLAUDE/wren-cc" ]] \
+   && cmp -s "$CLAUDE/wren-cc" "$CC_PAYLOAD" \
+   && [[ "$(json_field "$SETTINGS" 'd["statusLine"]["command"]')" == "$CLAUDE/wren-cc" ]] \
+   && printf '%s' "$WREN_OUT" | grep -qF "migrated"; then
+    pass T81 "install cc migrates legacy \$PREFIX/wren-cc, writes absolute command"
+else
+    fail T81 "exit=$WREN_EXIT out=[$WREN_OUT] bin=[$(ls -A "$BIN")]"
+fi
+
+# ============================================================
+# T82: 对照——非 wren 系的同名文件不动（只告警）
+# ============================================================
+new_box
+mkdir -p "$BIN"
+printf '#!/bin/sh\necho foreign\n' >"$BIN/wren-cc"
+run_wren install cc
+if [[ "$WREN_EXIT" == "0" ]] && grep -qF "foreign" "$BIN/wren-cc" 2>/dev/null \
+   && printf '%s' "$WREN_ERR" | grep -qi "not a wren payload"; then
+    pass T82 "foreign \$PREFIX/wren-cc left alone"
+else
+    fail T82 "foreign file gone/changed: [$(cat "$BIN/wren-cc" 2>/dev/null)]"
+fi
+
+# ============================================================
+# T83: TTFT 四档着色——三侧同值同色；探针含「原始 ms 档界」与「舍入后真档界」
+# ============================================================
+new_box
+# 判据已改为显示值 ttft_secs（问题 3），所以真档界在舍入后：4950 / 20500 / 60500。
+# 探针分两组：
+#   a) 原始 ms 档界 5000/20000/60000 — 新语义下必须跟「显示同值」同档（问题 3 回归锚）
+#   b) 真档界 ±10ms — 钉住阈值确实落在舍入点上。
+#      （曾用 ±3ms，实测 harness 两个 Date.now() 间抖动 1~3ms，20497 会跳到 20500 而翻档；
+#       ±10ms 下抖动不可达 20500，探针才是确定性的）
+T83_PROBES="3000:green 4940:green 4960:fg 4999:fg 5000:fg 12000:fg 19999:fg 20000:fg \
+20001:fg 20490:fg 20510:yellow 30000:yellow 59999:yellow 60000:yellow 60001:yellow \
+60490:yellow 60510:red 90000:red"
+t83_code() {
+    case "$1" in
+        green)  printf '38;2;80;250;123' ;;
+        fg)     printf '38;2;248;248;242' ;;
+        yellow) printf '38;2;241;250;140' ;;
+        red)    printf '38;2;255;85;85' ;;
+    esac
+}
+# 抽「TTFT 段自己的」文本与色码：取紧邻 "TTFT " 之前的那个转义码。
+# 不能用整行 grep —— ctx% 可能同色（0.5% 也是绿），那样测不出「色配错段」。
+t83_extract() {
+    python3 -c "
+import re, sys
+m = re.search(r'\x1b\[([0-9;]+)m(TTFT [^\x1b]+)', sys.stdin.read())
+print((m.group(2).strip() + '|' + m.group(1)) if m else '无|无')
+"
+}
+t83_ok=1
+t83_fixture() {  # $1 = ttft ms，$2 = 输出文件；用 python 生成合法 ISO 时间戳
+    python3 - "$1" "$2" <<'PYEOF'
+import json, sys
+ms = int(sys.argv[1])
+from datetime import datetime, timedelta, timezone
+base = datetime(2026, 9, 28, 10, 0, 0, tzinfo=timezone.utc)
+t0 = base.isoformat().replace("+00:00", "Z")
+t1 = (base + timedelta(milliseconds=ms)).isoformat().replace("+00:00", "Z")
+with open(sys.argv[2], "w") as fh:
+    fh.write(json.dumps({"type": "user", "timestamp": t0, "message": {"content": "a"}}) + "\n")
+    fh.write(json.dumps({"type": "assistant", "timestamp": t1,
+                         "message": {"usage": {"input_tokens": 100, "output_tokens": 10,
+                                               "cache_read_input_tokens": 80}}}) + "\n")
+PYEOF
+}
+: >"$BOX/t83_table.txt"
+for pair in $T83_PROBES; do
+    ms="${pair%%:*}"; tier="${pair##*:}"; want="$(t83_code "$tier")"
+    t83_fixture "$ms" "$BOX/t83_$ms.jsonl"
+    cc_x="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$BOX/t83_$ms.jsonl" \
+        | COLORTERM=truecolor WREN_CACHE_DIR="$BOX/c83_$ms" python3 "$CC_PAYLOAD" 2>/dev/null \
+        | tail -1 | t83_extract)"
+    qc_x="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$BOX/t83_$ms.jsonl" \
+        | COLORTERM=truecolor WREN_CACHE_DIR="$BOX/q83_$ms" python3 "$QC_PAYLOAD" 2>/dev/null \
+        | tail -1 | t83_extract)"
+    [[ "${cc_x#*|}" == "$want" ]] || { t83_ok=0; echo "  cc ms=$ms 期望=${tier}(${want}) 实得=[$cc_x]" >&2; }
+    [[ "$cc_x" == "$qc_x" ]] || { t83_ok=0; echo "  cc/qc 不同值同色 ms=$ms cc=[$cc_x] qc=[$qc_x]" >&2; }
+    printf '%s %s\n' "$ms" "$cc_x" >>"$BOX/t83_table.txt"
+done
+if [[ $t83_ok -eq 1 ]]; then
+    pass T83 "cc/qc TTFT 4-tier colour: 18 probes (raw-ms + rounded boundaries), text+code identical"
+else
+    fail T83 "tier colour mismatch (see stderr)"
+fi
+
+# ============================================================
+# T84: pi 侧同表 + 与 cc 逐探针同值同色（读 T83 写下的表）
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T84 "node with .ts type-stripping not available"
+else
+    t84_ok=1
+    # 必须绕开 run_pi（它硬编 NO_COLOR=1，色码不会出现），直接调 harness；取行2
+    t84_run() {
+        env COLOR_MODE=truecolor BRANCH='[]' CTX_USAGE="$USAGE_OK" WREN_TS="$WREN_TS" \
+            TUI_STUB="$PI_DIR/tui-stub.mjs" TTFT_MS="$1" MSG_UPDATES=0 \
+            node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null | tail -1
+    }
+    while read -r ms ccx; do
+        want_text="${ccx%%|*}"; want_code="${ccx#*|}"
+        pi_x="$(t84_run "$ms" | t83_extract)"
+        pi_text="${pi_x%%|*}"; pi_code="${pi_x#*|}"
+        [[ "$pi_code" == "$want_code" ]] || { t84_ok=0; echo "  pi ms=$ms 色码 期望=$want_code 实得=[$pi_x]" >&2; }
+        [[ "$pi_text" == "$want_text" ]] || { t84_ok=0; echo "  pi ms=$ms 显示 期望=$want_text 实得=[$pi_text]" >&2; }
+    done <"$BOX/t83_table.txt"
+    if [[ $t84_ok -eq 1 ]]; then
+        pass T84 "pi TTFT 4-tier colour + display identical to cc/qc, same probe table"
+    else
+        fail T84 "pi tier colour/text differs from cc/qc (see stderr)"
+    fi
+fi
+
+# ============================================================
+# T85: TTFT 边界探针（盲区守门：T83/T84 只测档中值，<= 改 < 注入 bug 仍绿）
+#      判据 = ttft_secs（显示值）：
+#        绿 <5.0s / 白 ≤20s / 黄 ≤60s / 红 >60s（.5s 处换档：20499 白、20500 黄）
+#      共享值三侧同值同色；±1ms 边界串（4999/5000、19999/20000/20001、
+#      59999/60000/60001）断言全部同档——防边界归属回退成原始 ms 判定。
+#      pi 侧事件流有 ε（Date.now 粒度），只用 ε 单调安全（≥）的边：20500/60500。
+# ============================================================
+new_box
+t85_extract() {  # 从渲染行2 抽 "code TTFT 文本"
+    cat -v | LC_ALL=C grep -o '38;2;[0-9;]*mTTFT [^ ]*' | sed 's/\^\[\[0m$//' | tail -1
+}
+t85_qc() {  # $1 = ms → "code TTFT x"
+    t83_fixture "$1" "$BOX/t85_$1.jsonl"
+    printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$BOX/t85_$1.jsonl" \
+        | COLORTERM=truecolor WREN_CACHE_DIR="$BOX/c85_$1" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1 | t85_extract
+}
+t85_cc() {
+    t83_fixture "$1" "$BOX/t85c_$1.jsonl"
+    printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$BOX/t85c_$1.jsonl" \
+        | COLORTERM=truecolor WREN_CACHE_DIR="$BOX/c85c_$1" python3 "$CC_PAYLOAD" 2>/dev/null | tail -1 | t85_extract
+}
+t85_pi() {
+    env COLOR_MODE=truecolor BRANCH='[]' CTX_USAGE="$USAGE_OK" WREN_TS="$WREN_TS" \
+        TUI_STUB="$PI_DIR/tui-stub.mjs" TTFT_MS="$1" MSG_UPDATES=0 \
+        node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null | tail -1 | t85_extract
+}
+t85_ok=1
+t85_expect() {  # $1 = ms → 期望 "code TTFT 文本"
+    case "$1" in
+        4700)  echo "38;2;80;250;123mTTFT 4.7s" ;;
+        4949)  echo "38;2;80;250;123mTTFT 4.9s" ;;
+        4999)  echo "38;2;248;248;242mTTFT 5.0s" ;;
+        5000)  echo "38;2;248;248;242mTTFT 5.0s" ;;
+        19999) echo "38;2;248;248;242mTTFT 20s" ;;
+        20000) echo "38;2;248;248;242mTTFT 20s" ;;
+        20001) echo "38;2;248;248;242mTTFT 20s" ;;
+        20499) echo "38;2;248;248;242mTTFT 20s" ;;
+        20500) echo "38;2;241;250;140mTTFT 21s" ;;
+        59999) echo "38;2;241;250;140mTTFT 1m00s" ;;
+        60000) echo "38;2;241;250;140mTTFT 1m00s" ;;
+        60001) echo "38;2;241;250;140mTTFT 1m00s" ;;
+        60499) echo "38;2;241;250;140mTTFT 1m00s" ;;
+        60500) echo "38;2;255;85;85mTTFT 1m01s" ;;
+        61000) echo "38;2;255;85;85mTTFT 1m01s" ;;
+    esac
+}
+# 共享值：三侧都要同值同色
+for ms in 4999 5000 19999 20000 20001 20500 59999 60000 60001 60500; do
+    want="$(t85_expect "$ms")"
+    q="$(t85_qc "$ms")"; c="$(t85_cc "$ms")"; p="$(t85_pi "$ms")"
+    if [[ "$q" != "$want" || "$c" != "$want" || "$p" != "$want" ]]; then
+        t85_ok=0; echo "  ms=$ms want=[$want] qc=[$q] cc=[$c] pi=[$p]" >&2
+    fi
+done
+# 精确边（±1ms / .5s 换档点）：qc/cc transcript 数学确定，可测 ε 敏感侧
+for ms in 4949 20499 60499; do
+    want="$(t85_expect "$ms")"
+    q="$(t85_qc "$ms")"; c="$(t85_cc "$ms")"
+    if [[ "$q" != "$want" || "$c" != "$want" ]]; then
+        t85_ok=0; echo "  edge ms=$ms want=[$want] qc=[$q] cc=[$c]" >&2
+    fi
+done
+# pi 补绿/红档 ε 安全见证
+for ms in 4700 61000; do
+    want="$(t85_expect "$ms")"
+    p="$(t85_pi "$ms")"
+    if [[ "$p" != "$want" ]]; then
+        t85_ok=0; echo "  pi ms=$ms want=[$want] pi=[$p]" >&2
+    fi
+done
+if [[ $t85_ok -eq 1 ]]; then
+    pass T85 "TTFT boundary probes: display-synced tiers, +/-1ms bands same tier, 3-side identical"
+else
+    fail T85 "boundary mismatch (see stderr)"
 fi
 
 # ---------- 汇总 ----------

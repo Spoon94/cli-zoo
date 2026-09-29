@@ -52,11 +52,19 @@ def c(name, text):
         return text
     return f"\033[{_DRACULA[name][0 if _C == 'truecolor' else 1]}m{text}\033[0m"
 
+# ---- 行1 预算常量（上界预留，不随数值抖动，见 docs/wren-ttft-design.md §1.1-2） ----
+# 时长按 `dwidth(" · 99h59m")` = 9 格（含 ` · ` 分隔符 3 格）计入 rest；
+# TTFT 的预算宽度用上界占位串 `TTFT 99m59s` = 11 格（行2 梯子用）。
+DUR_REST_W = 9
+TTFT_BUDGET_S = "TTFT 99m59s"
+
 ZERO_STATE = {
     "input_t": 0, "output_t": 0, "cache_r": 0, "cache_w": 0,
     "compactions": 0, "triggers": {"auto": 0, "manual": 0, "unknown": 0},
     "last_prompt_tokens": 0, "last_cache_r": 0,
     "first_ts": None, "effort": "", "post_tokens": None,
+    "ttft_ms": None,   # 最近一次真实 user → 首条 assistant 的落盘延迟（ms）
+    "turn_user_ts": None,  # 轮窗口：真实 user 记录的时间戳（排除 tool_result）
 }
 
 
@@ -83,7 +91,65 @@ def fmt(n):
 def fmt_duration(ms):
     s = ms // 1000
     h = s // 3600
+    if h > 99:  # 钳制：99h59m 之上统一 99h+，预算上界 9 格（设计文档 §1.1-2）
+        return "99h+"
     return f"{h}h{(s % 3600)//60}m" if h > 0 else f"{s//60}m"
+
+
+def fmt_ttft(ms):
+    """首片延迟分档（三侧同式，与 pi 的 fmtTtft 逐档对齐）：<10s 一位小数；
+    ≥10s 整数；≥60s m+s；≥1h h+m。统一带 `TTFT ` 前缀。
+    上界 11 格（TTFT 99m59s）；>99h 钳到 `TTFT 99h+`（9 格）。
+    取整口径与 pi 一致：先四舍五入到整秒再判档（`(ms+500)//1000` 等价于 JS
+    Math.round 且不碰浮点）——用原始 ms 判 60s 界会与 pi 差一档。
+    <10s 档沿用 `:.1f`（与 JS toFixed 同口径；仅 ms%1000==250 这类二进制精确
+    半值差 0.1s，属已知残留）。"""
+    if ms < 10_000:
+        return f"TTFT {ms / 1000:.1f}s"
+    total = (ms + 500) // 1000
+    if total < 60:
+        return f"TTFT {total}s"
+    if total < 3600:
+        return f"TTFT {total // 60}m{total % 60:02d}s"
+    h = total // 3600
+    if h > 99:
+        return "TTFT 99h+"
+    return f"TTFT {h}h{(total % 3600) // 60:02d}m"
+
+
+def ttft_secs(ms):
+    """TTFT 显示值（秒）：<10s 保留一位小数（与 :.1f 同口径），≥10s 四舍五入到整秒。
+    色档判定用它而非原始 ms —— 否则「TTFT 20s」在 19.6s~20.4s 之间会白黄跳。"""
+    if ms is None:
+        return None
+    if ms < 10_000:
+        return round(ms / 1000, 1)
+    return (ms + 500) // 1000
+
+
+def ttft_color(ms):
+    """TTFT 四档着色（与 ctx% 同为突变式，不做渐变）：绿 <5s、白 5-20s、黄 20-60s、
+    红 >60s。判据取 ttft_secs(ms)（显示器渲染值），保证同屏同值同色。"""
+    v = ttft_secs(ms)
+    if v is None:
+        return "fg"
+    if v < 5:
+        return "green"
+    if v <= 20:
+        return "fg"
+    if v <= 60:
+        return "yellow"
+    return "red"
+
+
+def _epoch(ts):
+    if not ts:
+        return None
+    from datetime import datetime
+    try:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return None
 
 
 def dwidth(s):
@@ -187,6 +253,25 @@ def accumulate(st, d):
         tr[trig if trig in tr else "unknown"] += 1
         post = meta.get("postTokens")
         st["post_tokens"] = post if isinstance(post, int) else None
+    # 轮窗口起点：真实 user 记录（排除 tool_result 回填 —— 那种 type=user
+    # 但 content 是 tool_result 的记录，取它会测出 0.078s 级的工具往返，不是 TTFT）。
+    # 方案 B：新 user 只更新窗口起点，不清旧 ttft_ms —— 轮进行中 statusline
+    # 显示的是上一轮已完成的首片延迟，不闪烁；新 assistant 首片落盘时才覆盖。
+    if d.get("type") == "user" and d.get("isSidechain") is not True:
+        content = (d.get("message") or {}).get("content")
+        # 对齐 qc 的 _is_prompt_user：纯 tool_result 回填、空 content、
+        # 无 message 字段都不算轮首（后两者 cc 旧版会开一个假窗口，产出
+        # 一轮错误 TTFT 后被下次真配对覆盖——F2，交叉评审第三轮）
+        if isinstance(content, str):
+            opens = bool(content)
+        elif isinstance(content, list):
+            opens = any(isinstance(x, dict) and x.get("type") != "tool_result" for x in content)
+        else:
+            opens = False
+        if opens:
+            t = _epoch(d.get("timestamp"))
+            if t is not None:
+                st["turn_user_ts"] = t
     if d.get("type") == "assistant" and "message" in d:
         m = d["message"]
         u = m.get("usage", {}) or {}
@@ -199,6 +284,14 @@ def accumulate(st, d):
                                     + u.get("cache_creation_input_tokens", 0))
         st["last_cache_r"] = u.get("cache_read_input_tokens", 0)
         st["post_tokens"] = None  # 压缩后已有真实请求 → postTokens 过期
+        # TTFT：本轮首条 assistant 落盘 − 本轮真实 user 提交。首片常为 thinking 块，
+        # 所以这是「首片延迟」语义（含 thinking 耗时），不是严格首 token。
+        # 一轮只配一次对：配对完成后 turn_user_ts 清零，同轮后续 assistant
+        # （tool_use 续片等）不再改写 ttft_ms。
+        t_a = _epoch(d.get("timestamp") or m.get("timestamp"))
+        if t_a is not None and st["turn_user_ts"] is not None and t_a >= st["turn_user_ts"]:
+            st["ttft_ms"] = int((t_a - st["turn_user_ts"]) * 1000)
+            st["turn_user_ts"] = None
         e = d.get("effort")
         if e:
             st["effort"] = e
@@ -359,7 +452,7 @@ def main():
         else (st["last_prompt_tokens"], st["last_cache_r"])
     ch = f"CH{ch_cache / ch_prompt * 100:.2f}%" if ch_prompt > 0 and ch_cache > 0 else ""
 
-    # 时长: 原生 cost.total_duration_ms → 回退 transcript 首条时间
+    # 时长: 原生 cost.total_duration_ms → 回退 transcript 首条时间（cc 侧是宿主实测）
     duration = ""
     total_ms = (data.get("cost") or {}).get("total_duration_ms")
     if isinstance(total_ms, (int, float)) and total_ms > 0:
@@ -367,6 +460,9 @@ def main():
     elif st["first_ts"]:
         import time
         duration = fmt_duration(int((time.time() - st["first_ts"]) * 1000))
+
+    # TTFT（首片延迟）：transcript 配对的真实 user → 首条 assistant，含 thinking
+    ttft = fmt_ttft(st["ttft_ms"]) if st["ttft_ms"] is not None else ""
 
     thinking = (data.get("effort") or {}).get("level") or st["effort"]
 
@@ -385,45 +481,82 @@ def main():
         term_w = int(os.environ.get("COLUMNS") or 80)
     except ValueError:
         term_w = 80
-    # 行1 预算 = 终端宽 − 其余段的真实可见宽（CR 轮 10：固定 40 在
-    # 长分支+多脏文件+herdr 场景下不够，整行可到 88 > 80，徽标被宿主截掉）
+    # 行1 预算 = 终端宽 − 其余段的可见宽。可变长字段按上界常量预留
+    # （设计文档 §1.1-2）：时长按 9 格常量计入，不按当前值——否则数值
+    # 变宽（43m→2h5m）会让折叠好的 cwd 当场掉一级，肉眼可见地抖。
     rest = 0
     if branch:
         rest += dwidth(f" | {fold_branch(branch, 24)}{ab}{dmg_plain}")
     if herdr_tag:
         rest += dwidth(f" | {herdr_tag}")
     rest += dwidth(" | cc")
+    # 行1 梯子（先丢时长）：cwd 先走 path_budget 折叠；仅当折到 16 格地板
+    # 后 rest 仍超 term_w 才丢时长退裸徽标（设计文档 §4；§1.1-1 的
+    # 「先丢时长再动 cwd」括注是笔误，以本节实现为准）。
+    keep_duration = bool(duration)
+    if keep_duration and rest + DUR_REST_W + 16 > term_w:
+        keep_duration = False  # 地板仍溢 → 丢时长
+    if keep_duration:
+        rest += DUR_REST_W
     path_budget = max(16, term_w - rest)
     display_cwd = fold_path(short_cwd, path_budget)
     line1 = (c("comment", display_cwd)
              + (f" {c('comment', '|')} {colored_git}" if colored_git else "")
              + (f" {c('comment', '|')} {c('comment', herdr_tag)}" if herdr_tag else "")
-             + f" {c('comment', '|')} {c('comment', 'cc')}")
+             + f" {c('comment', '|')} {c('comment', 'cc')}"
+             + (f" {c('comment', '·')} {c('fg', duration)}" if keep_duration else ""))
 
-    # ---- 行2: token | ctx | 模型 · 思考 · 时长 ----
-    # pi 同款分组: ↑in ↓out | R CH CP（竖线分隔，组内空格）
-    # Dracula: token 白、R 白、CH 青、CP 灰、ctx% 三档（绿≤70/黄≤90/红>90，抄 pi 的严格大于语义）
-    sep = c("comment", "|")
-    tok_group2 = f"R{fmt(cache_r)}"
-    if ch:
-        tok_group2 += " " + c("cyan", ch)
-    if compactions:
-        tok_group2 += " " + c("comment", f"CP{compactions}")
-    tok = f"{c('fg', f'↑{fmt(input_t)} ↓{fmt(output_t)}')} {sep} {tok_group2}"
-    right_parts = [c("pink", model_name)]
-    if thinking:
-        right_parts.append(c("cyan", thinking))
-    if duration:
-        right_parts.append(c("fg", duration))
-    colored_ctx = ""
+    # ---- 行2: 账本 | 状态 | 身份 ----
+    # 组间 |、组内空格；仅尾部身份组用 ·。状态组 = ctx%/win + TTFT。
+    # 与 qc/pi 同一套「段列表 + 逐段剔」：丢序 TTFT → CH → CP（新段先丢），
+    # 永不剔除 ↑in↓out / ctx% / 模型名。
+    pct_val = 0.0
     if ctx_pct:
         try:
             pct_val = float(ctx_pct.split("%")[0])
         except ValueError:
             pct_val = 0.0
-        pct_name = "green" if pct_val <= 70 else ("yellow" if pct_val <= 90 else "red")
-        colored_ctx = f" {sep} " + c(pct_name, ctx_pct)
-    line2 = tok + colored_ctx + f" {sep} " + " · ".join(right_parts)
+    pct_name = "green" if pct_val <= 70 else ("yellow" if pct_val <= 90 else "red")
+    sep = c("comment", "|")
+    cp_s = f"CP{compactions}" if compactions else ""
+
+    def build2(use_ttft, use_ch, use_cp):
+        """按存活段拼行2；返回 (上色串, 预算无色串)。预算串里 TTFT 用上界占位。
+        预算串必须全程无色——dwidth 按 char 记宽，混入 ANSI 会让 truecolor
+        档预算虚高 ~23 格/段，梯子把不超宽的 TTFT 误丢（色档不得影响折叠）。"""
+        ledger = f"R{fmt(cache_r)}"
+        ledger_p = ledger
+        if use_ch and ch:
+            ledger += " " + c("cyan", ch)
+            ledger_p += " " + ch
+        if use_cp and cp_s:
+            ledger += " " + c("comment", cp_s)
+            ledger_p += " " + cp_s
+        stat = stat_p = ""
+        if ctx_pct:
+            stat, stat_p = c(pct_name, ctx_pct), ctx_pct
+        if use_ttft and ttft:
+            t = c(ttft_color(st["ttft_ms"]), ttft)
+            stat = f"{stat} {t}" if stat else t
+            stat_p = f"{stat_p} {TTFT_BUDGET_S}" if stat_p else TTFT_BUDGET_S
+        line = f"{c('fg', f'↑{fmt(input_t)} ↓{fmt(output_t)}')} {sep} {ledger}"
+        plain = f"↑{fmt(input_t)} ↓{fmt(output_t)} | {ledger_p}"
+        if stat:
+            line += f" {sep} {stat}"
+            plain += f" | {stat_p}"
+        ident_c = [c("pink", model_name)] + ([c("cyan", thinking)] if thinking else [])
+        line += f" {sep} " + " · ".join(ident_c)
+        plain += " | " + (" · ".join([model_name] + ([thinking] if thinking else [])))
+        return line, plain
+
+    # 折叠梯子: 溢出按 TTFT→CH→CP 丢弃（新段先丢）；再溢出 truncate_display 兜底
+    flags = dict(use_ttft=True, use_ch=True, use_cp=True)
+    line2, plain2 = build2(**flags)
+    for key in ("use_ttft", "use_ch", "use_cp"):
+        if dwidth(plain2) <= term_w:
+            break
+        flags[key] = False
+        line2, plain2 = build2(**flags)
 
     # 出口兜底：折叠只保证「算出来不超宽」，这里保证「输出不超宽」。
     # 与 pi 侧 render 里的 truncateToWidth 同一地位。

@@ -7,9 +7,10 @@
 三份 payload 布局同构，段格式、折叠规则、色板都一致（qc 的差异拆到下方小节）。剩下几处差异来自宿主本身
 （statusline 与 TUI footer 拿数据的路子不同）：
 
-| 位置 | `wren.py`（Claude Code） | `wren.ts`（pi） |
+| 位置 | `wren-cc.py`（Claude Code） | `wren-pi.ts`（pi） |
 |------|------|------|
 | 时长 | `cost.total_duration_ms` | footer 装载起的 wall-clock |
+| TTFT（首片延迟） | transcript 配对：真 user → 首条 assistant（排除 tool_result 回填） | 事件流：`turn_start` → 首个 `message_update`（内存态，扩展重载后下一轮才有值） |
 | ctx% | 按 `input + cache_read + cache_creation` 自算（与 CC 官方 `used_percentage` 同式） | 取 `ctx.getContextUsage()`（pi 的定义含 output，压缩后显示 `?`） |
 | CH 数据源 | `current_usage` 优先，回退 transcript 末条 assistant | `sessionManager` 末条 assistant |
 
@@ -28,7 +29,8 @@ payload 文档 + 构造器静态核对 + 真会话抓包，由 T48-T58 守门）
 | ↑in/↓out | transcript 累计。原生 `context_window.total_input_tokens` 是「最近一次请求」的上下文占用（官方文档注明 NOT a session total），`total_output_tokens` 宿主从不发送（1.1.57：调用方不填该字段），都不能当累计 |
 | ctx% | 原生 `used_percentage`（整数）优先；缺失回落 `total_input_tokens`（= 当前占用）→ `postTokens` → transcript 末次请求 |
 | CH | qoder 的 `usage.input_tokens` 已含 cache → `cacheRead / input`；仅当 `input < cache_read`（旧版口径）回退 cc 公式；`cache_creation` 可能是对象（`ephemeral_5m/1h` 求和） |
-| 时长 | `cost.total_duration_ms`（宿主目前不发送）→ 回落 transcript 首条时间戳 |
+| 时长 | transcript 推算的会话年龄（首条记录 ts → now；宿主不发 `total_duration_ms`，v6 起不读 cost） |
+| TTFT（首片延迟） | transcript 配对（与 cc 同式）：真 user → 首条 assistant，排除 tool_result 回填；`ttft_ms` 存量制，轮中显示上一轮值不闪烁 |
 | 思考等级 | `model.preferences[id].reasoning.effort` ＞ 顶层字段 ＞ transcript 的 `runtime-config` 记录（真实 payload 通常只命中第三级） |
 
 渲染差异一则：qoder 对 statusline 输出按 span 逐段重断言 `\x1b[2m`（Ink dimColor），
@@ -63,7 +65,7 @@ qc 侧：`install qc` 拷 payload 到 `$QODER_CONFIG_DIR/wren-qc.py` 并写 `$QO
 
 | 变量 | 默认 | 作用 |
 |------|------|------|
-| `PREFIX` | `/usr/local/bin` | CC 侧可执行文件目录 |
+| `PREFIX` | `/usr/local/bin` | **只用于 `wren` 本体**（`cli-zoo-install.sh` 的软链）；cc payload 落点跟随 settings.json 同目录 |
 | `PI_EXT_DIR` | `$HOME/.pi/agent/extensions` | pi 扩展目录 |
 | `CLAUDE_CONFIG_DIR` | `$HOME/.claude` | Claude Code 配置目录（CC 官方支持的重定向变量，wren 跟随它定位 settings） |
 | `CLAUDE_SETTINGS` | `$CLAUDE_CONFIG_DIR/settings.json` | 要改的 settings 文件（显式设置时优先级最高） |
@@ -72,23 +74,23 @@ qc 侧：`install qc` 拷 payload 到 `$QODER_CONFIG_DIR/wren-qc.py` 并写 `$QO
 
 退出码：`0` 成功 / `1` 写入失败 / `2` 参数错误 / `3` 依赖缺失（python3 或 payload）。
 
-## `wren.ts` 相对 pi 上游的有意修改
+## `wren-pi.ts` 相对 pi 上游的有意修改
 
-（`wren.py` 未改；括号里是对应的守门用例）
+（`wren-cc.py` 未改；括号里是对应的守门用例）
 
 - **`fmt` 补 1000K 守卫**：`999_500~999_999` 显示 `1.0M`。pi 内置的 `formatTokens` 上游同样会渲染 `1000k`，
-  `ccstatusline` 与 `wren.py` 都守这条，这里有意不跟上游（T28）。
+  `ccstatusline` 与 `wren-cc.py` 都守这条，这里有意不跟上游（T28）。
 - **ctx% 改用 `ctx.getContextUsage()`**：不再手算。手算会漏 `cacheWrite`，且压缩后会把压缩前的旧值一直挂着
   改用权威 API 后，压缩后暂不可知时显示 `?`（T29）。
 - **家目录折叠改用 `os.homedir()`**：原来的 `/Users/...` 硬编码在 Linux 与自定义 `HOME` 下不生效（T30）。
-- **`CH` 改两位小数**：与 `wren.py` 对齐（pi 内置 footer 是一位）（T31）。
-- **git 段改为与 `wren.py` 同一套解析**：一次 `git status --porcelain=v2 --branch` 全拿分支 / ahead-behind / 增删改，
+- **`CH` 改两位小数**：与 `wren-cc.py` 对齐（pi 内置 footer 是一位）（T31）。
+- **git 段改为与 `wren-cc.py` 同一套解析**：一次 `git status --porcelain=v2 --branch` 全拿分支 / ahead-behind / 增删改，
   渲染 `↑a↓b +增 ~删 ✱改`。旧的 `⇡a⇣b` 与「porcelain 行数当脏文件数」都不分类、还混进重命名，
   且要跑三次 git 子进程（T32 做跨实现比对）。
 - **detached HEAD 判定改由 porcelain 的 `# branch.head` 推导**（`(` 开头即无分支），
   不用 `getGitBranch()` 的返回值：pi 对真 detached 与名为 `detached` 的真分支返回同一字符串，无法区分（T38）。
-- **CH 无缓存不显示、压缩后显示旧值**：与 `wren.py` 统一（T41）。
-- **行内布局**：删掉右对齐/pad，`·` 分隔，thinking 缺省不显示，与 `wren.py` 逐字同构。
+- **CH 无缓存不显示、压缩后显示旧值**：与 `wren-cc.py` 统一（T41）。
+- **行内布局**：删掉右对齐/pad，`·` 分隔，thinking 缺省不显示，与 `wren-cc.py` 逐字同构。
 - **长目录/长分支折叠**：预算驱动，逐级降级（头2尾2 → 头1尾2 → 尾2 → 尾1 → 末级字符截断），
   按显示宽计算（全角算 2 格），折叠结果与色档无关；分支 >24 折叠为头 8 + `…` + 尾 15。
   宽度来源分宿主：pi 用 `render(width)`，
@@ -106,6 +108,7 @@ qc 侧：`install qc` 拷 payload 到 `$QODER_CONFIG_DIR/wren-qc.py` 并写 `$QO
 | `✱改` | 黄 | `#f1fa8c` |
 | token / 时长 | 前景白 | `#f8f8f2` |
 | CH / 思考等级 | 青 | `#8be9fd` |
+| `TTFT` | 绿 <5s、白 5-20s、黄 20-60s、红 >60s | 四档突变（同 ctx% 的哲学，不做渐变）；阈值取自实测分布（中位 13.2s / p90 92.6s）。**判据是屏幕显示值**（<10s 一位小数、≥10s 四舍五入整秒）：`TTFT 20s` 恒白、`TTFT 21s` 起恒黄，避免同值两色 |
 | 模型名 | 粉 | `#ff79c6` |
 | ctx% | 绿 ≤70、黄 70<p≤90、红 >90 | 三档突变，pi 内置语义；不做渐变 |
 

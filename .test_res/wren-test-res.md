@@ -1,14 +1,14 @@
 # wren 测试结果
-执行时间：2026-09-19 21:56:41
+执行时间：2026-09-29 17:06:32
 
 | ID | 状态 | 备注 |
 |----|------|------|
 | T01 | PASS | no args -> exit 2 + usage |
 | T02 | PASS | -h prints usage (exit 0) |
 | T03 | PASS | unknown subcommand -> exit 2 |
-| T04 | PASS | install copies wren.py to $PREFIX/wren-cc (regular, exec, byte-identical) |
-| T05 | PASS | install copies wren.ts to $PI_EXT_DIR/wren.ts (byte-identical) |
-| T06 | PASS | statusLine.command=wren-cc type=command |
+| T04 | PASS | install copies wren-cc.py to $CLAUDE_CONFIG_DIR/wren-cc (regular, exec, byte-identical) |
+| T05 | PASS | install copies wren.ts to $PI_EXT_DIR/wren-pi.ts (byte-identical) |
+| T06 | PASS | statusLine.command=绝对路径（$CLAUDE/wren-cc） |
 | T07 | PASS | other keys and key order preserved |
 | T08 | PASS | backup holds pre-install bytes |
 | T09 | PASS | repeat install keeps the original backup |
@@ -48,20 +48,20 @@
 | T43 | PASS | pi branch folding (feature/…esting-overflow) |
 | T44 | PASS | CJK path display width 61 <= 80 |
 | T45 | PASS | CJK extreme line fits: nc=70 tc=70, color-independent folding |
-| T46 | PASS | pi CJK extreme line width 70 <= 80 |
+| T46 | PASS | pi CJK extreme line width 75 <= 80 |
 | T47 | PASS | qc minimal payload: 2 lines, qc badge, no invented segments |
 | T48 | PASS | qc ↑in/↓out from transcript sums, not native per-request field |
 | T49 | PASS | qc ctx%: native used_percentage first, self-computed fallback |
 | T50 | PASS | qc CH = cache_read/input_tokens (qoder input already includes cache) |
 | T51 | PASS | qc legacy fallback: CC formula when input < cache_read |
 | T52 | PASS | qc cache_creation object form summed (5m+1h) in fallback |
-| T53 | PASS | qc duration: cost field first, transcript first-ts fallback |
+| T53 | PASS | qc duration: session age from transcript on line1, cost field not read |
 | T54 | PASS | qc thinking from runtime-config record; absent -> segment hidden |
 | T55 | PASS | qc Dracula: truecolor/256/NO_COLOR same table as cc/pi |
 | T56 | PASS | qc invalid JSON -> degrade to 2 lines, exit 0 |
 | T57 | PASS | qc WREN_DEBUG_DUMP captures raw stdin bytes |
 | T58 | PASS | qc ctx fallback chain: postTokens after compact_boundary; CP counted |
-| T59 | PASS | qc line1 identical to wren.py after badge strip (/var/…/box43/r59 \| main +1 ✱1) |
+| T59 | PASS | qc line1 identical to wren-cc.py after badge strip (/var/…/box43/r59 \| main +1 ✱1) |
 | T60 | PASS | install qc copies payload + writes absolute statusLine |
 | T61 | PASS | install qc only touches qc side |
 | T62 | PASS | qc install preserves keys/order and backs up original bytes |
@@ -71,5 +71,22 @@
 | T66 | PASS | install qoder is an alias of qc |
 | T67 | PASS | invalid qoder settings -> exit 1 before any install (pre-check gate) |
 | T68 | PASS | uncreatable qoder parent -> exit 1, zero side effects |
+| T69 | PASS | pi TTFT from event stream (3 tiers + first-update-only) |
+| T70 | PASS | duration in line1 badge slot, absent from line2 |
+| T71 | PASS | no dangling separator when TTFT absent |
+| T72 | PASS | line1 ladder drops duration first (55 <= 55, badge kept) |
+| T73 | PASS | line2 ladder drop order TTFT -> CH -> CP; core segments never dropped |
+| T74 | PASS | install pi migrates legacy wren.ts -> wren-pi.ts |
+| T75 | PASS | qc TTFT keeps previous turn value during wait; hidden when never paired |
+| T76 | PASS | qc TTFT re-pairs after wait via retained turn_first_ts; first piece wins |
+| T77 | PASS | inflight turn keeps last completed TTFT (no flash / no early value) |
+| T78 | PASS | first chunk atomically replaces TTFT (TTFT 12s, old value gone) |
+| T79 | PASS | qc line2 ladder color-agnostic; TTFT survives truecolor at width 80 |
+| T80 | PASS | 3-host line2 ladder identical & ordered (w90/81/80/70/65/55: TCP TCP -CP -CP --P ---) |
+| T81 | PASS | install cc migrates legacy $PREFIX/wren-cc, writes absolute command |
+| T82 | PASS | foreign $PREFIX/wren-cc left alone |
+| T83 | PASS | cc/qc TTFT 4-tier colour: 18 probes (raw-ms + rounded boundaries), text+code identical |
+| T84 | PASS | pi TTFT 4-tier colour + display identical to cc/qc, same probe table |
+| T85 | PASS | TTFT boundary probes: display-synced tiers, +/-1ms bands same tier, 3-side identical |
 
-汇总：Total 68 / Pass 68 / Fail 0 / Skip 0
+汇总：Total 85 / Pass 85 / Fail 0 / Skip 0

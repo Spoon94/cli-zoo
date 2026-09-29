@@ -1,5 +1,7 @@
 // 自定义 footer：还原内置两行布局，模型位置显示可读名
-// 行1: ~/cwd | branch ↑a↓b +增 ~删 ✱改 | ws:tab:pane | pi   行2: ↑in ↓out R CH CP | ctx%/win | 模型 · 思考 · 时长（行内布局，与 wren.py 同构）
+// 行1: ~/cwd | branch ↑a↓b +增 ~删 ✱改 | ws:tab:pane | pi · 时长
+// 行2: ↑in ↓out | R CH CP | ctx%/win TTFT | 模型 · 思考（行内布局，与 wren.py / wren-qc.py 同构）
+// 时长上行1 尾、TTFT 归状态组，见 docs/wren-ttft-design.md
 // /footer 命令切换自定义/内置
 // 基于官方示例 examples/extensions/custom-footer.ts
 import type { AssistantMessage } from "@earendil-works/pi-ai";
@@ -38,6 +40,57 @@ function sliceCells(s: string, maxW: number, fromEnd: boolean): string {
 	return fromEnd ? out.reverse().join("") : out.join("");
 }
 
+// 预算上界常量（设计 §1.1-2 / §4）：按上界预留而不是当前值宽度，折叠决策才不随数值抖动。
+// TTFT 上界 `TTFT 99m59s` = 11 格；时长段上界 ` · 99h59m` = 9 格（含 " · " 分隔符 3 格）。
+// TTFT 显示值（秒）：<10s 保留一位小数，≥10s 四舍五入到整秒（与 fmtTtft 同口径）。
+// 色档判定用它而非原始 ms —— 否则「TTFT 20s」在 19.6s~20.4s 之间会白黄跳。
+// <10s 档必须直接取「显示器渲染出来的那个数」（toFixed(1)），不能用
+// Math.round(ms/100)/10：后者是半进、而 toFixed 作用在 double 上（如 150ms：
+// toFixed→0.1 而 round→0.2），会与同屏显示的 "TTFT 0.1s" 不同步。
+function ttftSecs(ms: number | null | undefined): number | null {
+	if (ms == null) return null;
+	if (ms < 10_000) return Number((ms / 1000).toFixed(1));
+	return Math.round(ms / 1000);
+}
+
+// TTFT 四档着色（与 ctx% 同为突变式，不做渐变）：绿 <5s、白 5-20s、黄 20-60s、
+// 红 >60s。判据取 ttftSecs（显示器渲染值），保证同屏同值同色。三侧同一张表。
+function ttftColor(ms: number | null | undefined): string {
+	const v = ttftSecs(ms);
+	if (v == null) return "fg";
+	if (v < 5) return "green";
+	if (v <= 20) return "fg";
+	if (v <= 60) return "yellow";
+	return "red";
+}
+
+const TTFT_BUDGET = 11;
+const DUR_BUDGET = visibleWidth(" · 99h59m");
+
+// TTFT 显示分档（设计 §3）：<10s 一位小数 / ≥10s 整数 / ≥60s `TTFT 1m05s` / ≥1h `TTFT 1h40m`。
+// 统一带 `TTFT ` 前缀（用户定稿：裸 T 前缀不直观）。上界 11 格（`TTFT 99m59s`），与
+// TTFT_BUDGET 对齐；超 99h 钳到 `TTFT 99h+`（9 格）保住上界。
+function fmtTtft(ms: number): string {
+	if (ms < 10_000) return `TTFT ${(ms / 1000).toFixed(1)}s`;
+	const total = Math.round(ms / 1000);
+	if (total < 60) return `TTFT ${total}s`;
+	const pad = (n: number) => String(n).padStart(2, "0");
+	if (total < 3600) return `TTFT ${Math.floor(total / 60)}m${pad(total % 60)}s`;
+	const h = Math.floor(total / 3600);
+	if (h > 99) return "TTFT 99h+";
+	return `TTFT ${h}h${pad(Math.floor((total % 3600) / 60))}m`;
+}
+
+// 时长（行1 尾，设计 §3）：沿用原 fmtDuration 的 `1h5m` 式（与 T53 一致），
+// >99h59m 钳到 `99h+` —— 渲染上界因此落在 ` · 99h59m` = 9 格，与 DUR_BUDGET 一致。
+function fmtDurationElapsed(ms: number): string {
+	const s = Math.floor(ms / 1000);
+	const h = Math.floor(s / 3600);
+	const m = Math.floor((s % 3600) / 60);
+	if (h > 99 || (h === 99 && m > 59)) return "99h+";
+	return h > 0 ? `${h}h${m}m` : `${m}m`;
+}
+
 // theme.getColorMode() 是 pi 宿主的公开 API（theme.d.ts）；NO_COLOR 优先于宿主判定。
 function colorMode(theme: any): "truecolor" | "256" | "none" {
 	if (process.env.NO_COLOR) return "none";
@@ -55,6 +108,25 @@ export default function (pi: ExtensionAPI) {
 	// git 子进程 + 对失效 tuiRef 的 requestRender）。CR 轮 12 实测 x3 次装 3 个残留。
 	let timer: ReturnType<typeof setInterval> | null = null;
 	let installedTui: any = null;
+
+	// TTFT：事件流内存态（设计 §6，不落盘、不进 transcript 缓存）。
+	// 注册必须在工厂里只做一次——放进 install() 会随 session_start / /footer 重开重复注册，
+	// 与 timer 泄漏同一类坑（CR 轮 12）。
+	let turnStartTs: number | null = null;
+	let firstTokenTs: number | null = null;
+	let lastTtftMs: number | null = null;
+	pi.on("turn_start", (event: any) => {
+		// TurnStartEvent.timestamp 由宿主在同一刻打下；缺失时回落本地时钟
+		turnStartTs = typeof event?.timestamp === "number" ? event.timestamp : Date.now();
+		firstTokenTs = null;
+	});
+	pi.on("message_update", () => {
+		// 首个 message_update 即首片（与 cc/qc 的落盘口径不同，README 写死）
+		if (turnStartTs === null || firstTokenTs !== null) return;
+		firstTokenTs = Date.now();
+		lastTtftMs = firstTokenTs - turnStartTs;
+		installedTui?.requestRender();
+	});
 
 	const install = (ctx: any) => {
 		const sessionStart = Date.now();
@@ -132,11 +204,6 @@ export default function (pi: ExtensionAPI) {
 				installedTui?.requestRender();
 			});
 		};
-		const fmtDuration = (ms: number) => {
-			const s = Math.floor(ms / 1000);
-			const h = Math.floor(s / 3600);
-			return h > 0 ? `${h}h${Math.floor((s % 3600) / 60)}m` : `${Math.floor(s / 60)}m`;
-		};
 		if (timer) clearInterval(timer);
 		timer = setInterval(() => {
 			refreshGit();
@@ -183,13 +250,19 @@ export default function (pi: ExtensionAPI) {
 					// 分支有无由 porcelain 的 # branch.head 判断（"(" 开头 = detached = 无分支），
 					// 与 wren.py 完全同规则；getGitBranch() 只提供显示名与 onBranchChange 响应性
 					const hasBranch = !!branch && git.head !== "" && !git.head.startsWith("(");
-					// 路径折叠：预算驱动逐级降级（与 wren.py 的 fold_path 同规则）。
-					// 行1 预算 = render width − 其余段真实可见宽（CR 轮 10：固定 −40
-					// 在长分支+多脏文件+herdr 场景不够，整行可 88 > 80、徽标被截）
-					const rest =
-						(hasBranch ? visibleWidth(` | ${foldBranch(branch)}${git.ab}${git.counts}`) : 0) +
-						(herdrTag ? visibleWidth(` | ${herdrTag}`) : 0) +
-						visibleWidth(" | pi");
+					// 行1 梯子（设计 §4）：时长按 9 格上界（DUR_BUDGET，含 " · "）计入 rest；
+					// 路径预算会掉到 16 地板以下时先把时长丢掉（整段退回裸徽标），再走折叠 / 硬截。
+					// 预算用上界常量而不是当前值宽度：数值变化不改变折叠决策（§1.1-2）。
+					const durText = fmtDurationElapsed(Date.now() - sessionStart);
+					const gitRest = hasBranch ? visibleWidth(` | ${foldBranch(branch)}${git.ab}${git.counts}`) : 0;
+					const herdrRest = herdrTag ? visibleWidth(` | ${herdrTag}`) : 0;
+					const baseRest = gitRest + herdrRest + visibleWidth(" | pi");
+					let keepDuration = true;
+					let rest = baseRest + DUR_BUDGET;
+					if (width - rest < 16) {
+						keepDuration = false;
+						rest = baseRest;
+					}
 					const maxPath = Math.max(16, width - rest);
 					const segs = cwd.split("/");
 					let displayPath = cwd;
@@ -214,10 +287,13 @@ export default function (pi: ExtensionAPI) {
 						? c("purple", foldBranch(branch)) + c("fg", git.ab) + git.counts
 						: "";
 					// 行1 尾的宿主徽标：同屏多个 agent 时区分 CC / pi（词汇表复用 wren install 的目标名）
+					// 行1 尾的徽标 + 时长（顺序写死 `| 徽标 · 时长`，见设计 §1.1-1）：
+					// 徽标在前、时长在后 ⇒ 极端窄终端的 truncate 先吃时长、保住宿主徽标
 					const left1 = c("comment", displayPath)
 						+ (coloredGit ? ` ${sep1} ${coloredGit}` : "")
 						+ (herdrTag ? ` ${sep1} ${c("comment", herdrTag)}` : "")
-						+ ` ${sep1} ${c("comment", "pi")}`;
+						+ ` ${sep1} ${c("comment", "pi")}`
+						+ (keepDuration ? ` ${c("comment", "·")} ${c("fg", durText)}` : "");
 					// 行内布局（与 wren.py 一致）：herdr 段已在 left1 里以 " | " 拼接，
 					// 不做右对齐/pad。truncateToWidth 保留防溢出。
 					let line1 = truncateToWidth(left1, width);
@@ -280,20 +356,39 @@ export default function (pi: ExtensionAPI) {
 					const cp = compactions > 0 ? ` CP${compactions}` : "";
 					// Dracula: token 白、R 白、CH 青、CP 灰、ctx% 三档（>70 黄、>90 红，pi 语义）
 					const sep2 = c("comment", "|");
-					const tokGroup2 = `R${fmt(cacheRead)}` + (ch ? " " + c("cyan", ch.trim()) : "") + (cp ? " " + c("comment", cp.trim()) : "");
-					const left = c("fg", `↑${fmt(input)} ↓${fmt(output)}`) + ` ${sep2} ` + tokGroup2
-						+ ` ${sep2} ${c(ctxColorName, ctxPercentText)}`;
 
-					// Dracula: 模型粉 · 思考青 · 时长白。分隔符 · 与 thinking 缺省隐藏均与 wren.py 一致
+					// 身份组：模型粉 · 思考青（时长已上移行1，不再参与行2）
 					const raw = model?.name || model?.id || "no-model";
 					const display = raw.includes("/") ? raw.split("/").pop()! : raw;
 					const rightParts = [c("pink", display)];
 					if (ctx.thinkingLevel) rightParts.push(c("cyan", ctx.thinkingLevel));
-					rightParts.push(c("fg", fmtDuration(Date.now() - sessionStart)));
 					const right = rightParts.join(" · ");
 
-					// 行内布局（与 wren.py 一致）：右段直接接在 " | " 后，无 pad/右对齐
-					const line2 = truncateToWidth(`${left} ${sep2} ${right}`, width);
+					// 行2 梯子（设计 §4）：段列表 + 逐段剔，丢弃优先级 TTFT → CH → CP；
+					// 永不剔除 ↑in↓out / ctx% / 模型名。TTFT 按 11 格上界常量计预算，
+					// 数值变化只影响显示、不影响折叠决策（§1.1-2）。
+					const ttftText = lastTtftMs != null ? fmtTtft(lastTtftMs) : "";
+					const chText = ch ? ch.trim() : "";
+					const cpText = cp ? cp.trim() : "";
+					const assemble2 = (k: { ttft: boolean; ch: boolean; cp: boolean }) =>
+						c("fg", `↑${fmt(input)} ↓${fmt(output)}`)
+						+ ` ${sep2} ` + `R${fmt(cacheRead)}`
+						+ (k.ch ? " " + c("cyan", chText) : "")
+						+ (k.cp ? " " + c("comment", cpText) : "")
+						+ ` ${sep2} ` + c(ctxColorName, ctxPercentText)
+						+ (k.ttft ? " " + c(ttftColor(lastTtftMs), ttftText) : "")
+						+ ` ${sep2} ${right}`;
+					const budget2 = (k: { ttft: boolean; ch: boolean; cp: boolean }) =>
+						visibleWidth(assemble2(k)) + (k.ttft ? Math.max(0, TTFT_BUDGET - visibleWidth(ttftText)) : 0);
+					let keep2 = { ttft: !!ttftText, ch: !!chText, cp: !!cpText };
+					for (const drop of ["ttft", "ch", "cp"] as const) {
+						if (budget2(keep2) <= width) break;
+						keep2 = { ...keep2, [drop]: false };
+					}
+
+					// 行内布局（与 wren.py 一致）：右段直接接在 " | " 后，无 pad/右对齐；
+					// 梯子之后仍溢出走硬截兜底
+					const line2 = truncateToWidth(assemble2(keep2), width);
 					return [line1, line2];
 				},
 			};

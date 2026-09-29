@@ -29,8 +29,8 @@
 | T01 | 参数 | `wren`（无子命令） | exit 2，stderr 含 usage |
 | T02 | 参数 | `wren -h` | exit 0，stdout 含 usage 与 `claude/settings.json` |
 | T03 | 参数 | `wren bogus` | exit 2，stderr 含 unsupported command |
-| T04 | 安装 | `wren install` | `$PREFIX/wren-cc` 是**普通文件**（非软链）、与 `zoo-scripts/wren/wren.py` 逐字节相同、带可执行位 |
-| T05 | 安装 | 同上 | `$PI_EXT_DIR/wren.ts` 是普通文件、与 `wren.ts` 逐字节相同 |
+| T04 | 安装 | `wren install` | `$PREFIX/wren-cc` 是**普通文件**（非软链）、与 `zoo-scripts/wren/wren-cc.py` 逐字节相同、带可执行位 |
+| T05 | 安装 | 同上 | `$PI_EXT_DIR/wren-pi.ts` 是普通文件、与 `wren-pi.ts` 逐字节相同 |
 | T06 | 安装 | 同上 | settings.json 的 `statusLine.command == "wren-cc"` 且 `type == "command"` |
 | T07 | 安装 | settings.json 预置 `model` / `statusLine.padding` / `env` | 顶层键顺序仍为 `model,statusLine,env`；`statusLine.padding` 与 `env.A` 都在（只合并，不整个替换） |
 | T08 | 安装 | 承接 T07 | `<settings>.wren-bak` 内容 == 安装前的原始字节 |
@@ -52,39 +52,39 @@
 | T24 | 安装 | settings 所在目录 `chmod 555` 后 install | exit 1，`$PREFIX` 与 `$PI_EXT_DIR` 仍为空、无备份、stderr 无 `Traceback`（**半装状态守门**） |
 | T25 | 安装 | 装好后在 `$PREFIX/wren-cc` 后追加一行再 install；以及原样 install 一次 | 原样那次 stderr **不含** differs；被改过那次含 differs；最终文件恢复为与 payload 相同 |
 | T26 | 卸载 | install 后手工放一个 `.wren-tmp`，再 `wren uninstall` | `.wren-bak` 与 `.wren-tmp` 都被清掉；settings.json 里其他键（`model`）仍在 |
-| T27 | pi | stub 掉 `@earendil-works/pi-tui` 后加载 `wren.ts`，触发 `session_start`，用空 branch 调 `setFooter` 的 `render(120)` | exit 0，恰好 2 行 |
+| T27 | pi | stub 掉 `@earendil-works/pi-tui` 后加载 `wren-pi.ts`，触发 `session_start`，用空 branch 调 `setFooter` 的 `render(120)` | exit 0，恰好 2 行 |
 | T28 | pi | branch 含一条 assistant（`input=999_500`） | 行2 含 `↑1.0M`，**不含** `1000K`（与 T05/T06 同款守门） |
 | T29 | pi | `getContextUsage()` 返回 `percent=42.5` 一次、返回 `percent=null` 一次 | 前者含 `42.50%/200K`；后者含 `?/200K` 且**不含** `42.5%` |
 | T30 | pi | `HOME` 指向临时目录，cwd 分别取该 HOME 下与之外 | HOME 内含 `~/Code/proj`；HOME 外原样显示且不含 `~` |
 | T31 | pi | branch 含一条 assistant（`input=1000, cacheRead=1000, cacheWrite=0`） | 行2 含 `CH50.00%`（两位小数；一位的实现在这里失败） |
-| T32 | pi | 在同一临时仓库（带上游、ahead=1、改/删/未跟踪各一）里分别跑 `wren.py` 与 `wren.ts`，比对第一行 git 段 | 两侧 git 段逐字相同（如 `main ↑1↓0 +1 ~1 ✱1`） |
-| T33 | 安装 | `wren install cc` | `$PREFIX/wren-cc` 已装、`$PI_EXT_DIR/wren.ts` 未装、statusLine 已写 |
-| T34 | 安装 | `wren install pi` | `$PI_EXT_DIR/wren.ts` 已装、`$PREFIX/wren-cc` 未装、settings.json 未动、无备份 |
+| T32 | pi | 在同一临时仓库（带上游、ahead=1、改/删/未跟踪各一）里分别跑 `wren-cc.py` 与 `wren-pi.ts`，比对第一行 git 段 | 两侧 git 段逐字相同（如 `main ↑1↓0 +1 ~1 ✱1`） |
+| T33 | 安装 | `wren install cc` | `$PREFIX/wren-cc` 已装、`$PI_EXT_DIR/wren-pi.ts` 未装、statusLine 已写 |
+| T34 | 安装 | `wren install pi` | `$PI_EXT_DIR/wren-pi.ts` 已装、`$PREFIX/wren-cc` 未装、settings.json 未动、无备份 |
 | T35 | 安装 | `wren install claude` | 等价于 `cc` |
 | T36 | 安装 | `wren install bogus` | exit 2，两侧目标目录仍空、settings 未变 |
 | T37 | 安装 | 设 `CLAUDE_CONFIG_DIR=$BOX/cfg` 后 `install cc` | settings 写进 `$BOX/cfg/settings.json`；沙箱的默认 `~/.claude` 路径未被创建 |
-| T38 | pi | detached HEAD / staged rename / 冲突 UU 三个场景里分别跑 `wren.py` 与 `wren.ts` | detached：两侧都无 git 段；rename：两侧一致 `✱2` 且无 `+`；冲突：两侧一致含 `✱` |
+| T38 | pi | detached HEAD / staged rename / 冲突 UU 三个场景里分别跑 `wren-cc.py` 与 `wren-pi.ts` | detached：两侧都无 git 段；rename：两侧一致 `✱2` 且无 `+`；冲突：两侧一致含 `✱` |
 | T39 | cc | 同一份 statusline JSON 跑 truecolor / 256 / `NO_COLOR` 三档 | truecolor 含 `38;2;…` 精确码与紫分支码；256 含 `38;5;61/117/212`；`NO_COLOR` 无任何转义 |
 | T40 | pi | stub theme 的 `getColorMode` 分别返回 `truecolor` / `256color`，再叠加 `NO_COLOR` | 三档色码与 CC 侧同一张 Dracula 表；`NO_COLOR` 优先于宿主 |
 | T41 | cc | transcript 末条 assistant 后跟一条 `compact_boundary`（`current_usage` 为 null） | 行2 含 `CH60.00%` 与 `CP1`，ctx 用 `postTokens`（`25.00%/200K`） |
 | T42 | cc | 长路径 + 长分支的仓库 | 路径折叠含 `…` 且中间段消失；分支折叠后可见宽 ≤25 且含 `…`；尾徽标仍在 |
-| T43 | pi | 同一仓库跑 `wren.ts` | 分支折叠结果与 T42 的 CC 侧相同（同规则守门） |
+| T43 | pi | 同一仓库跑 `wren-pi.ts` | 分支折叠结果与 T42 的 CC 侧相同（同规则守门） |
 | T44 | cc | 全 CJK 路径（全角算 2 格） | 行1 显示宽 ≤80 |
 | T45 | cc | 极端 CJK：长中文路径 + 长中文分支 + 10 脏文件，`NO_COLOR` 与 truecolor 各跑一次 | 两次整行显示宽均 ≤80 且剥色后逐字相同（**色档不得影响折叠**；末级截断按码点切会到 88） |
-| T46 | pi | 同一极端 CJK 场景跑 `wren.ts`（stub 宽度 80） | 行1 显示宽 ≤80（守宿主兜底 + 显示格切片同构） |
+| T46 | pi | 同一极端 CJK 场景跑 `wren-pi.ts`（stub 宽度 80） | 行1 显示宽 ≤80（守宿主兜底 + 显示格切片同构） |
 | T47 | qc | 最小合成 payload（`cwd` + `model`）喂 `wren-qc.py` | 恰好 2 行；行1 `"/tmp \| qc"`；行2 `"↑0 ↓0 \| R0 \| Test-Model"`（无中生有的段一概不出现） |
 | T48 | qc | transcript 两条 assistant（Σin=3000 / Σout=400）+ 原生 `total_input_tokens=43138`（诱饵） | 行2 含 `↑3K ↓400`，不含 `↑43K` / `↓0`（原生字段是「最近一次请求」，不得当累计） |
 | T49 | qc | `used_percentage=22` 一次；缺失（只剩 `total_input_tokens=43138`）一次 | 前者 `22.00%/200K`；后者自算 `21.57%/200K` |
 | T50 | qc | transcript 末条 `input=26254, cache_read=24064`（qoder 口径：input 已含 cache） | 行2 含 `CH91.66%` 与 `R24K`，不含 CC 公式值 `CH47.82%` |
 | T51 | qc | 末条 `input=1000 < cache_read=3000, cache_creation=1000`（旧版不含 cache 的口径） | 自适应回退 CC 公式：`CH60.00%` |
 | T52 | qc | `cache_creation` 为对象形态（`ephemeral_5m/1h`）且 `input < cache_read` | 对象按 5m+1h 求和后走回退公式：`CH42.86%` |
-| T53 | qc | `cost.total_duration_ms=3900000` 一次；无 cost + transcript 首条时间戳在 9 分钟前一次 | 前者 `1h5m`；后者 `9m`（宿主目前不发送该字段，回退路径是常态） |
+| T53 | qc | transcript 首条时间戳在 9 分钟前一次；只有 `cost.total_duration_ms=3900000`、无 transcript 一次 | 前者行1 含 `qc · 9m` 且行2 无时长；后者不出时长（v6：会话年龄只从 transcript 推算，cost 路径已删） |
 | T54 | qc | transcript 含 `runtime-config`（`reasoningEffort=high`）一次；无该记录一次 | 前者行2 含 `Test-Model · high`；后者行2 恰为 `↑0 ↓0 \| R0 \| Test-Model`（真实 payload 无顶层思考字段） |
 | T55 | qc | 同一带 git 仓库 + CH + 思考等级的输入跑 truecolor / 256 / `NO_COLOR` | truecolor 含粉/青/灰/紫 `38;2;…` 码且无 256 码；256 含 `38;5;212/61/117/141`；`NO_COLOR` 无任何转义（与 T39/T40 同一张 Dracula 表） |
 | T56 | qc | stdin 喂非法 JSON | exit 0，仍出 2 行，模型名降级 `no-model`，行1 含 `\| qc` |
 | T57 | qc | 设 `WREN_DEBUG_DUMP` | dump 文件内容与 stdin 原始字节逐字相同（真实 payload 对齐钩子） |
 | T58 | qc | transcript：assistant 后跟 `compact_boundary`（`postTokens=50000`），原生 ctx 字段全缺 | 行2 含 `CP1` 与 `25.00%/200K`（ctx 回落链：native → postTokens → 末次请求） |
-| T59 | qc | 同一临时 git 仓库分别跑 `wren.py` 与 `wren-qc.py` | 行1 剥宿主徽标后逐字相同（跨实现同构守门，同 T32 思路） |
+| T59 | qc | 同一临时 git 仓库分别跑 `wren-cc.py` 与 `wren-qc.py` | 行1 剥宿主徽标后逐字相同（跨实现同构守门，同 T32 思路） |
 | T60 | 安装 | `wren install qc` | `$QODER_CONFIG_DIR/wren-qc.py` 是普通文件、与 `wren-qc.py` 逐字节相同、带执行位；settings 的 `statusLine.command` == 该**绝对路径**、`type == command` |
 | T61 | 安装 | 预置 cc settings 后 `wren install qc` | 只动 qc 侧：`$PREFIX`/`$PI_EXT_DIR` 空、cc settings 无 `statusLine`、无 `.wren-bak` |
 | T62 | 安装 | qoder settings 预置 `model`/`statusLine.padding`/`env` | 顶层键序仍为 `model,statusLine,env`；`padding`/`env.A` 保留；`<settings>.wren-bak` == 安装前原始字节 |
@@ -94,6 +94,26 @@
 | T66 | 安装 | `wren install qoder` | 等价于 `qc`（别名） |
 | T67 | 安装 | cc settings 合法、qoder settings 非法 JSON，跑 `wren install`（all） | exit 1；`$PREFIX`/`$PI_EXT_DIR`/qoder 目录均无 payload、两份 settings 均无 `.wren-bak`、cc settings 字节未变（**预检先行守门**） |
 | T68 | 安装 | `QODER_CONFIG_DIR` 指向只读目录下的不存在路径（父目录不可创建），跑 `install`（all） | exit 1；`$PREFIX`/`$PI_EXT_DIR` 均空、目标目录未被创建、cc settings 字节未变（**半装缺口守门**：check 探针需向上找存在祖先） |
+| T74 | 安装 | 预置旧名 `$PIEXT/wren.ts`（wren 系副本）后 `wren install pi` | 旧文件被删、新目标 `wren-pi.ts` 与 payload 逐字节相同、stdout 含 `migrated`（**v7 改名迁移守门**） |
+| T81 | 安装 | 预置旧落点 `$PREFIX/wren-cc`（wren 系副本）后 `wren install cc` | 旧文件被删、新目标 `$CLAUDE_SETTINGS` 同目录的 `wren-cc` 与 payload 逐字节相同、`statusLine.command` 为绝对路径、stdout 含 `migrated`（**v8 落点迁移守门**） |
+| T82 | 安装 | 同上但预置的是非 wren 系同名文件 | 该文件原样保留、stderr 含 `not a wren payload`（**只删自己的东西**） |
+| T83 | cc/qc | 18 个探针：四档代表值 + **原始 ms 档界** `4999/5000`、`19999/20000/20001`、`59999/60000/60001` + **舍入后真档界 ±10ms**（`4940/4960`、`20490/20510`、`60490/60510`）；抽「紧邻 `TTFT ` 的转义码 + 文本」 | 每条命中期望档色；且 cc 与 qc 的「文本\|色码」逐字相同（**TTFT 四档着色守门**；同时修掉原 `t83_colors` 未定义 → `want` 为空 → `grep -F ""` 恒真的**空转**） |
+| T84 | pi | 读 T83 写下的 `(ms, 文本\|色码)` 表逐条重跑 harness（绕开 `run_pi` 的 `NO_COLOR=1`） | 色码**与显示文本**都与 cc/qc 相同（**三侧同值同色守门**；原来对整行 `grep`，ctx% 同色（0.5% 也绿）时会误过，现改为只取 `TTFT ` 段自己的码） |
+| T85 | 三侧 | 边界探针：共享值 `4999/5000/19999/20000/20001/20500/59999/60000/60001/60500` 三侧同值同色；`4949/20499/60499` 精确边仅 qc/cc；pi 补 `4700/61000` | 全部命中期望 `code+TTFT 文本`（**判据=显示值 `ttft_secs`：±1ms 边界串同档、.5s 处换档 20499 白/20500 黄、60499 黄/60500 红；注入 `<=`→`<` 或回退原始 ms 判定都会红**） |
+| T76 | qc | round1 配对后 round2 只有 user（等待期）→ 追加 round2 两条 assistant 增量续读 | 等待期行2 含 round1 旧值 `TTFT 7.4s`；续读后含 `TTFT 3.1s` 且不含 `TTFT 7.4s`/`TTFT 9.0s`（**turn_first_ts 不清空、比较判开；首片定值守门**） |
+| T77 | pi | 次轮 `turn_start` 已发、首片未到（`TTFT_MS='6600,12400'`、`MSG_UPDATES='0|'`）；另跑首轮进行中 | 前者含旧值 `TTFT 6.6s` 且不含 `TTFT 12s`；首轮进行中无任何 `T`（**方案 B：轮中不闪空、不提前显新值**） |
+| T78 | pi | `TTFT_MS='6600,12400'`、`MSG_UPDATES='0|0'`（次轮首片已到） | 含 `TTFT 12s` 且不含 `TTFT 6.6s`（**首片落地原子覆盖**） |
+| T79 | qc | CH+TTFT 满段（无色宽 61）、`COLUMNS=80`，truecolor / 256 / `NO_COLOR` 三档渲染行2 | 剥色后三档逐字相同且含 `TTFT 7.4s`（**预算串必须无色守门**：混入 ANSI 会让 truecolor 虚高 ~23 格误丢 TTFT——宿主 T 值被吃的历史 bug） |
+| T75 | qc | round1 配对完成（7.4s）后 round2 只有 user（等待期）；对照：全新会话无配对记录 | 等待期行2 含旧值 `TTFT 7.4s`；无配对时 TTFT 段隐藏（**ttft_ms 存量制守门**） |
+| T69 | pi | harness 发 `turn_start`（时间戳回拨 6.6s/12s/65s）+ `message_update`，另跑一次两次 update | 行2 分别为 `TTFT 6.6s` / `TTFT 12s` / `TTFT 1m05s`；第二个 update 不改写首片时刻（**事件流 TTFT 守门**） |
+| T70 | pi | 常规 payload 渲染两行 | 时长在行1 徽标段（`\| pi · <时长>`）、**行2 不再出现时长**（**时长归位守门**） |
+| T71 | pi | 时长在、TTFT 缺（不发事件） | 行2 无悬空 `·`/双空格/`· \|`/`\| \|`，状态组只到 `0.50%/200K`（**悬空分隔符守门**） |
+| T72 | pi | 长分支仓库下 `WIDTH=55` 与 `WIDTH=120` 各渲染一次 | 窄终端先丢时长（行1 保留 `\| pi`、无 ` · `、宽 ≤ 55）；宽终端时长仍在（**行1 梯子首丢时长守门**） |
+| T73 | pi | 富 payload（CH+CP+TTFT+长模型名）下 `WIDTH=90/75/65/55`（阀值随 `TTFT_BUDGET=11` 变：全在 ≥81 / 丢TTFT 69-80 / 丢CH 60-68 / 丢CP ≤59） | 依次丢 `TTFT → CH → CP`；`↑in↓out`/ctx%/模型名四档均保留（**行2 梯子顺序守门**） |
+| T77 | pi | harness 发两轮：round1 `turn_start`+首片（6.6s），round2 只发 `turn_start`（首片未到）；另跑一次首轮进行中（从未有已完成轮） | round2 等待期行2 仍含 round1 旧值 `TTFT 6.6s` 且**不含** `TTFT 12s`；首轮进行中则**无 TTFT 段**（**方案 B 守门**：轮进行中不闪空白、不提前显示新值） |
+| T78 | pi | harness 发两轮，round2 补上首个 `message_update` | 行2 含 `TTFT 12s` 且**不含** `TTFT 6.6s`（**首片落地原子覆盖守门**） |
+
+| T80 | 三宿主 | 匹配夹具（743K/117K/R19.6M → CH96.34%、28.42%/1M、CP1、TTFT 12s）下 `COLUMNS/WIDTH=90/81/80/70/65/55` 各跑 cc/qc/pi | 每一档三侧签名（T/C/P）**逐档相同**，且序列为 `TCP TCP -CP -CP --P ---`（**梯子同构守门**；81 是全在的临界点，预算常量差 1 格即暴露） |
 
 ## 条件用例（不满足条件时 SKIP，不算 FAIL）
 
@@ -101,7 +121,7 @@
 |---|---|
 | T24 | 以 root 运行时文件权限不生效（`chmod 555` 仍可写） |
 | T68 | 同上（依赖 chmod 555 生效） |
-| T27-T32、T38、T40、T43、T46 | 无 `node`，或 `node` 不支持直接执行 `.ts`（Node 22.6+ 的 type stripping） |
+| T27-T32、T38、T40、T43、T46、T69-T73、T77-T78、T80 | 无 `node`，或 `node` 不支持直接执行 `.ts`（Node 22.6+ 的 type stripping） |
 
 其余用例只依赖 bash / python3 / coreutils，且全程在用户态临时目录作业。
 `python3` 缺失时测试脚本自身 exit 2（前置依赖检查），因为连 settings.json 的断言都做不了。
@@ -127,7 +147,7 @@
   而不是把压缩前的旧值一直挂在屏幕上。
 - **T30 是 pi 侧家目录折叠的守门用例**：必须用 `os.homedir()`。旧的 `/^\/Users\/[^/]+/` 硬编码在
   Linux 与自定义 HOME 下都不折叠，会在这里失败。
-- **T31 是 pi 侧 CH 位数的守门用例**：必须两位小数，与 `wren.py` 对齐。pi 内置 footer 是一位，
+- **T31 是 pi 侧 CH 位数的守门用例**：必须两位小数，与 `wren-cc.py` 对齐。pi 内置 footer 是一位，
   所以这条同样守的是「有意不跟上游」。
 - **T48-T52 是 qc 侧数据源口径的守门用例**：↑in/↓out 必须取 transcript 累计：qoder 原生 `total_input_tokens`
   是「最近一次请求」的上下文占用（官方文档注明 NOT a session total），`total_output_tokens` 宿主从不发送；
