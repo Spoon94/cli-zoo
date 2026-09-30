@@ -13,7 +13,7 @@
 
 ## 隔离手段
 
-测试沙箱里四个目录 + 五个环境变量，**真实配置一个都不碰**：
+测试沙箱里五个目录 + 七个环境变量，**真实配置一个都不碰**：
 
 | 变量 | 指向 |
 |---|---|
@@ -21,6 +21,7 @@
 | `PI_EXT_DIR` | `$BOX/piext` |
 | `CLAUDE_SETTINGS` | `$BOX/claude/settings.json` |
 | `QODER_CONFIG_DIR` / `QODER_SETTINGS` | `$BOX/qoder` 及其 `settings.json` |
+| `OPENCODE_CONFIG_DIR` / `OPENCODE_TUI_CONFIG` | `$BOX/opencode` 及其 `tui.json` |
 
 ## 测试用例
 
@@ -114,6 +115,22 @@
 | T78 | pi | harness 发两轮，round2 补上首个 `message_update` | 行2 含 `TTFT 12s` 且**不含** `TTFT 6.6s`（**首片落地原子覆盖守门**） |
 
 | T80 | 三宿主 | 匹配夹具（743K/117K/R19.6M → CH96.34%、28.42%/1M、CP1、TTFT 12s）下 `COLUMNS/WIDTH=90/81/80/70/65/55` 各跑 cc/qc/pi | 每一档三侧签名（T/C/P）**逐档相同**，且序列为 `TCP TCP -CP -CP --P ---`（**梯子同构守门**；81 是全在的临界点，预算常量差 1 格即暴露） |
+| T86 | oc 安装 | 空沙箱 `wren install oc` | `$OPENCODE_CONFIG_DIR/plugins/` 下 `wren-oc.tsx` 与 `wren-oc-core.ts` 与 payload 逐字节相同；`tui.json` 被创建且 `plugin == ["./plugins/wren-oc.tsx"]` |
+| T87 | oc 安装 | 改掉已装副本后重复 `install oc` | spec 只出现一次；copies 刷回 payload（**幂等守门**） |
+| T88 | oc 安装 | JSONC 夹具（行注释 + 尾注释 + 自定义键 + 两个其他插件）下 install → uninstall | 注释/键/其他条目全程保留，且卸载后文件与安装前**逐字节相同**（**JSONC 保真守门**：走 json.loads/dump 会吞注释、重排序） |
+| T89 | oc 安装 | 只有 `tui.jsonc`（无 `tui.json`），不显式设 `OPENCODE_TUI_CONFIG` | 接管 `tui.jsonc` 且**不新建** `tui.json`（宿主两个文件都读，用户手写的那个优先） |
+| T90 | oc 卸载 | 数组里另有其他插件；跑两遍 `uninstall oc` | 只摘自己的 spec、只删自己的两个 payload；其他条目原样；第二遍 exit 0 且提示 `left alone` |
+| T91 | oc 卸载 | 人为改掉已装 `wren-oc.tsx` 后卸载 | 被改过的文件保留（`left alone`），但 spec 仍从 `tui.json` 摘掉（**只删自己装的那份**） |
+| T92 | oc 安装 | 配置目录 `chmod 555` 后 `install oc` | exit 1，目录零新增文件（**预检先行、不留半装状态**；root 下 SKIP） |
+| T93 | oc 安装 | `tui.json` 顶层是数组 / `plugin` 数组未闭合 | exit 1，文件字节未变、payload 未装 |
+| T94 | 参数 | `install opencode`（别名）与 `install oc9`（非法） | 别名与 `oc` 等价；非法 target exit 2 + stderr `unsupported target` |
+| T95 | 安装 | `install all` → `uninstall all` | 四个宿主全部接线（cc 绝对路径 command、qc 绝对路径 command、pi payload、oc payload + spec），再全部摘干净 |
+| T96 | oc 渲染 | 最小夹具（无会话、无 git、无窗口） | 两行；行1 `… \| oc`，行2 `↑0 ↓0 \| R0 \| <model>`（不无中生有） |
+| T97 | oc 渲染 | 满配夹具（git 脏 + herdr + 时长 + token/缓存/压缩 + 窗口） + `999_500` 边界夹具 | 行1/行2 与 cc/pi 逐字同构；`999_500` → `1.0M` 且不出现 `1000K` |
+| T98 | oc 渲染 | 宽度 120→30 扫描记录各段首次消失的宽度 | 丢序 `TTFT(76) → CH(64) → CP(55)`；`↑in↓out`/`R`/ctx%/模型名在梯子区间内不消失（**梯子顺序守门**） |
+| T99 | oc 渲染 | 极端 CJK 路径 + 24 字符中文分支，width=80 | 两行按显示格都不超 80，且行1 保住 `\| oc` 徽标 |
+| T100 | oc 渲染 | 11 个 TTFT 探针（含 ±1ms 边界与 `.5s` 换档点） | 「显示值 + 色档」逐条命中；判据是屏幕显示值（`4.9s` 绿 / `5.0s` 白 / `21s` 黄 / `1m01s` 红） |
+| T101 | oc 真机 | 沙箱配置下真起 opencode TUI（tmux），读屏 | 屏幕上出现两行 wren 输出（`\| oc`、`↑0 ↓0 \| R0`、分支名）（**唯一直接锁宿主 TUI 插件 API 的用例**：slot 名/模块形态变了会碎；无 opencode 或 tmux 时 SKIP，耗 25s） |
 
 ## 条件用例（不满足条件时 SKIP，不算 FAIL）
 
@@ -121,7 +138,9 @@
 |---|---|
 | T24 | 以 root 运行时文件权限不生效（`chmod 555` 仍可写） |
 | T68 | 同上（依赖 chmod 555 生效） |
-| T27-T32、T38、T40、T43、T46、T69-T73、T77-T78、T80 | 无 `node`，或 `node` 不支持直接执行 `.ts`（Node 22.6+ 的 type stripping） |
+| T92 | 同上（oc 侧只读配置目录探针） |
+| T27-T32、T38、T40、T43、T46、T69-T73、T77-T78、T80、T96-T100 | 无 `node`，或 `node` 不支持直接执行 `.ts`（Node 22.6+ 的 type stripping） |
+| T101 | 无 `opencode` 或无 `tmux`（真机 e2e） |
 
 其余用例只依赖 bash / python3 / coreutils，且全程在用户态临时目录作业。
 `python3` 缺失时测试脚本自身 exit 2（前置依赖检查），因为连 settings.json 的断言都做不了。
@@ -153,6 +172,12 @@
   是「最近一次请求」的上下文占用（官方文档注明 NOT a session total），`total_output_tokens` 宿主从不发送；
   CH 必须按「input 已含 cache」的 qoder 口径 `cr/in`，仅当 `input < cache_read`（旧版口径）才回退 CC 公式。
   这些结论来自对 qodercli 1.1.57 二进制内嵌 payload 文档/构造器的静态核对与真实会话抓包。
+- **T88 是 oc 侧 JSONC 保真的守门用例**：`tui.json(c)` 必须做文本级定向编辑（保留注释与排版），
+  且卸载后逐字节还原。换回 `json.loads`/`json.dump` 会吞注释、重排序，两条断言同时红。
+- **T98/T100 是 oc 侧与 cc/pi 同构的守门用例**：排版核心（`wren-oc-core.ts`）是纯函数，
+  梯子丢序与 TTFT 分档必须与另外三侧同一张表；core 里改掉 `TTFT_BUDGET`/显示值判据都会红。
+- **T101 是 oc 侧唯一的真机用例**：stub 只能验排版核心，slot 名、模块形态、`api.state` 形状
+  这些宿主契约只有真起 TUI 才能锁住。它跑在沙箱配置上（`OPENCODE_CONFIG_DIR` 改道），不碰用户真实配置。
 - **T67 是 qc 侧「零副作用、不留半装状态」的守门用例**：前置校验对所有要写配置的宿主先行，
   任一 settings 读不懂/写不进就一个 payload 都不装（与 T11/T12/T24 同强度，针对 `all` 含 qc 后的新顺序）。
 - settings.json 的断言一律走 `json_field`（`python3 -c` 读 JSON），不靠 grep 文本，避免缩进/换行变动导致误判。
@@ -160,8 +185,10 @@
 ## 测试脚本结构
 
 - bash，无第三方依赖，自带 `pass` / `fail` / `skip` / `record`；断言直接内联 `if` + `grep -qF` / `cmp -s` / `diff`。
-- `new_box`：每个场景一个全新沙箱（`$TMPROOT/boxN`，内含 `bin` / `piext` / `claude`）。
+- `new_box`：每个场景一个全新沙箱（`$TMPROOT/boxN`，内含 `bin` / `piext` / `claude` / `qoder` / `opencode`）。
 - `run_wren`：统一调用安装器，stdout / stderr / 退出码分别存到 `$WREN_OUT` / `$WREN_ERR` / `$WREN_EXIT`。
+- `oc_render <fixture-json>`：用 node 直接跑 `wren-oc-core.ts`（纯函数，无宿主依赖）。
+  每段一行 `L<行号>=<明文>` 与 `T<行号>:<段文本>=<色名>`，断言用 `grep -qxF` 精确比对。
 - `json_field <file> <expr>`：用 `python3 -c` 从 settings.json 取值，`expr` 里用 `d` 引用解析结果。
 - 退出时 `trap` 清掉整个 `$TMPROOT`。
 - 输出格式：

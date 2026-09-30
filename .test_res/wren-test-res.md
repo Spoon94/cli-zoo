@@ -1,5 +1,5 @@
 # wren 测试结果
-执行时间：2026-09-29 17:06:32
+执行时间：2026-09-30 17:12:00
 
 | ID | 状态 | 备注 |
 |----|------|------|
@@ -88,5 +88,21 @@
 | T83 | PASS | cc/qc TTFT 4-tier colour: 18 probes (raw-ms + rounded boundaries), text+code identical |
 | T84 | PASS | pi TTFT 4-tier colour + display identical to cc/qc, same probe table |
 | T85 | PASS | TTFT boundary probes: display-synced tiers, +/-1ms bands same tier, 3-side identical |
+| T86 | PASS | install oc: payloads copied + plugin spec written to tui.json |
+| T87 | PASS | install oc idempotent: single spec entry, payload refreshed |
+| T88 | PASS | JSONC comments/keys/other plugins preserved; uninstall restores bytes |
+| T89 | PASS | tui.jsonc taken over when tui.json is absent (no new file) |
+| T90 | PASS | uninstall oc removes only our spec/payloads; second run idempotent |
+| T91 | PASS | modified oc payload left alone; spec still removed from tui.json |
+| T92 | PASS | unwritable opencode config dir -> exit 1, zero side effects |
+| T93 | PASS | malformed tui.json -> exit 1, no payload installed, file untouched |
+| T94 | PASS | install opencode aliases oc; unknown target -> exit 2 |
+| T95 | PASS | install all wires 4 hosts; uninstall all unwires them |
+| T96 | PASS | oc minimal payload: 2 lines, oc badge, no invented segments |
+| T97 | PASS | oc full payload matches wren layout; 999_500 -> 1.0M |
+| T98 | PASS | oc line2 ladder: TTFT(76) -> CH(64) -> CP(55); cores never dropped |
+| T99 | PASS | oc CJK extreme: line1=71 line2=58 both <= 80 |
+| T100 | PASS | oc TTFT tiers: display-synced 4-tier colour, +/-1ms bands same tier |
+| T101 | PASS | real opencode TUI renders wren two lines in app_bottom |
 
-汇总：Total 85 / Pass 85 / Fail 0 / Skip 0
+汇总：Total 101 / Pass 101 / Fail 0 / Skip 0
