@@ -6,7 +6,7 @@
 
 ## 1. 结论
 
-**可以，v1 已落地**（`wren-oc.tsx` + `wren-oc-core.ts`，安装器 `wren install oc|opencode`，测试 T86-T101）。
+**可以，v1 已落地**（`wren-oc.tsx` + `wren-oc.ts`，安装器 `wren install oc|opencode`，测试 T86-T101）。
 
 形态与 cc / pi / qc 完全不同：
 
@@ -122,7 +122,7 @@ WREN-SMOKE line2 …                        ← 注入的 app_bottom（第 2 行
 | 文件 | 角色 |
 |---|---|
 | `zoo-scripts/wren/wren-oc.tsx` | TUI 插件适配层：`{ id: "wren.oc", tui }`，注册 `app_bottom` slot；Solid signal + 15s 轮询 git/CP；全部 try/catch 兜底 |
-| `zoo-scripts/wren/wren-oc-core.ts` | 排版纯函数（段列表、折叠梯子、数值口径），无宿主依赖，node 可直接跑 |
+| `zoo-scripts/wren/wren-oc.ts` | 排版纯函数（段列表、折叠梯子、数值口径），无宿主依赖，node 可直接跑 |
 | `zoo-scripts/wren/wren` | 新增 target `oc`（别名 `opencode`）：拷 payload、JSONC 定向编辑 `tui.json(c)` 的 `plugin` 数组、卸载只拂自己的 |
 | `.test_scripts/wren-test.sh` | T86-T95 安装器（幂等/JSONC 保真/jsonc 接管/只删自己/预检/别名/all 四侧）+ T96-T100 核心渲染（两行/满配/梯子/CJK/TTFT 分档）+ T101 真机 TUI e2e |
 

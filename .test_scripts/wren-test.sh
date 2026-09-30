@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# wren-test.sh - 自动运行 .test_task/wren-test.md 中的 101 个用例。
+# wren-test.sh - 自动运行 .test_task/wren-test.md 中的 104 个用例。
 #
 # 用法: bash .test_scripts/wren-test.sh
 # 写出: .test_res/wren-test-res.md
@@ -21,7 +21,7 @@ CC_PAYLOAD="$REPO_ROOT/zoo-scripts/wren/wren-cc.py"
 PI_PAYLOAD="$REPO_ROOT/zoo-scripts/wren/wren-pi.ts"
 QC_PAYLOAD="$REPO_ROOT/zoo-scripts/wren/wren-qc.py"
 OC_PAYLOAD="$REPO_ROOT/zoo-scripts/wren/wren-oc.tsx"
-OC_CORE_PAYLOAD="$REPO_ROOT/zoo-scripts/wren/wren-oc-core.ts"
+OC_CORE_PAYLOAD="$REPO_ROOT/zoo-scripts/wren/wren-oc.ts"
 INSTALL_SH="$REPO_ROOT/cli-zoo-install.sh"
 UNINSTALL_SH="$REPO_ROOT/cli-zoo-uninstall.sh"
 RES_DIR="$REPO_ROOT/.test_res"
@@ -2050,7 +2050,7 @@ else
 fi
 
 # ============================================================
-# opencode（wren-oc.tsx + wren-oc-core.ts，TUI 插件）——
+# opencode（wren-oc.tsx + wren-oc.ts，TUI 插件）——
 # 安装器部分在沙箱里真跑；渲染部分用 node 直接跑纯函数核心（无宿主依赖）
 # ============================================================
 OC_CORE_TS="$OC_CORE_PAYLOAD"
@@ -2079,7 +2079,7 @@ new_box
 run_wren install oc
 if [[ "$WREN_EXIT" == "0" ]] \
    && cmp -s "$OC/plugins/wren-oc.tsx" "$OC_PAYLOAD" \
-   && cmp -s "$OC/plugins/wren-oc-core.ts" "$OC_CORE_PAYLOAD" \
+   && cmp -s "$OC/plugins/wren-oc.ts" "$OC_CORE_PAYLOAD" \
    && [[ "$(json_field "$OCCONF" "d['plugin']")" == "['./plugins/wren-oc.tsx']" ]]; then
     pass T86 "install oc: payloads copied + plugin spec written to tui.json"
 else
@@ -2163,7 +2163,7 @@ run_wren uninstall oc
 first_out="$WREN_OUT"
 if [[ "$WREN_EXIT" == "0" ]] \
    && [[ "$(json_field "$OCCONF" "d['plugin']")" == "['./plugins/other.tsx']" ]] \
-   && [[ ! -e "$OC/plugins/wren-oc.tsx" && ! -e "$OC/plugins/wren-oc-core.ts" ]]; then
+   && [[ ! -e "$OC/plugins/wren-oc.tsx" && ! -e "$OC/plugins/wren-oc.ts" ]]; then
     run_wren uninstall oc
     if [[ "$WREN_EXIT" == "0" ]] && printf '%s' "$WREN_OUT" | grep -qF "left alone"; then
         pass T90 "uninstall oc removes only our spec/payloads; second run idempotent"
@@ -2409,6 +2409,53 @@ else
     else
         fail T101 "pane=[$(printf '%s' "$pane" | tail -4 | tr '\n' '~')] log=[$(tail -2 "$BOX/oc.log" 2>/dev/null | tr '\n' '~')]"
     fi
+fi
+
+# ============================================================
+# T102: CRLF 配置需逐字节还原（读/写不能用 universal newline 转换）
+#       Linux/mac 上的 text mode 会把 \r\n 读成 \n，install 一次就整文件改行尾
+# ============================================================
+new_box
+printf '{\r\n  "theme": "dracula",\r\n  "plugin": [\r\n    "./plugins/other.tsx"\r\n  ]\r\n}\r\n' >"$OCCONF"
+cp "$OCCONF" "$BOX/before102"
+run_wren install oc
+run_wren uninstall oc
+t102_cr="$(python3 -c "import sys;print(open(sys.argv[1],'rb').read().count(b'\\r'))" "$OCCONF")"
+if [[ "$t102_cr" == "6" ]] && diff -q "$BOX/before102" "$OCCONF" >/dev/null; then
+    pass T102 "CRLF tui.json survives install+uninstall byte-for-byte (6 CR kept)"
+else
+    fail T102 "cr=$t102_cr diff=[$(diff "$BOX/before102" "$OCCONF" | head -3 | tr '\n' '~')]"
+fi
+
+# ============================================================
+# T103: plugin 键值不是数组 → 预检就拒，exit 1 且零副作用
+#     （否则会追出重复的 plugin 键，把用户原值遮蔽掉）
+# ============================================================
+new_box
+printf '{\n  "plugin": "./plugins/other.tsx"\n}\n' >"$OCCONF"
+cp "$OCCONF" "$BOX/before103"
+run_wren install oc
+if [[ "$WREN_EXIT" == "1" ]] && diff -q "$BOX/before103" "$OCCONF" >/dev/null \
+   && [[ ! -e "$OC/plugins" ]] && printf '%s' "$WREN_ERR" | grep -qF "non-array"; then
+    pass T103 "non-array plugin value -> exit 1 before payload install, file untouched"
+else
+    fail T103 "exit=$WREN_EXIT plugins=[$(ls -A "$OC" 2>/dev/null | tr '\n' ' ')] err=[$WREN_ERR]"
+fi
+
+# ============================================================
+# T104: 核心文件改名迁移——早期落点 plugins/wren-oc-core.ts 被识别并删除
+# ============================================================
+new_box
+mkdir -p "$OC/plugins"
+printf '// wren 的 opencode 侧排版核心（旧名）\n' >"$OC/plugins/wren-oc-core.ts"
+run_wren install oc
+if [[ "$WREN_EXIT" == "0" ]] \
+   && [[ ! -e "$OC/plugins/wren-oc-core.ts" ]] \
+   && cmp -s "$OC/plugins/wren-oc.ts" "$OC_CORE_PAYLOAD" \
+   && printf '%s' "$WREN_OUT" | grep -qF "migrated"; then
+    pass T104 "install oc migrates legacy wren-oc-core.ts -> wren-oc.ts"
+else
+    fail T104 "exit=$WREN_EXIT files=[$(ls -A "$OC/plugins" 2>/dev/null | tr '\n' ' ')] out=[$WREN_OUT]"
 fi
 
 # ---------- 汇总 ----------

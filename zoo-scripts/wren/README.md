@@ -45,7 +45,7 @@ payload 文档 + 构造器静态核对 + 真会话抓包，由 T48-T58 守门）
 
 ### oc（opencode）侧：进程内插件，不是 statusline 命令
 
-opencode 没有 statusline 命令协议也没有 `statusLine` 配置键，接入形态是 **TUI 插件**：规则拆分不改（`wren-oc-core.ts` 是排版纯函数，`wren-oc.tsx` 只把它渲成 JSX），
+opencode 没有 statusline 命令协议也没有 `statusLine` 配置键，接入形态是 **TUI 插件**：规则拆分不改（`wren-oc.ts` 是排版纯函数，`wren-oc.tsx` 只把它渲成 JSX），
 数据全部来自宿主内存里的 `api.state`（Solid store，slot 渲染函数里读即为响应式）。真机结论来自 1.18.33（tmux 读屏）与真会话导出，由 T96-T101 守门。
 
 | 位置 | 来源 |
@@ -85,7 +85,7 @@ qc 侧：`install qc` 拷 payload 到 `$QODER_CONFIG_DIR/wren-qc.py` 并写 `$QO
 卸载反向操作（同样只删自己的东西）。前置校验对所有要写配置的宿主先行：任一 settings
 读不懂或写不进，连一个 payload 都不装（T67 守门）。
 
-oc 侧：`install oc` 拷两个 payload（`wren-oc.tsx` + `wren-oc-core.ts`）到 `<tui 配置同目录>/plugins/`，
+oc 侧：`install oc` 拷两个 payload（`wren-oc.tsx` + `wren-oc.ts`）到 `<tui 配置同目录>/plugins/`，
 并在 `tui.json` / `tui.jsonc` 的 `plugin` 数组里加一条 `./plugins/wren-oc.tsx`。因为宿主只把 TUI 插件当 npm 包安装
 （`opencode plugin <本地文件>` 会找 `package.json` 而失败），配置是 wren 自己做**文本级定向编辑**：
 保留注释与排版，不重新序列化；多行数组插到首元素前一行，行内数组插到 `[` 后，因此卸载能逐字节还原。

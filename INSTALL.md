@@ -35,7 +35,7 @@ wren install            # 四个宿主都装；或 wren install cc / pi / qc / o
 
 该步会写 `$CLAUDE_SETTINGS` 的 `statusLine` 键（只动这一个键，首次自动备份到 `<settings>.wren-bak`），并把 payload 拷到 **settings.json 同目录的 `wren-cc`** 与 `$PI_EXT_DIR/wren-pi.ts`。默认落 `~/.claude/wren-cc` 与 `~/.pi/agent/extensions/wren-pi.ts`，可用 `CLAUDE_SETTINGS` / `PI_EXT_DIR` 改道（改 settings 路径即改 payload 落点）。qc 侧同理：payload 拷到 `$QODER_CONFIG_DIR/wren-qc.py`（默认 `~/.qoder`，可用 `QODER_CONFIG_DIR` / `QODER_SETTINGS` 改道），`statusLine.command` 写该绝对路径。
 
-oc 侧形态不同（opencode 没有 statusline 命令协议）：两个 payload（`wren-oc.tsx` + `wren-oc-core.ts`）拷到 **`<tui 配置同目录>/plugins/`**，
+oc 侧形态不同（opencode 没有 statusline 命令协议）：两个 payload（`wren-oc.tsx` + `wren-oc.ts`）拷到 **`<tui 配置同目录>/plugins/`**，
 并在 `tui.json` / `tui.jsonc` 的 `plugin` 数组里加一条 `./plugins/wren-oc.tsx`。默认落在 `~/.config/opencode`，
 可用 `OPENCODE_CONFIG_DIR`（官方重定向变量）或 `OPENCODE_TUI_CONFIG`（直接指定配置文件；payload 落点跟随它同目录）改道。
 写入是文本级定向编辑：注释与排版保留，多行数组插到首元素前一行、行内数组插到 `[` 后，所以卸载能逐字节还原；
@@ -47,7 +47,7 @@ oc 侧形态不同（opencode 没有 statusline 命令协议）：两个 payload
 otter -h                                # otter 装好
 wren -h                                 # wren 本体装好
 bash .test_scripts/otter-test.sh        # expect: Total: 25  Pass: 25
-bash .test_scripts/wren-test.sh         # expect: Total: 101  Pass: 101（缺 node 时 23 条 SKIP，缺 opencode/tmux 时 T101 SKIP）
+bash .test_scripts/wren-test.sh         # expect: Total: 104  Pass: 104（缺 node 时 23 条 SKIP，缺 opencode/tmux 时 T101 SKIP）
 ```
 
 wren 装好后可再喂一份 statusline JSON 冒烟：
@@ -64,14 +64,14 @@ oc 侧没有 stdin/stdout 冒烟（是 TUI 插件）：用隔离配置验证接�
 ```bash
 tmp="$(mktemp -d)"; OPENCODE_CONFIG_DIR="$tmp" OPENCODE_TUI_CONFIG="$tmp/tui.json" wren install oc \
   && grep -q 'wren-oc.tsx' "$tmp/tui.json" && ls "$tmp/plugins"
-# expect: 打印 wren-oc.tsx 与 wren-oc-core.ts，exit 0；随后起 opencode，TUI 底部应出现两行（行1 含 "| oc"）
+# expect: 打印 wren-oc.tsx 与 wren-oc.ts，exit 0；随后起 opencode，TUI 底部应出现两行（行1 含 "| oc"）
 OPENCODE_CONFIG_DIR="$tmp" OPENCODE_TUI_CONFIG="$tmp/tui.json" wren uninstall oc   # 验证完拆掉
 ```
 
 oc 的排版核心可以不启 TUI 直接用 node 跑：
 
 ```bash
-P=zoo-scripts/wren/wren-oc-core.ts node -e 'import(process.env.P).then(m=>console.log(m.buildLines({width:120,cwd:"/tmp",home:"/home/u",branch:null,head:"",ab:"",added:0,modified:0,deleted:0,herdr:"",durationMs:null,inputTokens:0,outputTokens:0,cacheRead:0,cacheWrite:0,compactions:0,ctxPercent:null,ctxWindow:0,model:"m",thinking:"",ttftMs:null}).map(l=>l.map(s=>s.text).join("")).join("\n")))'
+P=zoo-scripts/wren/wren-oc.ts node -e 'import(process.env.P).then(m=>console.log(m.buildLines({width:120,cwd:"/tmp",home:"/home/u",branch:null,head:"",ab:"",added:0,modified:0,deleted:0,herdr:"",durationMs:null,inputTokens:0,outputTokens:0,cacheRead:0,cacheWrite:0,compactions:0,ctxPercent:null,ctxWindow:0,model:"m",thinking:"",ttftMs:null}).map(l=>l.map(s=>s.text).join("")).join("\n")))'
 # expect: 两行，行1 "/tmp | oc"，行2 "↑0 ↓0 | R0 | m"
 ```
 

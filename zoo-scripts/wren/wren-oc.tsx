@@ -2,7 +2,7 @@
 //
 // opencode v1（1.18.x）的 TUI 插件 API：模块 `export default { id, tui(api) }`，
 // `api.slots.register({ slots: { app_bottom() {...} } })`，渲染是进程内 OpenTUI/Solid JSX。
-// 不是 cc/qc 的 stdin→stdout statusline 协议，故排版核心拆到 wren-oc-core.ts（纯函数、可测）。
+// 不是 cc/qc 的 stdin→stdout statusline 协议，故排版核心拆到 wren-oc.ts（纯函数、可测）。
 //
 // 安装：wren install oc → 本文件与 core 被拷到 $OPENCODE_CONFIG_DIR/plugins/，
 // 并在 tui.json(c) 的 plugin 数组里加 "./plugins/wren-oc.tsx"。
@@ -13,7 +13,7 @@ import type { TuiPluginModule } from "@opencode-ai/plugin/tui"
 import { execFile } from "node:child_process"
 import { homedir } from "node:os"
 import { createSignal } from "solid-js"
-import { buildLines, type OcInput, type Segment, type Tone } from "./wren-oc-core.ts"
+import { buildLines, type OcInput, type Segment, type Tone } from "./wren-oc.ts"
 
 // Dracula 色板（与 cc/pi/qc 同表）；opencode 侧直接给 RGB 十六进制，由宿主决定降档
 const DRACULA: Record<Tone, string> = {

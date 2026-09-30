@@ -31,7 +31,7 @@ Usage: wren <command> [target]
   wren-cc.py ->  <settings.json 同目录>/wren-cc  并在 $CLAUDE_SETTINGS 写入 statusLine（绝对路径）
   wren-pi.ts ->  $PI_EXT_DIR/wren-pi.ts          pi 自动加载该目录下的 .ts
   wren-qc.py ->  $QODER_CONFIG_DIR/wren-qc.py  并在 $QODER_SETTINGS 写入 statusLine（command 写绝对路径，与 qoder 官方引导一致）
-  wren-oc.tsx + wren-oc-core.ts ->  <tui.json 同目录>/plugins/  并在 $OPENCODE_TUI_CONFIG 的 plugin 数组里加 "./plugins/wren-oc.tsx"
+  wren-oc.tsx + wren-oc.ts ->  <tui.json 同目录>/plugins/  并在 $OPENCODE_TUI_CONFIG 的 plugin 数组里加 "./plugins/wren-oc.tsx"
 
 Commands:
   install [target]     安装（幂等）。装的是文件副本，装完不依赖本仓库位置
@@ -380,14 +380,23 @@ def find_string(s, start, end, value):
 raw = ""
 if os.path.exists(path):
     try:
-        with open(path, "r", encoding="utf-8") as fh:
+        # newline=""：不做 universal-newline 转换。CRLF 配置读进来什么样、写回去什么样
+        # （默认 text mode 会把 \r\n 读成 \n 写回，等于整文件改行尾——与「其余字节原样保留」冲突）
+        with open(path, "r", encoding="utf-8", newline="") as fh:
             raw = fh.read()
     except OSError as exc:
         fail("cannot read %s: %s" % (path, exc.strerror or exc))
 
 if mode == "check":
-    if raw.strip() and root_close(raw) < 0:
-        fail("%s is not a JSON object, refusing to touch it" % path)
+    if raw.strip():
+        if root_close(raw) < 0:
+            fail("%s is not a JSON object, refusing to touch it" % path)
+        # 与 write 同一套拒收条件：check 漏掉的会在 payload 装完后才爆，留下半装状态
+        check_pos = value_pos(raw, "plugin")
+        if check_pos is not None and (check_pos >= len(raw) or raw[check_pos] != "["):
+            fail("%s has a non-array \"plugin\" value, refusing to touch it" % path)
+        if check_pos is not None and close_of(raw, check_pos, "[", "]") < 0:
+            fail("%s has an unterminated plugin array" % path)
     # 可写性探针：父目录不存在时向上找第一个存在的祖先（同 cc 侧口径）
     probe_dir = parent
     while probe_dir and not os.path.isdir(probe_dir):
@@ -433,7 +442,7 @@ try:
         body = raw[:pos] + "[" + ("" if skip_ws_comments(new_seg, 0) >= len(new_seg) else new_seg) + "]" + raw[close + 1:]
         if body != raw:
             tmp = path + ".wren-tmp"
-            with open(tmp, "w", encoding="utf-8") as fh:
+            with open(tmp, "w", encoding="utf-8", newline="") as fh:
                 fh.write(body)
             os.replace(tmp, path)
         print("removed")
@@ -443,7 +452,11 @@ try:
     if raw.strip():
         body = raw
         pos = value_pos(body, "plugin")
-        if pos is not None and pos < len(body) and body[pos] == "[":
+        if pos is not None and (pos >= len(body) or body[pos] != "["):
+            # 非数组的 plugin 值（例如字符串）：不能当「没有这个键」再追加一个，那会产生
+            # 重复键并把用户原值遮蔽掉；与「读不懂就不碰」同口径，直接拒绝
+            fail("%s has a non-array \"plugin\" value, refusing to touch it" % path)
+        if pos is not None and body[pos] == "[":
             close = close_of(body, pos, "[", "]")
             if close < 0:
                 fail("%s has an unterminated plugin array" % path)
@@ -481,7 +494,7 @@ try:
     if parent and not os.path.isdir(parent):
         os.makedirs(parent, exist_ok=True)
     tmp = path + ".wren-tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
+    with open(tmp, "w", encoding="utf-8", newline="") as fh:
         fh.write(body)
     os.replace(tmp, path)
     print(backup)
@@ -555,7 +568,7 @@ cmd_install() {
     pi_payload="$dir/wren-pi.ts"
     qc_payload="$dir/wren-qc.py"
     oc_payload="$dir/wren-oc.tsx"
-    oc_core="$dir/wren-oc-core.ts"
+    oc_core="$dir/wren-oc.ts"
 
     # 前置校验全部先行：任一要写配置的宿主读不懂/写不进，连一个 payload 都不装
     # （否则 all 场景下 cc/pi 装完才发现 qc 配置写不进，留半装状态）
@@ -632,6 +645,15 @@ cmd_install() {
     if want_target "$target" oc; then
         install_payload "$oc_payload" "$OC_CMD" "oc"
         install_payload "$oc_core" "$OC_CORE" "oc"
+        # 改名迁移：早期版本的核心文件叫 wren-oc-core.ts，升级后会在 plugins/ 里留一份死文件
+        local oc_legacy="$OC_DIR/plugins/wren-oc-core.ts"
+        if [[ -e "$oc_legacy" || -L "$oc_legacy" ]]; then
+            if grep -q "wren" "$oc_legacy" 2>/dev/null; then
+                rm -f "$oc_legacy" && log_info "[oc] migrated: removed legacy $oc_legacy"
+            else
+                log_err "[oc] warning: $oc_legacy exists and is not a wren payload; left alone"
+            fi
+        fi
         if ! backup="$(oc_plugin_config write)"; then
             exit 1
         fi
@@ -646,17 +668,21 @@ cmd_install() {
 
 cmd_uninstall() {
     local target="$1"
-    local dir cc_payload pi_payload qc_payload oc_payload oc_core sidecar
+    local dir cc_payload pi_payload qc_payload oc_payload oc_core sidecar oc_legacy
     dir="$(script_dir)"
     cc_payload="$dir/wren-cc.py"
     pi_payload="$dir/wren-pi.ts"
     qc_payload="$dir/wren-qc.py"
     oc_payload="$dir/wren-oc.tsx"
-    oc_core="$dir/wren-oc-core.ts"
+    oc_core="$dir/wren-oc.ts"
 
     if want_target "$target" oc; then
         remove_payload "$OC_CMD" "$oc_payload" "oc"
         remove_payload "$OC_CORE" "$oc_core" "oc"
+        oc_legacy="$OC_DIR/plugins/wren-oc-core.ts"
+        if [[ -e "$oc_legacy" || -L "$oc_legacy" ]] && grep -q "wren" "$oc_legacy" 2>/dev/null; then
+            rm -f "$oc_legacy" && log_info "[oc] migrated: removed legacy $oc_legacy"
+        fi
 
         if command -v python3 >/dev/null 2>&1; then
             if [[ "$(oc_plugin_config remove)" == "leftalone" ]]; then
@@ -801,7 +827,7 @@ main() {
     esac
     OC_SPEC="./plugins/wren-oc.tsx"
     OC_CMD="$OC_DIR/plugins/wren-oc.tsx"
-    OC_CORE="$OC_DIR/plugins/wren-oc-core.ts"
+    OC_CORE="$OC_DIR/plugins/wren-oc.ts"
     TARGET=all
 
     case "$1" in
