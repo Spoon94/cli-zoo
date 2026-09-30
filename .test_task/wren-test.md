@@ -22,6 +22,7 @@
 | `CLAUDE_SETTINGS` | `$BOX/claude/settings.json` |
 | `QODER_CONFIG_DIR` / `QODER_SETTINGS` | `$BOX/qoder` 及其 `settings.json` |
 | `OPENCODE_CONFIG_DIR` / `OPENCODE_TUI_CONFIG` | `$BOX/opencode` 及其 `tui.json` |
+| `XDG_CONFIG_HOME` | `$BOX/xdg`（opencode 会把默认全局配置目录叠加进来，T101 必须隔离） |
 
 ## 测试用例
 
@@ -130,10 +131,11 @@
 | T98 | oc 渲染 | 宽度 120→30 扫描记录各段首次消失的宽度 | 丢序 `TTFT(76) → CH(64) → CP(55)`；`↑in↓out`/`R`/ctx%/模型名在梯子区间内不消失（**梯子顺序守门**） |
 | T99 | oc 渲染 | 极端 CJK 路径 + 24 字符中文分支，width=80 | 两行按显示格都不超 80，且行1 保住 `\| oc` 徽标 |
 | T100 | oc 渲染 | 11 个 TTFT 探针（含 ±1ms 边界与 `.5s` 换档点） | 「显示值 + 色档」逐条命中；判据是屏幕显示值（`4.9s` 绿 / `5.0s` 白 / `21s` 黄 / `1m01s` 红） |
-| T101 | oc 真机 | 沙箱配置下真起 opencode TUI（tmux），读屏 | 屏幕上出现两行 wren 输出（`\| oc`、`↑0 ↓0 \| R0`、分支名）（**唯一直接锁宿主 TUI 插件 API 的用例**：slot 名/模块形态变了会碎；无 opencode 或 tmux 时 SKIP，耗 25s） |
+| T101 | oc 真机 | 沙箱配置下真起 opencode TUI（tmux），读屏 | prompt 框内那一行右侧出现两行 wren 输出（行1 右对齐到框右沿 `main \| oc`，行2 `↑0 ↓0 \| R0`）（**唯一直接锁宿主 TUI 插件 API 的用例**：slot 名/模块形态/宽度预算变了会碎；无 opencode 或 tmux 时 SKIP，耗 25s） |
 | T102 | oc 安装 | CRLF 行尾的 `tui.json`（6 个 `\r\n`）走 install → uninstall | 6 个 CR 仍在且与安装前**逐字节相同**（**行尾保真守门**：text mode 的 universal newline 会把 `\r\n` 读成 `\n`，一改就整文件换行尾，卸载也回不去；T88 只测 LF 测不出） |
 | T103 | oc 安装 | `tui.json` 里 `"plugin"` 是字符串而非数组 | exit 1 + stderr `non-array`，文件字节未变、payload 未装（**预检守门**：不拒的话会追出第二个 `plugin` 键，把用户原值遮蔽；旧实现 payload 已拷完才报错，留半装状态） |
 | T104 | oc 安装 | 预置旧名 `plugins/wren-oc-core.ts`（wren 系副本）后 `install oc` | 旧文件被删、新目标 `plugins/wren-oc.ts` 与 payload 逐字节相同、stdout 含 `migrated`（**改名迁移守门**） |
+| T105 | oc 渲染 | 空 cwd + 空 model（oc 侧把 cwd 交给宿主行、模型交给宿主 prompt 行） | 行1 首段就是 git 组、无悬空分隔符；行2 无尾部 `\| `、无粉色模型段（**去重守门**） |
 
 ## 条件用例（不满足条件时 SKIP，不算 FAIL）
 
@@ -179,8 +181,11 @@
   且卸载后逐字节还原。换回 `json.loads`/`json.dump` 会吞注释、重排序，两条断言同时红。
 - **T98/T100 是 oc 侧与 cc/pi 同构的守门用例**：排版核心（`wren-oc.ts`）是纯函数，
   梯子丢序与 TTFT 分档必须与另外三侧同一张表；core 里改掉 `TTFT_BUDGET`/显示值判据都会红。
-- **T101 是 oc 侧唯一的真机用例**：stub 只能验排版核心，slot 名、模块形态、`api.state` 形状
-  这些宿主契约只有真起 TUI 才能锁住。它跑在沙箱配置上（`OPENCODE_CONFIG_DIR` 改道），不碰用户真实配置。
+- **T101 是 oc 侧唯一的真机用例**：stub 只能验排版核心，slot 名、模块形态、宽度预算、`api.state` 形状
+  这些宿主契约只有真起 TUI 才能锁住。它跑在沙箱配置上（`OPENCODE_CONFIG_DIR` 改道），不碰用户真实配置；
+  `XDG_CONFIG_HOME` 也必须一并改道——opencode 会把默认全局配置目录叠加进来，
+  否则用户真实装的同一份 payload 会让断言恒真（测不到沙箱那份）。
+  行1 的断言卡「宿主左组与 wren 之间必有 2+ 空格且 `\| oc` 收在行尾」：宽度预算给宽了会两边互相挤碎，只有右对齐成立时才成立。
 - **T102/T103 是 JSONC 写路径的守门用例**（均由 oc 侧 CR 抓出）：文本级编辑必须保留行尾（`open(..., newline="")`）
   与拒绝非数组 `"plugin"` 值；任一回归都会在 Windows 编辑过的配置上造成字节破坏或重复键。
 - **T67 是 qc 侧「零副作用、不留半装状态」的守门用例**：前置校验对所有要写配置的宿主先行，

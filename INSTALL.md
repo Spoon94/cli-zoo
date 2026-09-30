@@ -10,7 +10,7 @@
 | python3 | wren 的 python payload（`wren-cc.py` / `wren-qc.py`）、opencode 侧 `tui.json(c)` 的 JSONC 定向编辑、wren 测试的 JSON 断言 | `command -v python3` |
 | claude | otter 测试 T06+ 前置检查（缺则 otter 测试 exit 2） | `command -v claude` |
 | git | otter 布局里的 lazygit window、wren 的 statusline git 段（oc 侧自己跑 `git status`） | `command -v git` |
-| node ≥ 22.18（或 23.6） | 仅 wren 测试里依赖 node 的 23 条用例（T27-T32/T38/T40/T43/T46/T69-T73/T77-T78/T80/T96-T100，需不带 flag 直接执行 `.ts` 的版本；22.6-22.17 要显式 flag，probe 不加，会 SKIP）；wren 运行本身不需要 | `node -v`（缺时测试 SKIP，不算 FAIL） |
+| node ≥ 22.18（或 23.6） | 仅 wren 测试里依赖 node 的 23 条用例（T27-T32/T38/T40/T43/T46/T69-T73/T77-T78/T80/T96-T100、T105，需不带 flag 直接执行 `.ts` 的版本；22.6-22.17 要显式 flag，probe 不加，会 SKIP）；wren 运行本身不需要 | `node -v`（缺时测试 SKIP，不算 FAIL） |
 | opencode | 仅 wren 测试 T101（真机 TUI 读屏；oc payload 运行靠 opencode 自带 bun，不需要外部 node） | `command -v opencode` |
 | tmux | otter 全部功能；wren 测试 T101（真机 e2e） | `command -v tmux` |
 
@@ -47,7 +47,7 @@ oc 侧形态不同（opencode 没有 statusline 命令协议）：两个 payload
 otter -h                                # otter 装好
 wren -h                                 # wren 本体装好
 bash .test_scripts/otter-test.sh        # expect: Total: 25  Pass: 25
-bash .test_scripts/wren-test.sh         # expect: Total: 104  Pass: 104（缺 node 时 23 条 SKIP，缺 opencode/tmux 时 T101 SKIP）
+bash .test_scripts/wren-test.sh         # expect: Total: 105  Pass: 105（缺 node 时 23 条 SKIP，缺 opencode/tmux 时 T101 SKIP）
 ```
 
 wren 装好后可再喂一份 statusline JSON 冒烟：
@@ -59,12 +59,12 @@ printf '{"cwd":"/tmp","model":{"display_name":"m"}}' | NO_COLOR=1 python3 zoo-sc
 # expect: 两行输出，行1 以 "| qc" 结尾，exit 0
 ```
 
-oc 侧没有 stdin/stdout 冒烟（是 TUI 插件）：用隔离配置验证接线，或直接看 TUI 底部：
+oc 侧没有 stdin/stdout 冒烟（是 TUI 插件）：用隔离配置验证接线，或直接看 prompt 框：
 
 ```bash
 tmp="$(mktemp -d)"; OPENCODE_CONFIG_DIR="$tmp" OPENCODE_TUI_CONFIG="$tmp/tui.json" wren install oc \
   && grep -q 'wren-oc.tsx' "$tmp/tui.json" && ls "$tmp/plugins"
-# expect: 打印 wren-oc.tsx 与 wren-oc.ts，exit 0；随后起 opencode，TUI 底部应出现两行（行1 含 "| oc"）
+# expect: 打印 wren-oc.tsx 与 wren-oc.ts，exit 0；随后起 opencode，prompt 框内那一行右侧应出现两行（行1 含 "| oc"）
 OPENCODE_CONFIG_DIR="$tmp" OPENCODE_TUI_CONFIG="$tmp/tui.json" wren uninstall oc   # 验证完拆掉
 ```
 

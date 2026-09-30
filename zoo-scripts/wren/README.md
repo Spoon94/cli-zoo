@@ -50,20 +50,21 @@ opencode 没有 statusline 命令协议也没有 `statusLine` 配置键，接入
 
 | 位置 | 来源 |
 |------|------|
-| cwd | `api.state.path.directory`（家目录用 `os.homedir()` 折叠） |
+| cwd | `api.state.path.directory`（家目录用 `os.homedir()` 折叠）；**oc 侧默认传空串不渲染**：宿主 prompt 框下沿自带 cwd |
 | 分支 / ahead-behind / 增删改 | 自己跑 `git status --porcelain=v2 --branch`（15s 轮询 + Solid signal），解析与 cc/pi 同一套；`api.state.vcs.branch` 只能给分支名，没有 ab 与脏文件分类 |
 | ↑in/↓out / R | `session.tokens`（宿主维护的会话累计；`input`/`output` 与 per-message 求和等价） |
 | CH | 末条 assistant 的 `cache.read / (input + cache.read + cache.write)`（与 cc/pi 同式；无缓存不显示） |
 | CP | 会话内 `part.type == "compaction"` 计数（宿主没有现成计数；15s 轮询） |
-| ctx% / 窗口 | 末条 assistant 的 `tokens.total` ÷ `api.state.provider[].models[].limit.context`；窗口未知则整段不显示，占用未知显示 `?` |
+| ctx% / 窗口 | 末条 `output > 0` 的 assistant 的四项 token 之和（`input`+`output`+`reasoning`+`cache.read`+`cache.write`，与宿主 `usage()` 同口径）÷ `api.state.provider[].models[].limit.context`；窗口未知则整段不显示 |
 | TTFT | `min(part.time.start) − assistant.time.created`；轮中未落片时保留上一轮值（与 qc 同步），换会话清空 |
 | 时长 | `session.time.created` → now（home 路由无会话，整段不显示） |
-| 模型 / 思考等级 | `provider.models[modelID].name`（回退 `modelID`）与末条 assistant 的 `variant` |
+| 模型 / 思考等级 | `provider.models[modelID].name`（回退 `modelID`）与末条 assistant 的 `variant`；**oc 侧默认传空串不渲染**：宿主同一行左组已显示 |
 | herdr 位置 | `HERDR_WORKSPACE_ID` / `HERDR_TAB_ID` / `HERDR_PANE_ID`（与 pi 同） |
 
-形态与降级的四点不同：
+形态与降级的五点不同：
 
-- **slot**：v1（1.18.x）没有 statusline 专用 slot，用 `app_bottom`（活动路由下方整宽区块，可多行）；两行即占两行布局（与 cc/pi 的 statusline 同级）。模型名/ctx% 与内置 footer 会重复显示，这是刻意的：目标是四侧逐字同构。
+- **slot**：v1（1.18.x）没有 statusline 专用 slot，用 `session_prompt_right` / `home_prompt_right`——即 prompt 框内那一行（宿主左组 `agent · model · variant` 的右侧）。两行会把 prompt 框撑高一行，不占额外布局。slot API 不给可用宽度，只能按容器宽预留左组（会话路由 `terminal − 38`，home 路由 `prompt.max_width(默认 75) − 47`），预留不足时两边会互相挤碎。
+- **去重**：oc 侧不渲染 cwd（宿主 prompt 框下沿已有）与模型 · 思考（宿主 prompt 行左组已有），避免与宿主同屏重复；其余三宿主无此依赖。
 - **崩溃隔离**：slot 渲染里抛异常会直接把整个 TUI 打到崩溃页（1.18.33 实测），因此取数与排版全包在 try/catch 里，失败时降级成一行裸 cwd + 徽标。
 - **色档**：不做 256 档转换，直接给 RGB 十六进制（`<text fg>`），由宿主/终端决定降档；`NO_COLOR` 非空时逐行单色输出（不靠宿主配合）。
 - **相对路径 spec**：payload 拷到 `<tui.json 同目录>/plugins/`，配置里写 `./plugins/wren-oc.tsx`（宿主按声明它的配置文件解析相对路径）。核心与适配层是两个文件，卸载时一并处理。

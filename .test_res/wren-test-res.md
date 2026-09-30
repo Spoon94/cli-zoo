@@ -1,5 +1,5 @@
 # wren 测试结果
-执行时间：2026-09-30 17:53:58
+执行时间：2026-09-30 22:03:56
 
 | ID | 状态 | 备注 |
 |----|------|------|
@@ -103,9 +103,10 @@
 | T98 | PASS | oc line2 ladder: TTFT(76) -> CH(64) -> CP(55); cores never dropped |
 | T99 | PASS | oc CJK extreme: line1=71 line2=58 both <= 80 |
 | T100 | PASS | oc TTFT tiers: display-synced 4-tier colour, +/-1ms bands same tier |
-| T101 | PASS | real opencode TUI renders wren two lines in app_bottom |
+| T101 | PASS | real opencode TUI renders wren two lines inside the prompt box |
 | T102 | PASS | CRLF tui.json survives install+uninstall byte-for-byte (6 CR kept) |
 | T103 | PASS | non-array plugin value -> exit 1 before payload install, file untouched |
 | T104 | PASS | install oc migrates legacy wren-oc-core.ts -> wren-oc.ts |
+| T105 | PASS | empty cwd + empty model: no leading/trailing separator, no identity group |
 
-汇总：Total 104 / Pass 104 / Fail 0 / Skip 0
+汇总：Total 105 / Pass 105 / Fail 0 / Skip 0

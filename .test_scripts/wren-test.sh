@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# wren-test.sh - 自动运行 .test_task/wren-test.md 中的 104 个用例。
+# wren-test.sh - 自动运行 .test_task/wren-test.md 中的 105 个用例。
 #
 # 用法: bash .test_scripts/wren-test.sh
 # 写出: .test_res/wren-test-res.md
@@ -2386,26 +2386,29 @@ fi
 
 # ============================================================
 # T101: 真机 e2e——装到沙箱配置后，opencode TUI 里真渲染出两行（无 opencode/tmux 则 SKIP）
-#       这是唯一直接锁宿主 TUI 插件 API 的用例：slot 名/模块形态变了会在这里碎
+#       唯一直接锁宿主 TUI 插件 API 的用例：slot 名/模块形态变了会在这里碎。
+#       XDG_CONFIG_HOME 一并改道：opencode 会把默认全局配置目录".叠加"进来，
+#       不改道的话用户真实装的同一个 payload 会让本用例恒真（测不到沙箱那份）
 # ============================================================
 if ! command -v opencode >/dev/null 2>&1 || ! command -v tmux >/dev/null 2>&1; then
     skip T101 "opencode or tmux not available"
 else
     new_box
     run_wren install oc
-    mkdir -p "$BOX/proj"
+    mkdir -p "$BOX/proj" "$BOX/xdg"
     (cd "$BOX/proj" && git -c init.defaultBranch=main init -q >/dev/null 2>&1)
     SESS="wren_t101_$BOX_N"
     tmux kill-session -t "$SESS" 2>/dev/null || true
     tmux new-session -d -s "$SESS" -x 120 -y 40 \
-        "cd '$BOX/proj' && OPENCODE_CONFIG_DIR='$OC' opencode 2>'$BOX/oc.log'" >/dev/null 2>&1
+        "cd '$BOX/proj' && XDG_CONFIG_HOME='$BOX/xdg' OPENCODE_CONFIG_DIR='$OC' opencode 2>'$BOX/oc.log'" >/dev/null 2>&1
     sleep 25
     pane="$(tmux capture-pane -p -t "$SESS" 2>/dev/null)"
     tmux kill-session -t "$SESS" 2>/dev/null || true
-    if printf '%s' "$pane" | grep -qF "| oc" \
-       && printf '%s' "$pane" | grep -qF "↑0 ↓0 | R0" \
-       && printf '%s' "$pane" | grep -qF "main"; then
-        pass T101 "real opencode TUI renders wren two lines in app_bottom"
+    # 行1 右对齐到 prompt 框右沿（宿主左组与 wren 之间必有空白分隔；被挤碎时这里是单空格或无空格）
+    # 行2 只含 git 计数（无会话、无 provider 限额）
+    if printf '%s' "$pane" | grep -qE "^.*┃.*main.*\| oc[[:space:]]*$" \
+       && printf '%s' "$pane" | grep -qE "^.*┃.*↑0 ↓0 \| R0[[:space:]]*$"; then
+        pass T101 "real opencode TUI renders wren two lines inside the prompt box"
     else
         fail T101 "pane=[$(printf '%s' "$pane" | tail -4 | tr '\n' '~')] log=[$(tail -2 "$BOX/oc.log" 2>/dev/null | tr '\n' '~')]"
     fi
@@ -2456,6 +2459,26 @@ if [[ "$WREN_EXIT" == "0" ]] \
     pass T104 "install oc migrates legacy wren-oc-core.ts -> wren-oc.ts"
 else
     fail T104 "exit=$WREN_EXIT files=[$(ls -A "$OC/plugins" 2>/dev/null | tr '\n' ' ')] out=[$WREN_OUT]"
+fi
+
+# ============================================================
+# T105: 空 cwd + 空身份组（oc 侧把 cwd 交给宿主行、模型交给宿主 prompt 行）
+#       行1 首段就是 git 组、无悬空分隔符；行2 无尾部 " | "、无粉色模型段
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T105 "node with .ts type-stripping not available"
+else
+    OC_NOID='{"width":120,"cwd":"","home":"/home/u","branch":"main","head":"main","ab":" ↑1↓2","added":4,"modified":2,"deleted":1,"herdr":"w1:t2:p3","durationMs":3900000,"inputTokens":12000,"outputTokens":3000,"cacheRead":1200000,"cacheWrite":0,"compactions":2,"ctxPercent":8.4,"ctxWindow":200000,"model":"","thinking":"","ttftMs":6600}'
+    t105="$(oc_render "$OC_NOID")"
+    if printf '%s' "$t105" | grep -qxF "L1=main ↑1↓2 +4 ~1 ✱2 | w1:t2:p3 | oc · 1h5m" \
+       && printf '%s' "$t105" | grep -qxF "L2=↑12K ↓3K | R1.2M CH99.01% CP2 | 8.40%/200K TTFT 6.6s" \
+       && ! printf '%s' "$t105" | grep -qE '^L[12]=.*\| $' \
+       && ! printf '%s' "$t105" | grep -qE '^T[12]:.*=pink' \
+       && ! printf '%s' "$t105" | grep -qE '^T2: · ='; then
+        pass T105 "empty cwd + empty model: no leading/trailing separator, no identity group"
+    else
+        fail T105 "out=[$(printf '%s' "$t105" | tr '\n' '~')]"
+    fi
 fi
 
 # ---------- 汇总 ----------

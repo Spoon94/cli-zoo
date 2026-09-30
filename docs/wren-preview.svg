@@ -20,7 +20,7 @@
   <!-- pi 侧（与 CC 区同构：标签→行1 间距 24，行距 22，两行同 x 左对齐） -->
   <text x="24" y="124" fill="#6272a4" font-size="11">pi</text>
   <text x="24" y="148" xml:space="preserve"><tspan fill="#6272a4">~/Code/cli-zoo | </tspan><tspan fill="#bd93f9">main</tspan><tspan fill="#f8f8f2"> ↑0↓0 </tspan><tspan fill="#50fa7b">+5</tspan><tspan fill="#f8f8f2"> </tspan><tspan fill="#f1fa8c">✱4</tspan><tspan fill="#6272a4"> | wC:t1:p4 | pi</tspan><tspan fill="#6272a4"> · </tspan><tspan fill="#f8f8f2">46m</tspan></text>
-  <text x="24" y="170" xml:space="preserve"><tspan fill="#f8f8f2">↑743K ↓117K | R19.6M </tspan><tspan fill="#8be9fd">CH99.31%</tspan><tspan fill="#6272a4"> | </tspan><tspan fill="#50fa7b">28.42%/1M</tspan><tspan fill="#f8f8f2"> TTFT 4.2s</tspan><tspan fill="#6272a4"> | </tspan><tspan fill="#ff79c6">zap</tspan><tspan fill="#f8f8f2"> · </tspan><tspan fill="#8be9fd">high</tspan></text>
+  <text x="24" y="170" xml:space="preserve"><tspan fill="#f8f8f2">↑743K ↓117K | R19.6M </tspan><tspan fill="#8be9fd">CH99.31%</tspan><tspan fill="#6272a4"> | </tspan><tspan fill="#50fa7b">28.42%/1M</tspan><tspan fill="#f8f8f2"> TTFT 4.2s</tspan><tspan fill="#6272a4"> | </tspan><tspan fill="#ff79c6">claude-opus-5</tspan><tspan fill="#f8f8f2"> · </tspan><tspan fill="#8be9fd">high</tspan></text>
 
   <!-- 分隔线 2 -->
   <line x1="24" y1="192" x2="896" y2="192" stroke="#44475a" stroke-width="1"/>
@@ -33,8 +33,8 @@
   <!-- 分隔线 3 -->
   <line x1="24" y1="280" x2="896" y2="280" stroke="#44475a" stroke-width="1"/>
 
-  <!-- oc 侧（opencode：TUI 插件渲到 app_bottom，行内布局与前三侧同构） -->
-  <text x="24" y="300" fill="#6272a4" font-size="11">opencode</text>
-  <text x="24" y="324" xml:space="preserve"><tspan fill="#6272a4">~/Code/cli-zoo | </tspan><tspan fill="#bd93f9">main</tspan><tspan fill="#f8f8f2"> ↑0↓0 </tspan><tspan fill="#50fa7b">+3</tspan><tspan fill="#6272a4"> | wC:t1:p1 | oc</tspan><tspan fill="#6272a4"> · </tspan><tspan fill="#f8f8f2">15m</tspan></text>
-  <text x="24" y="346" xml:space="preserve"><tspan fill="#f8f8f2">↑17K ↓7 | R20K </tspan><tspan fill="#8be9fd">CH54.46%</tspan><tspan fill="#6272a4"> | </tspan><tspan fill="#50fa7b">7.19%/262K</tspan><tspan fill="#f8f8f2"> TTFT 4.3s</tspan><tspan fill="#6272a4"> | </tspan><tspan fill="#ff79c6">claude-opus-5</tspan><tspan fill="#f8f8f2"> · </tspan><tspan fill="#8be9fd">high</tspan></text>
+  <!-- oc 侧（opencode：TUI 插件渲到 prompt 框内那一行右侧；cwd 与模型 · 思考由宿主同屏显示，不重复） -->
+  <text x="24" y="300" fill="#6272a4" font-size="11">opencode（prompt 框内）</text>
+  <text x="24" y="324" xml:space="preserve"><tspan fill="#6272a4">┃ Build · claude-opus-5 · max  </tspan><tspan fill="#bd93f9">main</tspan><tspan fill="#f8f8f2"> ↑0↓0 </tspan><tspan fill="#50fa7b">+3</tspan><tspan fill="#6272a4"> | wC:t1:p1 | oc</tspan><tspan fill="#6272a4"> · </tspan><tspan fill="#f8f8f2">15m</tspan></text>
+  <text x="24" y="346" xml:space="preserve"><tspan fill="#6272a4">┃                       </tspan><tspan fill="#f8f8f2">↑17K ↓7 | R20K </tspan><tspan fill="#8be9fd">CH54.46%</tspan><tspan fill="#6272a4"> | </tspan><tspan fill="#50fa7b">7.19%/262K</tspan><tspan fill="#f8f8f2"> TTFT 4.3s</tspan></text>
 </svg>

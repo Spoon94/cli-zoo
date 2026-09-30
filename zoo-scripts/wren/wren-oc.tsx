@@ -4,6 +4,11 @@
 // `api.slots.register({ slots: { app_bottom() {...} } })`，渲染是进程内 OpenTUI/Solid JSX。
 // 不是 cc/qc 的 stdin→stdout statusline 协议，故排版核心拆到 wren-oc.ts（纯函数、可测）。
 //
+// 渲染位置：注册到宿主 prompt 框内那一行的右侧（`session_prompt_right` / `home_prompt_right`，
+// 都是 append slot）。那一行的左侧是宿主自带的 agent · model · provider · variant，所以本 payload
+// 不再重复显示模型名与思考等级（model 传空串）；整体不再占用 prompt 框以外的行。
+// 高度不写死：两行的 column box 会把 prompt 框撑高一行（1.18.33 实测不裁切、左边框连续）。
+//
 // 安装：wren install oc → 本文件与 core 被拷到 $OPENCODE_CONFIG_DIR/plugins/，
 // 并在 tui.json(c) 的 plugin 数组里加 "./plugins/wren-oc.tsx"。
 //
@@ -60,6 +65,16 @@ function parsePorcelain(out: string): GitState {
 	return st;
 }
 
+// 宿主 prompt 行的左侧是同行的 agent · model · provider · variant（约 28~38 格，随模型名变），
+// 右侧才是我们的 slot。slot API 不给可用宽度，只能从容器宽里预留左组，否则两边抢同一行
+// 会互相挤碎（实测）。home 路由的 prompt 框是定宽居中的（`tuiConfig.prompt.max_width`，默认 75），
+// 不能拿终端宽算。
+const PROMPT_ROW_RESERVE = 38;
+// home 路由的 prompt 框定宽 75，左组（agent · model · provider · variant）一样占位，
+// 但框本身没有富余，实测预留 47 才能让两边都不被挤（预算过宽会把左组压碎）
+const HOME_PROMPT_ROW_RESERVE = 47;
+const DEFAULT_HOME_PROMPT_WIDTH = 75;
+
 const tui = async (api: any) => {
 	const [git, setGit] = createSignal<GitState>(EMPTY_GIT);
 	const [compactions, setCompactions] = createSignal(0);
@@ -115,22 +130,23 @@ const tui = async (api: any) => {
 		const session = sessionID ? api.state.session.get(sessionID) : undefined;
 		const messages = sessionID ? api.state.session.messages(sessionID) : [];
 		let last: any = null;
+		let lastOutput: any = null;
 		for (let k = messages.length - 1; k >= 0; k--) {
-			if (messages[k]?.role === "assistant") {
-				last = messages[k];
-				break;
-			}
+			const m = messages[k];
+			if (m?.role !== "assistant") continue;
+			if (!last) last = m;
+			// 宿主的 usage() 取「末条 output > 0 的 assistant」；流式中的那条 output 还是 0
+			if (!lastOutput && (m.tokens?.output ?? 0) > 0) lastOutput = m;
+			if (last && lastOutput) break;
 		}
-		const provider = (api.state.provider ?? []).find((p: any) => p.id === last?.providerID);
-		const model = last ? provider?.models?.[last.modelID] : undefined;
+		const provider = (api.state.provider ?? []).find((p: any) => p.id === lastOutput?.providerID);
+		const model = lastOutput ? provider?.models?.[lastOutput.modelID] : undefined;
 		const limit = model?.limit?.context ?? 0;
-		const total = last?.tokens?.total ?? 0;
-		const homeModel = (): string => {
-			const configured = api.state.config?.model;
-			if (typeof configured !== "string" || !configured) return "no-model";
-			return configured.includes("/") ? configured.split("/").pop()! : configured;
-		};
-
+		// 与宿主 usage() 同口径：四项 token 之和（直接用末条 tokens.total 会在流式时拿到 0）
+		const ctxTokens = lastOutput
+			? [lastOutput.tokens?.input, lastOutput.tokens?.output, lastOutput.tokens?.reasoning, lastOutput.tokens?.cache?.read, lastOutput.tokens?.cache?.write]
+					.reduce((a: number, b: any) => a + (typeof b === "number" ? b : 0), 0)
+			: 0;
 		const parts = last ? api.state.part(last.id) : [];
 		let firstStart = Infinity;
 		for (const part of parts) {
@@ -151,9 +167,19 @@ const tui = async (api: any) => {
 			.filter(Boolean)
 			.join(":");
 
+		const terminalWidth = Number(api.renderer?.width) || 80;
+		const isHome = route?.name === "home";
+		const homePromptWidth = (() => {
+			const configured = api.tuiConfig?.prompt?.max_width;
+			if (configured === "auto") return Math.max(DEFAULT_HOME_PROMPT_WIDTH, Math.floor(terminalWidth * 0.7));
+			return typeof configured === "number" ? configured : DEFAULT_HOME_PROMPT_WIDTH;
+		})();
+		const boxWidth = isHome ? homePromptWidth : terminalWidth;
+
 		return {
-			width: Number(api.renderer?.width) || 80,
-			cwd: String(api.state.path?.directory ?? process.cwd()),
+			width: Math.max(20, boxWidth - (isHome ? HOME_PROMPT_ROW_RESERVE : PROMPT_ROW_RESERVE)),
+			// cwd 交给宿主那一行（prompt 框下沿的 hint ?? cwd），oc 侧不再重复
+			cwd: "",
 			home: homedir(),
 			branch: g.branch || null,
 			head: g.head,
@@ -168,10 +194,11 @@ const tui = async (api: any) => {
 			cacheRead: session?.tokens?.cache?.read ?? 0,
 			cacheWrite: session?.tokens?.cache?.write ?? 0,
 			compactions: compactions(),
-			ctxPercent: last && limit > 0 ? (total / limit) * 100 : null,
+			ctxPercent: lastOutput && limit > 0 ? (ctxTokens / limit) * 100 : null,
 			ctxWindow: limit,
-			model: model?.name ?? last?.modelID ?? homeModel(),
-			thinking: last?.variant ?? "",
+			// 宿主同一行已显示 agent · model · variant，oc 侧不再重复（model 空串 → core 不渲染身份组）
+			model: "",
+			thinking: "",
 			ttftMs: ttftCache.ms,
 		};
 	};
@@ -181,8 +208,7 @@ const tui = async (api: any) => {
 			return buildLines(snapshot());
 		} catch {
 			// 取数失败时只留一行裸 cwd + 徽标，绝不把异常抛回 slot（那会崩 TUI）
-			return [[{ text: `${api.state?.path?.directory ?? ""} | oc`, tone: "comment" }]];
-		}
+			return [[{ text: `${api.state?.path?.directory ?? ""} | oc`, tone: "comment" }]];		}
 	};
 
 	// 必须是 JSX 表达式里的调用：Solid 的组件体只执行一次，写在组件体的常量不会随信号重算
@@ -205,9 +231,10 @@ const tui = async (api: any) => {
 
 	api.slots.register({
 		slots: {
-			// app_bottom：活动路由下方的整宽区块。v1 没有 statusline 专用 slot，
-			// 这是唯一能常驻显示两行的地方（v2 才有 prompt.footer.status）。
-			app_bottom: () => <Footer />,
+			// prompt 框内那一行（与宿主自带的 agent · model · variant 同一行）的右侧。
+			// 两个 slot 都是 append 语义；其它路由（插件页等）没有 prompt，不渲染。
+			session_prompt_right: () => <Footer />,
+			home_prompt_right: () => <Footer />,
 		},
 	});
 };

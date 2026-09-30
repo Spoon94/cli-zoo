@@ -126,6 +126,7 @@ export const DUR_BUDGET = visibleWidth(" · 99h59m");
 
 export type OcInput = {
 	width: number;
+	/** cwd 显示；空串 = 不渲染 cwd 段（宿主已在别处显示时用） */
 	cwd: string;
 	home: string;
 	/** 显示用分支名；无分支（detached / 非 git）传 null */
@@ -150,6 +151,7 @@ export type OcInput = {
 	ctxPercent: number | null;
 	/** 上下文窗口大小；0 = 未知（整段不显示） */
 	ctxWindow: number;
+	/** 模型名；空串 = 不渲染身份组（宿主已在同一行显示时用） */
 	model: string;
 	thinking: string;
 	ttftMs: number | null;
@@ -198,21 +200,27 @@ export function buildLines(i: OcInput): Segment[][] {
 		}
 	}
 
-	const line1: Segment[] = [{ text: displayPath, tone: "comment" }];
+	const line1: Segment[] = [];
+	const group = (segs: Segment[]) => {
+		if (!segs.length) return;
+		if (line1.length) line1.push(sep);
+		line1.push(...segs);
+	};
+	// cwd 可省（宿主已在 prompt 框下一行显示它时，oc 侧传空串避重复）
+	if (displayPath) group([{ text: displayPath, tone: "comment" }]);
+	const gitSegs: Segment[] = [];
 	if (hasBranch) {
-		line1.push(sep, { text: foldBranch(i.branch!), tone: "purple" });
-		if (i.ab) line1.push({ text: i.ab, tone: "fg" });
+		gitSegs.push({ text: foldBranch(i.branch!), tone: "purple" });
+		if (i.ab) gitSegs.push({ text: i.ab, tone: "fg" });
+		if (i.added) gitSegs.push({ text: " ", tone: "fg" }, { text: `+${i.added}`, tone: "green" });
+		if (i.deleted) gitSegs.push({ text: " ", tone: "fg" }, { text: `~${i.deleted}`, tone: "red" });
+		if (i.modified) gitSegs.push({ text: " ", tone: "fg" }, { text: `✱${i.modified}`, tone: "yellow" });
 	}
-	const counts: Segment[] = [];
-	if (i.added) counts.push({ text: `+${i.added}`, tone: "green" });
-	if (i.deleted) counts.push({ text: `~${i.deleted}`, tone: "red" });
-	if (i.modified) counts.push({ text: `✱${i.modified}`, tone: "yellow" });
-	counts.forEach((seg) => {
-		line1.push({ text: " ", tone: "fg" }, seg);
-	});
-	if (i.herdr) line1.push(sep, { text: i.herdr, tone: "comment" });
-	line1.push(sep, { text: "oc", tone: "comment" });
-	if (keepDuration) line1.push({ text: " · ", tone: "comment" }, { text: durText, tone: "fg" });
+	group(gitSegs);
+	if (i.herdr) group([{ text: i.herdr, tone: "comment" }]);
+	const badge: Segment[] = [{ text: "oc", tone: "comment" }];
+	if (keepDuration) badge.push({ text: " · ", tone: "comment" }, { text: durText, tone: "fg" });
+	group(badge);
 
 	// ---------- 行2 ----------
 	const chText =
@@ -222,8 +230,8 @@ export function buildLines(i: OcInput): Segment[][] {
 	const cpText = i.compactions > 0 ? `CP${i.compactions}` : "";
 	const ctxText = i.ctxWindow > 0 ? `${i.ctxPercent != null ? `${i.ctxPercent.toFixed(2)}%` : "?"}/${fmtTokens(i.ctxWindow)}` : "";
 	const ttftText = i.ttftMs != null ? fmtTtft(i.ttftMs) : "";
-	const identity: Segment[] = [{ text: i.model, tone: "pink" }];
-	if (i.thinking) identity.push({ text: " · ", tone: "fg" }, { text: i.thinking, tone: "cyan" });
+	const identity: Segment[] = i.model ? [{ text: i.model, tone: "pink" }] : [];
+	if (identity.length && i.thinking) identity.push({ text: " · ", tone: "fg" }, { text: i.thinking, tone: "cyan" });
 
 	const assemble = (k: { ttft: boolean; ch: boolean; cp: boolean }): Segment[] => {
 		const out: Segment[] = [{ text: `↑${fmtTokens(i.inputTokens)} ↓${fmtTokens(i.outputTokens)}`, tone: "fg" }];
@@ -232,7 +240,7 @@ export function buildLines(i: OcInput): Segment[][] {
 		if (k.cp) out.push({ text: " ", tone: "fg" }, { text: cpText, tone: "comment" });
 		if (ctxText) out.push(sep, { text: ctxText, tone: ctxTone(i.ctxPercent) });
 		if (k.ttft) out.push({ text: " ", tone: "fg" }, { text: ttftText, tone: ttftColor(i.ttftMs) });
-		out.push(sep, ...identity);
+		if (identity.length) out.push(sep, ...identity);
 		return out;
 	};
 	const budget = (k: { ttft: boolean; ch: boolean; cp: boolean }): number => {

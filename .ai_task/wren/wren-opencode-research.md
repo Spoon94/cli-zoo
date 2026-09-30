@@ -99,9 +99,10 @@ WREN-SMOKE line2 …                        ← 注入的 app_bottom（第 2 行
 
 | 项 | 说明 |
 |---|---|
-| 常驻占行 | `app_bottom` 是布局流内区块，两行 = 每次少 2 行 transcript。与 cc/pi 的 statusline 同级（那两者也占 2 行），不是额外代价；v2 的 `prompt.footer.status` 可以做到不占额外行 |
-| v1 无 statusline 位 | 只能挑 `app_bottom`（全局）或 `home_footer`（仅 home，single_winner 会顶掉内置 footer） |
-| 信息重复 | 内置 prompt footer 已显示 agent · model · variant 与 ctx 占用；wren 再显示会重复。这是刻意的（目标是四侧逐字同构），要避只能后续加开关 |
+| 常驻占行 | `session_prompt_right` / `home_prompt_right` 在 prompt 框内那一行，两行只把 prompt 框撑高 1 行，不占 transcript（早前用 `app_bottom` 时要占 2 行） |
+| v1 无 statusline 位 | 最接近的就是 prompt 行右侧（本次采用）或 `app_bottom`（活动路由下方整宽、可多行）；`home_footer` 是 single_winner，会顶掉内置 footer，不用 |
+| 宽度预算 | slot API 不给可用宽度，只能按容器宽预留左组：会话路由 `terminal − 38`，home 路由 `prompt.max_width(默认 75) − 47`。预留不足两边会互相挤碎（实测：75 宽的 home 框用 33 预算就把左组压成 `Build ·DeepSeek`） |
+| 信息重复 | 内置 prompt 行左组已显示 agent · model · variant，prompt 框下沿已显示 cwd；oc 侧这两段直接不渲染（core 传空串），避免同屏重复。其余三宿主无此依赖 |
 | 折叠宽度 | 无 `COLUMNS` 概念，宽度取 `api.renderer.width`（实测可用），核心自己逐段截断，宿主 `truncate` 仅兜底 |
 | 主题冲突 | wren 假定深色底 + Dracula 硬编码；oc 侧直接给 RGB 十六进制由宿主决定降档，不跟主题 |
 | v2 未覆盖 | 本次不实现 v2（用户拍板）。v2 的 slot 名/模块形态/配置文件都不同，见第 2 节 |
@@ -121,17 +122,21 @@ WREN-SMOKE line2 …                        ← 注入的 app_bottom（第 2 行
 
 | 文件 | 角色 |
 |---|---|
-| `zoo-scripts/wren/wren-oc.tsx` | TUI 插件适配层：`{ id: "wren.oc", tui }`，注册 `app_bottom` slot；Solid signal + 15s 轮询 git/CP；全部 try/catch 兜底 |
+| `zoo-scripts/wren/wren-oc.tsx` | TUI 插件适配层：`{ id: "wren.oc", tui }`，注册 `session_prompt_right` / `home_prompt_right` slot；Solid signal + 15s 轮询 git/CP；全部 try/catch 兜底 |
 | `zoo-scripts/wren/wren-oc.ts` | 排版纯函数（段列表、折叠梯子、数值口径），无宿主依赖，node 可直接跑 |
 | `zoo-scripts/wren/wren` | 新增 target `oc`（别名 `opencode`）：拷 payload、JSONC 定向编辑 `tui.json(c)` 的 `plugin` 数组、卸载只拂自己的 |
-| `.test_scripts/wren-test.sh` | T86-T95 安装器（幂等/JSONC 保真/jsonc 接管/只删自己/预检/别名/all 四侧）+ T96-T100 核心渲染（两行/满配/梯子/CJK/TTFT 分档）+ T101 真机 TUI e2e |
+| `.test_scripts/wren-test.sh` | T86-T95 安装器（幂等/JSONC 保真/jsonc 接管/只删自己/预检/别名/all 四侧）+ T96-T100、T105 核心渲染（两行/满配/梯子/CJK/TTFT 分档/去重）+ T101 真机 TUI e2e |
 
-实时渲染结果（本机 1.18.33，本仓库真会话）：
+实时渲染结果（本机 1.18.33，本仓库真会话；prompt 框内那一行右侧）：
 
 ```
-~/Code/ai_code/cli-zoo | main ↑0↓0 +3 | wC:t1:p1 | oc · 15m
-↑17K ↓7 | R20K CH54.46% | 7.19%/262K TTFT 4.3s | claude-opus-5 · high
+┃  Build · DeepSeek V4 Pro DeepSeek · max        main ↑0↓0 ✱6 | w11:t1:p1 | oc · 5h15m
+┃                                              ↑390K ↓12K | R5.5M CH93.41% | 14.08%/1M TTFT 2.0s
+╹▀▀▀▀…
+   /Users/qinyong/Code/ai_code/cli-zoo                              161.2K  ctrl+p commands
 ```
+
+cwd 与模型 · 思考分别由宿主 prompt 框下沿与 prompt 行左组显示，oc 侧不重复。
 
 ## 8. 证据来源
 

@@ -81,14 +81,17 @@ qc 侧同构，仅数据源不同（另一 workspace 的真会话实测样例，
 ↑4.5M ↓65K | R4.2M CH98.21% | 15.00%/1M TTFT 4.2s | Qwen3.8-Max · xhigh
 ```
 
-opencode 侧同样两行，接在 TUI 活动路由下方（真会话实测样例）：
+opencode 侧同样两行，渲染在 prompt 框内那一行（宿主左组 `agent · model · variant` 的右侧，真会话实测样例）：
 
 ```
-~/Code/cli-zoo | main ↑0↓0 +3 | wC:t1:p1 | oc · 15m
-↑17K ↓7 | R20K CH54.46% | 7.19%/262K TTFT 4.3s | claude-opus-5 · high
+feat/wre…upport_opencode ↑0↓0 ✱6 | wC:t1:p1 | oc · 5h15m
+↑390K ↓12K | R5.5M CH93.41% | 14.08%/1M TTFT 2.0s
 ```
 
-行 1 = cwd + git + herdr 位置 + 宿主徽标 · 会话时长；行 2 = 累计 token + 缓存（读取量 / `CH` 命中率 / `CP` 压缩次数）+ 上下文占用 + 首片延迟（`TTFT`）+ 模型 · 思考。长路径长分支自动折叠不溢出，窄终端按固定梯子丢弃次要段（TTFT → CH → CP）。`ctx%` 与 `TTFT` 三档/四档突变着色（TTFT：绿 <5s、白 5–20s、黄 20–60s、红 >60s，判据为屏幕显示值）。装完在 pi 里用 `/footer` 切换。
+oc 侧不重复宿主同一行/下一行已有的内容：cwd 由宿主 prompt 框下沿显示，模型 · 思考由宿主 prompt 行左组显示。
+其余四宿主（cc/pi/qc）仍带 cwd 与模型，因为那里没有宿主自带信息可依赖。
+
+行 1 = cwd + git + herdr 位置 + 宿主徽标 · 会话时长；行 2 = 累计 token + 缓存（读取量 / `CH` 命中率 / `CP` 压缩次数）+ 上下文占用 + 首片延迟（`TTFT`）+ 模型 · 思考（oc 侧这两段跟宿主重复的段不渲染）。长路径长分支自动折叠不溢出，窄终端按固定梯子丢弃次要段（TTFT → CH → CP）。`ctx%` 与 `TTFT` 三档/四档突变着色（TTFT：绿 <5s、白 5–20s、黄 20–60s、红 >60s，判据为屏幕显示值）。装完在 pi 里用 `/footer` 切换。
 
 四宿主差异（cc / pi / qc / oc）、安装器细节、`wren-pi.ts` 相对 pi 上游的有意修改、Dracula 色板，见 [zoo-scripts/wren/README.md](./zoo-scripts/wren/README.md)；测试见 [docs/testing.md](./docs/testing.md)。
 
