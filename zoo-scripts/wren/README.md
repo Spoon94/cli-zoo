@@ -2,17 +2,19 @@
 
 主 README 只留使用方法，本文收口径、原理与完整清单。
 
-## 宿主差异（cc / pi / qc）
+## 宿主差异（cc / pi / qc / oc）
 
-三份 payload 布局同构，段格式、折叠规则、色板都一致（qc 的差异拆到下方小节）。剩下几处差异来自宿主本身
-（statusline 与 TUI footer 拿数据的路子不同）：
+四份 payload 布局同构，段格式、折叠规则、色板都一致（qc 与 oc 的差异拆到下方小节）。剩下几处差异来自宿主本身
+（statusline 与 TUI footer 拿数据的路子不同），oc 还多一层形态差异（外部命令 vs 进程内 TUI 插件）：
 
-| 位置 | `wren-cc.py`（Claude Code） | `wren-pi.ts`（pi） |
-|------|------|------|
-| 时长 | `cost.total_duration_ms` | footer 装载起的 wall-clock |
-| TTFT（首片延迟） | transcript 配对：真 user → 首条 assistant（排除 tool_result 回填） | 事件流：`turn_start` → 首个 `message_update`（内存态，扩展重载后下一轮才有值） |
-| ctx% | 按 `input + cache_read + cache_creation` 自算（与 CC 官方 `used_percentage` 同式） | 取 `ctx.getContextUsage()`（pi 的定义含 output，压缩后显示 `?`） |
-| CH 数据源 | `current_usage` 优先，回退 transcript 末条 assistant | `sessionManager` 末条 assistant |
+| 位置 | `wren-cc.py`（Claude Code） | `wren-pi.ts`（pi） | `wren-oc.tsx`（opencode） |
+|------|------|------|------|
+| 接入形态 | 宿主调外部命令（stdin JSON → stdout 文本） | 宿主加载 TS 扩展，进程内渲染 | 宿主加载 TUI 插件模块，进程内 OpenTUI/Solid JSX |
+| 时长 | `cost.total_duration_ms` | footer 装载起的 wall-clock | session 创建时刻 → now（同 qc 的会话年龄口径） |
+| TTFT（首片延迟） | transcript 配对：真 user → 首条 assistant（排除 tool_result 回填） | 事件流：`turn_start` → 首个 `message_update`（内存态，扩展重载后下一轮才有值） | 推导：`min(part.time.start) − assistant.time.created`，轮中未落片时读上一轮存量 |
+| ctx% | 按 `input + cache_read + cache_creation` 自算（与 CC 官方 `used_percentage` 同式） | 取 `ctx.getContextUsage()`（pi 的定义含 output，压缩后显示 `?`） | 最近一条 assistant 的 `tokens.total` ÷ provider 的 `limit.context` |
+| CH 数据源 | `current_usage` 优先，回退 transcript 末条 assistant | `sessionManager` 末条 assistant | session 聚合 tokens + 末条 assistant（公式与 cc/pi 同） |
+| 宽度来源 | `COLUMNS` 有则用、无则 80 兜底 | `render(宽度)` 由宿主传入 | `api.renderer.width`（且逐段自截，宿主 `truncate` 仅兜底） |
 
 CH 公式 cc/pi 两侧一致，都是 `cacheRead / (input + cacheRead + cacheWrite)`，两位小数，压缩后显示旧值
 不消失，这点跟 pi 内置 footer 一样。`ccstatusline` 用的是另一个口径
@@ -41,6 +43,33 @@ payload 文档 + 构造器静态核对 + 真会话抓包，由 T48-T58 守门）
 
 调试钩子：`WREN_DEBUG_DUMP=<path>` 把 stdin 原始字节落盘（qc 侧；cc 侧同名变量写重排后的 JSON），用于未来 schema 变化时对齐。
 
+### oc（opencode）侧：进程内插件，不是 statusline 命令
+
+opencode 没有 statusline 命令协议也没有 `statusLine` 配置键，接入形态是 **TUI 插件**：规则拆分不改（`wren-oc.ts` 是排版纯函数，`wren-oc.tsx` 只把它渲成 JSX），
+数据全部来自宿主内存里的 `api.state`（Solid store，slot 渲染函数里读即为响应式）。真机结论来自 1.18.33（tmux 读屏）与真会话导出，由 T96-T101 守门。
+
+| 位置 | 来源 |
+|------|------|
+| cwd | `api.state.path.directory`（家目录用 `os.homedir()` 折叠）；wren 行1 就渲染在宿主底行原本显示 cwd 的那一格（hint 顶掉它） |
+| 分支 / ahead-behind / 增删改 | 自己跑 `git status --porcelain=v2 --branch`（15s 轮询 + Solid signal），解析与 cc/pi 同一套；`api.state.vcs.branch` 只能给分支名，没有 ab 与脏文件分类 |
+| ↑in/↓out / R | `session.tokens`（宿主维护的会话累计；`input`/`output` 与 per-message 求和等价） |
+| CH | 末条 assistant 的 `cache.read / (input + cache.read + cache.write)`（与 cc/pi 同式；无缓存不显示） |
+| CP | 会话内 `part.type == "compaction"` 计数（宿主没有现成计数；15s 轮询） |
+| ctx% / 窗口 | 末条 `output > 0` 的 assistant 的四项 token 之和（`input`+`output`+`reasoning`+`cache.read`+`cache.write`，与宿主 `usage()` 同口径）÷ `api.state.provider[].models[].limit.context`；窗口未知则整段不显示 |
+| TTFT | `min(part.time.start) − assistant.time.created`；轮中未落片时保留上一轮值（与 qc 同步），换会话清空 |
+| 时长 | `session.time.created` → now（home 路由无会话，整段不显示） |
+| 模型 / 思考等级 | `provider.models[modelID].name`（回退 `modelID`）与末条 assistant 的 `variant`；**oc 侧默认传空串不渲染**：宿主同一行左组已显示 |
+| herdr 位置 | `HERDR_WORKSPACE_ID` / `HERDR_TAB_ID` / `HERDR_PANE_ID`（与 pi 同） |
+
+形态与降级的五点不同：
+
+- **slot**：v1（1.18.x）没有 statusline 专用 slot，用 `session_prompt` / `home_prompt` 的 **replace 模式**：把宿主自带的 `<api.ui.Prompt>` 原样重渲染（透传 `session_id/visible/disabled/on_submit/ref`），只多传 `hint`——宿主源码里 prompt 框下方那一行的左半是 `props.hint ?? cwd`，给了 hint 就顶掉 cwd，wren 两行落进那一格（多行会把该行撑高一行，不占 transcript）。slot 回调的第一参数是 `{theme}`，契约 props 在**第二参数**。契约意外变化时退回裸 Prompt（不给 hint），输入框仍在。
+- **宽度预算（双预算）**：行1 与宿主那一行的右半（usage `162.4K (16%)` + `ctrl+p commands`）共处一行，预算 = 容器宽 − 右半实宽（按宿主 usage 同口径动态算）；行2 独占整行，预算 = 容器宽。行1 放不下时级联丢段（git 计数 → ahead-behind → cwd，分支有 14 格紧凑折叠档）、行2 梯子丢段（TTFT → CH → CP → ctx%，ctx% 有 `16%` 短形兜底）。home 路由的容器宽是 `prompt.max_width`（默认 75），不是终端宽。
+- **去重**：oc 侧不渲染模型 · 思考（宿主 prompt 框内左侧同一行已有 `agent · model · variant`）；cwd 恢复显示——wren 行1 正好占了宿主原来显示 cwd 的那一格。其余三宿主无此依赖。
+- **崩溃隔离**：slot 渲染里抛异常会直接把整个 TUI 打到崩溃页（1.18.33 实测），因此取数与排版全包在 try/catch 里，失败时降级成一行裸 cwd + 徽标。
+- **色档**：不做 256 档转换，直接给 RGB 十六进制（`<text fg>`），由宿主/终端决定降档；`NO_COLOR` 非空时逐行单色输出（不靠宿主配合）。
+- **相对路径 spec**：payload 拷到 `<tui.json 同目录>/plugins/`，配置里写 `./plugins/wren-oc.tsx`（宿主按声明它的配置文件解析相对路径）。核心与适配层是两个文件，卸载时一并处理。
+
 ## 安装器行为
 
 改配置之前会先校验。`settings.json` 解析失败、或它所在目录不可写，都在产生任何副作用之前 exit 1。
@@ -50,7 +79,7 @@ payload 文档 + 构造器静态核对 + 真会话抓包，由 T48-T58 守门）
 卸载只删自己的东西。目标链接不是指向本工具 payload 的、`statusLine` 不指向 `wren-cc` 的，只提示
 `left alone` 不动。`install` 和 `uninstall` 重复执行都退出 0。
 
-`install cc` 与 `install pi` 各只动一侧，`install qc`（别名 `qoder`）只动 Qoder 侧；只装 pi 时不需要 python3。qc 的 `statusLine.command` 写绝对路径（`$QODER_CONFIG_DIR/wren-qc.py`，与 qoder 官方引导一致）。装机前若目标位置已有内容不同的
+`install cc` 与 `install pi` 各只动一侧，`install qc`（别名 `qoder`）只动 Qoder 侧，`install oc`（别名 `opencode`）只动 opencode 侧；只装 pi 时不需要 python3。qc 的 `statusLine.command` 写绝对路径（`$QODER_CONFIG_DIR/wren-qc.py`，与 qoder 官方引导一致）。装机前若目标位置已有内容不同的
 同名文件（含软链，解引用后比较），先告警再覆盖。`$PI_EXT_DIR` 里若还留着旧的手工副本 `odo.ts`，
 会提示 pi 会把两个 footer 都装上，不会替你删。
 
@@ -58,8 +87,15 @@ qc 侧：`install qc` 拷 payload 到 `$QODER_CONFIG_DIR/wren-qc.py` 并写 `$QO
 卸载反向操作（同样只删自己的东西）。前置校验对所有要写配置的宿主先行：任一 settings
 读不懂或写不进，连一个 payload 都不装（T67 守门）。
 
+oc 侧：`install oc` 拷两个 payload（`wren-oc.tsx` + `wren-oc.ts`）到 `<tui 配置同目录>/plugins/`，
+并在 `tui.json` / `tui.jsonc` 的 `plugin` 数组里加一条 `./plugins/wren-oc.tsx`。因为宿主只把 TUI 插件当 npm 包安装
+（`opencode plugin <本地文件>` 会找 `package.json` 而失败），配置是 wren 自己做**文本级定向编辑**：
+保留注释与排版，不重新序列化；多行数组插到首元素前一行，行内数组插到 `[` 后，因此卸载能逐字节还原。
+未显式设 `OPENCODE_TUI_CONFIG` 时：已存在的 `tui.jsonc` 优先接管（用户手写的那个），两个都没有则新建 `tui.json`。
+宿主两个文件都读并分层合并，所以只改其中一个不会跟另一个打架。卸载后可能留下空的 `"plugin": []`（宿主视为无插件）。
+
 `wren` 自己经 `cli-zoo-install.sh` 软链到 `$PREFIX` 后，仍能定位同目录的 payload。行 1 尾部有一个
-灰字宿主徽标 ` | cc`、` | pi` 或 ` | qc`，同屏开多个 agent 时一眼能区分。
+灰字宿主徽标 ` | cc`、` | pi`、` | qc` 或 ` | oc`，同屏开多个 agent 时一眼能区分。
 
 ## 环境变量与退出码
 
@@ -71,8 +107,11 @@ qc 侧：`install qc` 拷 payload 到 `$QODER_CONFIG_DIR/wren-qc.py` 并写 `$QO
 | `CLAUDE_SETTINGS` | `$CLAUDE_CONFIG_DIR/settings.json` | 要改的 settings 文件（显式设置时优先级最高） |
 | `QODER_CONFIG_DIR` | `$HOME/.qoder` | Qoder CLI 配置目录（qoder 官方同名重定向变量，wren 跟随它定位 settings 与 payload 落点） |
 | `QODER_SETTINGS` | `$QODER_CONFIG_DIR/settings.json` | qc 侧要改的 settings 文件（显式设置时优先级最高） |
+| `OPENCODE_CONFIG_DIR` | `${XDG_CONFIG_HOME:-$HOME/.config}/opencode` | opencode 配置目录（opencode 官方同名重定向变量） |
+| `OPENCODE_TUI_CONFIG` | `$OPENCODE_CONFIG_DIR/tui.json`（存在 `tui.jsonc` 时优先接管） | oc 侧要改的 TUI 配置文件；payload 落点 = 它同目录的 `plugins/` |
 
 退出码：`0` 成功 / `1` 写入失败 / `2` 参数错误 / `3` 依赖缺失（python3 或 payload）。
+装 cc / qc / oc 都要 python3（cc/qc 用它合并写 settings.json，oc 用它做 JSONC 定向编辑）；只装 pi 不需要。
 
 ## `wren-pi.ts` 相对 pi 上游的有意修改
 
@@ -97,7 +136,7 @@ qc 侧：`install qc` 拷 payload 到 `$QODER_CONFIG_DIR/wren-qc.py` 并写 `$QO
   CC 用 `COLUMNS` 有则用、无则 80 兜底（T42/T43/T45/T46）。整行出口再各做一次硬截断
   （pi 的 `truncateToWidth` / CC 侧等价实现），公式算偏也不会溢出。
 
-## Dracula 主题（v5 起，三侧同款色板）
+## Dracula 主题（v5 起，四侧同款色板）
 
 | 元素 | 色 | 色值 |
 |------|------|------|
@@ -119,6 +158,8 @@ qc 侧：`install qc` 拷 payload 到 `$QODER_CONFIG_DIR/wren-qc.py` 并写 `$QO
   statusline 的 stdout 不是 tty，不能拿 `isatty()` 判，只有这两级。qc 与 CC 同判定（同为
   statusline stdout）；真会话实测 truecolor 码原样透传，仅叠加宿主 dim（见上文渲染差异）。
 - pi 侧：色档取 `theme.getColorMode()`（宿主公开 API，主题热切换时随 footer 工厂重求值）；`NO_COLOR` 优先于宿主判定。
+- oc 侧：不做 256 档转换，直接给 RGB 十六进制（`<text fg>`），由宿主/终端决定降档；
+  因此只有 truecolor 一级（现代终端都能显示），旧终端由宿主自己近似。
 - 两档色值都离线预计算硬编码（256 档按 pi 宿主的 `rgbTo256` 算法算好，两侧同一张表）。
 - **假定深色终端底色**：Dracula 为暗底设计（白底下黄/前景/绿/青的 WCAG 对比度 <1.5:1 基本不可读），
   光背景需求请用官方 Alucard 色板，此处不支持。

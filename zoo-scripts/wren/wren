@@ -26,11 +26,12 @@ usage() {
     cat <<'EOF'
 Usage: wren <command> [target]
 
-将本目录下的 statusline payload 装到三个宿主:
+将本目录下的 statusline payload 装到四个宿主:
 
   wren-cc.py ->  <settings.json 同目录>/wren-cc  并在 $CLAUDE_SETTINGS 写入 statusLine（绝对路径）
   wren-pi.ts ->  $PI_EXT_DIR/wren-pi.ts          pi 自动加载该目录下的 .ts
   wren-qc.py ->  $QODER_CONFIG_DIR/wren-qc.py  并在 $QODER_SETTINGS 写入 statusLine（command 写绝对路径，与 qoder 官方引导一致）
+  wren-oc.tsx + wren-oc.ts ->  <tui.json 同目录>/plugins/  并在 $OPENCODE_TUI_CONFIG 的 plugin 数组里加 "./plugins/wren-oc.tsx"
 
 Commands:
   install [target]     安装（幂等）。装的是文件副本，装完不依赖本仓库位置
@@ -38,10 +39,11 @@ Commands:
   -h, --help           显示本帮助
 
 target（省略则为 all）:
-  all                  三个宿主都装（默认）
+  all                  四个宿主都装（默认）
   cc                   只装 Claude Code 侧（别名 claude）
   pi                   只装 pi 侧
   qc                   只装 Qoder CLI 侧（别名 qoder）
+  oc                   只装 opencode 侧（别名 opencode）
 
 Environment:
   PI_EXT_DIR         pi 扩展目录 (default: $HOME/.pi/agent/extensions)
@@ -49,13 +51,16 @@ Environment:
                      未设则 $HOME/.claude/settings.json)
   QODER_CONFIG_DIR   Qoder CLI 配置目录 (default: $HOME/.qoder；qoder 官方同名变量)
   QODER_SETTINGS     要改的 Qoder settings.json (default: $QODER_CONFIG_DIR/settings.json)
+  OPENCODE_CONFIG_DIR  opencode 配置目录 (default: $XDG_CONFIG_HOME/opencode，未设则 $HOME/.config/opencode)
+  OPENCODE_TUI_CONFIG  要改的 opencode TUI 配置 (default: $OPENCODE_CONFIG_DIR/tui.json；
+                     已存在的 tui.jsonc 会被优先接管)
 
 依赖:
-  装 cc / qc 时需要 python3（用于合并写 settings.json）；只装 pi 时不需要。
+  装 cc / qc / oc 时需要 python3（合并写 settings.json / 补 tui.json 的 plugin 数组）；只装 pi 时不需要。
 
 退出码:
   0  成功
-  1  写入失败（settings.json 读不懂、目标不可写等）
+  1  写入失败（settings.json / tui.json 读不懂、目标不可写等）
   2  参数错误（未知子命令、未知 target）
   3  依赖缺失（python3，或 payload 文件不存在）
 EOF
@@ -215,6 +220,290 @@ except OSError:
 PY
 }
 
+# 改 opencode 的 tui.json(c)：只在 plugin 数组里加/删自己那一条，其余字节原样保留。
+# 不调 json.loads/dump —— JSONC 的注释与排版必须留着（opencode 自己也用 jsonc-parser 做定向编辑）。
+# mode=check 时只读校验 + 可写性探针，不落盘。
+oc_plugin_config() {
+    local mode="${1:-check}" config="${2:-$OC_TUI_CONFIG}" spec="${3:-$OC_SPEC}"
+    WREN_OC_CONFIG="$config" WREN_OC_SPEC="$spec" WREN_MODE="$mode" python3 - <<'PY'
+import os, shutil, sys
+
+path = os.environ["WREN_OC_CONFIG"]
+spec = os.environ["WREN_OC_SPEC"]
+mode = os.environ["WREN_MODE"]
+quoted = '"%s"' % spec
+parent = os.path.dirname(path) or "."
+
+
+def fail(msg):
+    sys.stderr.write("wren: %s\n" % msg)
+    sys.exit(1)
+
+
+def skip_ws_comments(s, i):
+    """跳过空白、`//` 行注释与 `/* */` 块注释。"""
+    n = len(s)
+    while i < n:
+        ch = s[i]
+        if ch in " \t\r\n":
+            i += 1
+        elif ch == "/" and i + 1 < n and s[i + 1] == "/":
+            j = s.find("\n", i)
+            i = n if j < 0 else j + 1
+        elif ch == "/" and i + 1 < n and s[i + 1] == "*":
+            j = s.find("*/", i + 2)
+            i = n if j < 0 else j + 2
+        else:
+            break
+    return i
+
+
+def skip_string(s, i):
+    """s[i] == '"'；返回闭合引号的下一位。"""
+    i += 1
+    n = len(s)
+    while i < n:
+        if s[i] == "\\":
+            i += 2
+            continue
+        if s[i] == '"':
+            return i + 1
+        i += 1
+    return i
+
+
+def close_of(s, i, open_ch, close_ch):
+    """s[i] == open_ch；返回配对的 close_ch 下标（跳过字符串/注释）。"""
+    depth = 0
+    n = len(s)
+    while i < n:
+        i = skip_ws_comments(s, i)
+        if i >= n:
+            break
+        ch = s[i]
+        if ch == '"':
+            i = skip_string(s, i)
+            continue
+        if ch == open_ch:
+            depth += 1
+            i += 1
+            continue
+        if ch == close_ch:
+            depth -= 1
+            if depth == 0:
+                return i
+            i += 1
+            continue
+        i += 1
+    return -1
+
+
+def root_close(s):
+    """根对象 `}` 的下标；不是对象 / 未闭合返回 -1。"""
+    i = skip_ws_comments(s, 0)
+    if i >= len(s) or s[i] != "{":
+        return -1
+    return close_of(s, i, "{", "}")
+
+
+def value_pos(s, key):
+    """顶层 `"key"` 的 value 起始下标；没有则 None。"""
+    i = skip_ws_comments(s, 0)
+    if i >= len(s) or s[i] != "{":
+        return None
+    i += 1
+    depth = 1
+    n = len(s)
+    while i < n:
+        i = skip_ws_comments(s, i)
+        if i >= n:
+            return None
+        ch = s[i]
+        if ch == '"':
+            start = i
+            end = skip_string(s, i)
+            j = skip_ws_comments(s, end)
+            if depth == 1 and s[start + 1:end - 1] == key and j < n and s[j] == ":":
+                return skip_ws_comments(s, j + 1)
+            i = end
+            continue
+        if ch in "{[":
+            depth += 1
+            i += 1
+            continue
+        if ch in "}]":
+            depth -= 1
+            i += 1
+            continue
+        i += 1
+    return None
+
+
+def normalize_array_seg(seg):
+    """删掉多余逗号（首逗号 / 连续逗号 / 尾逗号），其余字节原样保留。"""
+    while True:
+        for k, ch in enumerate(seg):
+            if ch != ",":
+                continue
+            nxt = skip_ws_comments(seg, k + 1)
+            prv = k - 1
+            while prv >= 0 and seg[prv] in " \t\r\n":
+                prv -= 1
+            if nxt >= len(seg) or seg[nxt] in ",]" or prv < 0 or seg[prv] in "[,":
+                end = k + 1
+                if prv < 0:  # 首逗号：顺带吃掉后面的缩进空格，结果与删除前逐字一致
+                    while end < len(seg) and seg[end] in " \t":
+                        end += 1
+                seg = seg[:k] + seg[end:]
+                break
+        else:
+            return seg
+
+
+def find_string(s, start, end, value):
+    """在 [start, end) 里找字符串字面量 value；返回 (起, 止) 或 None。"""
+    i = start
+    while i < end:
+        i = skip_ws_comments(s, i)
+        if i >= end:
+            break
+        if s[i] == '"':
+            e = skip_string(s, i)
+            if s[i + 1:e - 1] == value:
+                return (i, e)
+            i = e
+            continue
+        i += 1
+    return None
+
+
+raw = ""
+if os.path.exists(path):
+    try:
+        # newline=""：不做 universal-newline 转换。CRLF 配置读进来什么样、写回去什么样
+        # （默认 text mode 会把 \r\n 读成 \n 写回，等于整文件改行尾——与「其余字节原样保留」冲突）
+        with open(path, "r", encoding="utf-8", newline="") as fh:
+            raw = fh.read()
+    except OSError as exc:
+        fail("cannot read %s: %s" % (path, exc.strerror or exc))
+
+if mode == "check":
+    if raw.strip():
+        if root_close(raw) < 0:
+            fail("%s is not a JSON object, refusing to touch it" % path)
+        # 与 write 同一套拒收条件：check 漏掉的会在 payload 装完后才爆，留下半装状态
+        check_pos = value_pos(raw, "plugin")
+        if check_pos is not None and (check_pos >= len(raw) or raw[check_pos] != "["):
+            fail("%s has a non-array \"plugin\" value, refusing to touch it" % path)
+        if check_pos is not None and close_of(raw, check_pos, "[", "]") < 0:
+            fail("%s has an unterminated plugin array" % path)
+    # 可写性探针：父目录不存在时向上找第一个存在的祖先（同 cc 侧口径）
+    probe_dir = parent
+    while probe_dir and not os.path.isdir(probe_dir):
+        nxt = os.path.dirname(probe_dir)
+        if nxt == probe_dir:
+            break
+        probe_dir = nxt
+    if os.path.isdir(probe_dir):
+        probe = os.path.join(probe_dir, ".wren-write-probe")
+        try:
+            with open(probe, "w", encoding="utf-8") as fh:
+                fh.write("")
+        except OSError as exc:
+            fail("cannot write in %s: %s" % (probe_dir, exc.strerror or exc))
+        try:
+            os.unlink(probe)
+        except OSError:
+            pass
+    sys.exit(0)
+
+try:
+    if mode == "remove":
+        if not raw.strip():
+            print("leftalone")
+            sys.exit(0)
+        pos = value_pos(raw, "plugin")
+        close = close_of(raw, pos, "[", "]") if pos is not None and pos < len(raw) and raw[pos] == "[" else -1
+        hit = find_string(raw, pos + 1, close, spec) if close > 0 else None
+        if hit is None:
+            print("leftalone")
+            sys.exit(0)
+        # 在数组内部做删除：占整行的一条连同该行一起删（pretty-print 场景逐字还原），
+        # 行内写法则删 token 再清掉多余逗号；数组空则归零为 []
+        seg = raw[pos + 1:close]
+        ts, te = hit[0] - (pos + 1), hit[1] - (pos + 1)
+        line_start = seg.rfind("\n", 0, ts) + 1
+        line_end = seg.find("\n", te)
+        line_end = len(seg) if line_end < 0 else line_end + 1
+        if all(ch in " \t\r\n," for ch in seg[line_start:ts] + seg[te:line_end]):
+            new_seg = seg[:line_start] + seg[line_end:]
+        else:
+            new_seg = normalize_array_seg(seg[:ts] + seg[te:])
+        body = raw[:pos] + "[" + ("" if skip_ws_comments(new_seg, 0) >= len(new_seg) else new_seg) + "]" + raw[close + 1:]
+        if body != raw:
+            tmp = path + ".wren-tmp"
+            with open(tmp, "w", encoding="utf-8", newline="") as fh:
+                fh.write(body)
+            os.replace(tmp, path)
+        print("removed")
+        sys.exit(0)
+
+    # write
+    if raw.strip():
+        body = raw
+        pos = value_pos(body, "plugin")
+        if pos is not None and (pos >= len(body) or body[pos] != "["):
+            # 非数组的 plugin 值（例如字符串）：不能当「没有这个键」再追加一个，那会产生
+            # 重复键并把用户原值遮蔽掉；与「读不懂就不碰」同口径，直接拒绝
+            fail("%s has a non-array \"plugin\" value, refusing to touch it" % path)
+        if pos is not None and body[pos] == "[":
+            close = close_of(body, pos, "[", "]")
+            if close < 0:
+                fail("%s has an unterminated plugin array" % path)
+            if find_string(body, pos + 1, close, spec) is None:
+                after = skip_ws_comments(body, pos + 1)
+                lead = body[pos + 1:after]
+                if after < len(body) and body[after] == "]":
+                    # 空数组：直接放进去，保留原有空白
+                    body = body[:after] + quoted + body[after:]
+                elif "\n" in lead:
+                    # 多行数组：插到首元素前的那一行，缩进对齐首元素，
+                    # 卸载时整行连同行尾逗号一起删，能逐字还原
+                    indent = lead[lead.rfind("\n") + 1:]
+                    body = body[:after] + quoted + ",\n" + indent + body[after:]
+                else:
+                    body = body[:pos + 1] + quoted + ", " + body[pos + 1:]
+        else:
+            close = root_close(body)
+            if close < 0:
+                fail("%s is not a JSON object, refusing to touch it" % path)
+            head, tail = body[:close], body[close:]
+            stripped = head.rstrip()
+            need_comma = not (stripped.endswith("{") or stripped.endswith(","))
+            body = stripped + ("," if need_comma else "") + '\n  "plugin": [%s]\n' % quoted + tail
+    else:
+        body = '{\n  "$schema": "https://opencode.ai/tui.json",\n  "plugin": [%s]\n}\n' % quoted
+
+    if body == raw:
+        print("")
+        sys.exit(0)
+    backup = ""
+    if raw.strip() and not os.path.exists(path + ".wren-bak"):
+        shutil.copy2(path, path + ".wren-bak")
+        backup = path + ".wren-bak"
+    if parent and not os.path.isdir(parent):
+        os.makedirs(parent, exist_ok=True)
+    tmp = path + ".wren-tmp"
+    with open(tmp, "w", encoding="utf-8", newline="") as fh:
+        fh.write(body)
+    os.replace(tmp, path)
+    print(backup)
+    sys.exit(0)
+except OSError as exc:
+    fail("cannot write %s: %s" % (path, exc.strerror or exc))
+PY
+}
+
 # install_payload <src> <target> <label> [exec]
 install_payload() {
     local src="$1" target="$2" label="$3" want_exec="${4:-}"
@@ -273,11 +562,13 @@ remove_payload() {
 
 cmd_install() {
     local target="$1"
-    local dir cc_payload pi_payload qc_payload backup
+    local dir cc_payload pi_payload qc_payload oc_payload oc_core backup
     dir="$(script_dir)"
     cc_payload="$dir/wren-cc.py"
     pi_payload="$dir/wren-pi.ts"
     qc_payload="$dir/wren-qc.py"
+    oc_payload="$dir/wren-oc.tsx"
+    oc_core="$dir/wren-oc.ts"
 
     # 前置校验全部先行：任一要写配置的宿主读不懂/写不进，连一个 payload 都不装
     # （否则 all 场景下 cc/pi 装完才发现 qc 配置写不进，留半装状态）
@@ -290,6 +581,12 @@ cmd_install() {
     if want_target "$target" qc; then
         require_cmd python3
         if ! write_statusline check "$QODER_SETTINGS" "$QC_CMD" >/dev/null; then
+            exit 1
+        fi
+    fi
+    if want_target "$target" oc; then
+        require_cmd python3
+        if ! oc_plugin_config check >/dev/null; then
             exit 1
         fi
     fi
@@ -345,16 +642,67 @@ cmd_install() {
         log_info "[qc] statusLine -> $QC_CMD"
     fi
 
+    if want_target "$target" oc; then
+        install_payload "$oc_payload" "$OC_CMD" "oc"
+        install_payload "$oc_core" "$OC_CORE" "oc"
+        # 改名迁移：早期版本的核心文件叫 wren-oc-core.ts，升级后会在 plugins/ 里留一份死文件
+        local oc_legacy="$OC_DIR/plugins/wren-oc-core.ts"
+        if [[ -e "$oc_legacy" || -L "$oc_legacy" ]]; then
+            if grep -q "wren" "$oc_legacy" 2>/dev/null; then
+                rm -f "$oc_legacy" && log_info "[oc] migrated: removed legacy $oc_legacy"
+            else
+                log_err "[oc] warning: $oc_legacy exists and is not a wren payload; left alone"
+            fi
+        fi
+        if ! backup="$(oc_plugin_config write)"; then
+            exit 1
+        fi
+        if [[ -n "$backup" ]]; then
+            log_info "[oc] backed up $OC_TUI_CONFIG -> $backup"
+        fi
+        log_info "[oc] $OC_TUI_CONFIG plugin += $OC_SPEC"
+    fi
+
     log_info "done. run 'wren uninstall' to undo."
 }
 
 cmd_uninstall() {
     local target="$1"
-    local dir cc_payload pi_payload qc_payload sidecar
+    local dir cc_payload pi_payload qc_payload oc_payload oc_core sidecar oc_legacy
     dir="$(script_dir)"
     cc_payload="$dir/wren-cc.py"
     pi_payload="$dir/wren-pi.ts"
     qc_payload="$dir/wren-qc.py"
+    oc_payload="$dir/wren-oc.tsx"
+    oc_core="$dir/wren-oc.ts"
+
+    if want_target "$target" oc; then
+        remove_payload "$OC_CMD" "$oc_payload" "oc"
+        remove_payload "$OC_CORE" "$oc_core" "oc"
+        oc_legacy="$OC_DIR/plugins/wren-oc-core.ts"
+        if [[ -e "$oc_legacy" || -L "$oc_legacy" ]] && grep -q "wren" "$oc_legacy" 2>/dev/null; then
+            rm -f "$oc_legacy" && log_info "[oc] migrated: removed legacy $oc_legacy"
+        fi
+
+        if command -v python3 >/dev/null 2>&1; then
+            if [[ "$(oc_plugin_config remove)" == "leftalone" ]]; then
+                log_info "[oc] $OC_TUI_CONFIG plugin does not list $OC_SPEC; left alone"
+            else
+                log_info "[oc] $OC_TUI_CONFIG plugin -= $OC_SPEC"
+            fi
+        else
+            log_err "[oc] python3 not found; $OC_TUI_CONFIG not touched"
+        fi
+
+        for sidecar in "$OC_TUI_CONFIG.wren-bak" "$OC_TUI_CONFIG.wren-tmp"; do
+            [[ -e "$sidecar" ]] || continue
+            if rm -f "$sidecar" 2>/dev/null; then
+                log_info "[oc] removed $sidecar"
+            else
+                log_err "[oc] cannot remove $sidecar"
+            fi
+        done
+    fi
 
     if want_target "$target" pi; then
         remove_payload "$PI_EXT_DIR/wren-pi.ts" "$pi_payload" "pi"
@@ -415,7 +763,7 @@ cmd_uninstall() {
     log_info "done."
 }
 
-# 目标选择：all 两者都做，cc / pi 各只做一侧
+# 目标选择：all 全做，cc / pi / qc / oc 各只做一侧
 want_target() {
     local target="$1" want="$2"
     [[ "$target" == "all" || "$target" == "$want" ]]
@@ -430,6 +778,7 @@ normalize_target() {
         cc|claude) TARGET=cc ;;
         pi) TARGET=pi ;;
         qc|qoder) TARGET=qc ;;
+        oc|opencode) TARGET=oc ;;
         *)
             log_err "unsupported target: $1"
             usage >&2
@@ -460,6 +809,25 @@ main() {
         */*) CC_CMD="${CLAUDE_SETTINGS%/*}/wren-cc" ;;
         *)   CC_CMD="$claude_cfg/wren-cc" ;;
     esac
+    # opencode 侧：OPENCODE_CONFIG_DIR 是官方重定向变量；TUI 配置是 tui.json(c)（两个文件
+    # 都会被宿主读并合并）。payload 放配置文件旁的 plugins/，spec 写相对路径（宿主按声明它的
+    # 配置文件解析相对路径）。已存在的 tui.jsonc 优先接管——那是用户手写的那个，
+    # 不自己新建 tui.json 去跟它抢（宿主自己的写入器用的是 tui.json）。
+    local oc_cfg="${OPENCODE_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}"
+    if [[ -n "${OPENCODE_TUI_CONFIG:-}" ]]; then
+        OC_TUI_CONFIG="$OPENCODE_TUI_CONFIG"
+    elif [[ ! -e "$oc_cfg/tui.json" && -e "$oc_cfg/tui.jsonc" ]]; then
+        OC_TUI_CONFIG="$oc_cfg/tui.jsonc"
+    else
+        OC_TUI_CONFIG="$oc_cfg/tui.json"
+    fi
+    case "$OC_TUI_CONFIG" in
+        */*) OC_DIR="${OC_TUI_CONFIG%/*}" ;;
+        *)   OC_DIR="$oc_cfg" ;;
+    esac
+    OC_SPEC="./plugins/wren-oc.tsx"
+    OC_CMD="$OC_DIR/plugins/wren-oc.tsx"
+    OC_CORE="$OC_DIR/plugins/wren-oc.ts"
     TARGET=all
 
     case "$1" in

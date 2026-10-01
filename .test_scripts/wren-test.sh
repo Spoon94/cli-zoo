@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# wren-test.sh - 自动运行 .test_task/wren-test.md 中的 85 个用例。
+# wren-test.sh - 自动运行 .test_task/wren-test.md 中的 106 个用例。
 #
 # 用法: bash .test_scripts/wren-test.sh
 # 写出: .test_res/wren-test-res.md
 #
 # 全程在 mktemp -d 里作业：PREFIX / PI_EXT_DIR / CLAUDE_SETTINGS / QODER_CONFIG_DIR /
-# QODER_SETTINGS 五个变量把安装目标全部改道，不会碰到真实的 /usr/local/bin、~/.pi、
-# ~/.claude、~/.qoder。
+# QODER_SETTINGS / OPENCODE_CONFIG_DIR / OPENCODE_TUI_CONFIG 七个变量把安装目标全部改道，
+# 不会碰到真实的 /usr/local/bin、~/.pi、~/.claude、~/.qoder、~/.config/opencode。
 
 set -u
 
@@ -20,6 +20,8 @@ WREN="$REPO_ROOT/zoo-scripts/wren/wren"
 CC_PAYLOAD="$REPO_ROOT/zoo-scripts/wren/wren-cc.py"
 PI_PAYLOAD="$REPO_ROOT/zoo-scripts/wren/wren-pi.ts"
 QC_PAYLOAD="$REPO_ROOT/zoo-scripts/wren/wren-qc.py"
+OC_PAYLOAD="$REPO_ROOT/zoo-scripts/wren/wren-oc.tsx"
+OC_CORE_PAYLOAD="$REPO_ROOT/zoo-scripts/wren/wren-oc.ts"
 INSTALL_SH="$REPO_ROOT/cli-zoo-install.sh"
 UNINSTALL_SH="$REPO_ROOT/cli-zoo-uninstall.sh"
 RES_DIR="$REPO_ROOT/.test_res"
@@ -65,16 +67,19 @@ new_box() {
     SETTINGS="$CLAUDE/settings.json"
     QODER="$BOX/qoder"
     QODER_SETTINGS="$QODER/settings.json"
-    mkdir -p "$BIN" "$PIEXT" "$CLAUDE" "$QODER"
+    OC="$BOX/opencode"
+    OCCONF="$OC/tui.json"
+    mkdir -p "$BIN" "$PIEXT" "$CLAUDE" "$QODER" "$OC"
 }
 BOX_N=0
-BOX="" BIN="" PIEXT="" CLAUDE="" SETTINGS="" QODER="" QODER_SETTINGS=""
+BOX="" BIN="" PIEXT="" CLAUDE="" SETTINGS="" QODER="" QODER_SETTINGS="" OC="" OCCONF=""
 
 # 用沙箱环境调用 wren；输出落 OUT_FILE，退出码进 WREN_EXIT
 run_wren() {
     # NO_COLOR=1：旧用例断言的是明文子串，色档统一关掉（带色断言在 T39+ 单独跑）
     env NO_COLOR=1 PREFIX="$BIN" PI_EXT_DIR="$PIEXT" CLAUDE_CONFIG_DIR="$CLAUDE" CLAUDE_SETTINGS="$SETTINGS" \
         QODER_CONFIG_DIR="$QODER" QODER_SETTINGS="$QODER_SETTINGS" \
+        OPENCODE_CONFIG_DIR="$OC" OPENCODE_TUI_CONFIG="$OCCONF" \
         "$WREN" "$@" >"$BOX/out.txt" 2>"$BOX/err.txt"
     WREN_EXIT=$?
     WREN_OUT="$(<"$BOX/out.txt")"
@@ -93,6 +98,7 @@ strip_tag() {
     seg="${seg% | cc}"
     seg="${seg% | pi}"
     seg="${seg% | qc}"
+    seg="${seg% | oc}"
     printf '%s' "$seg"
 }
 
@@ -110,7 +116,7 @@ if ! command -v python3 >/dev/null 2>&1; then
     exit 2
 fi
 
-for f in "$WREN" "$CC_PAYLOAD" "$PI_PAYLOAD" "$QC_PAYLOAD"; do
+for f in "$WREN" "$CC_PAYLOAD" "$PI_PAYLOAD" "$QC_PAYLOAD" "$OC_PAYLOAD" "$OC_CORE_PAYLOAD"; do
     if [[ ! -f "$f" ]]; then
         echo "ERROR: $f not found" >&2
         exit 2
@@ -395,6 +401,7 @@ printf '{}\n' >"$SETTINGS"
 NOPY="$BOX/nopy"
 mkdir -p "$NOPY"
 out=$(env PATH="$NOPY" PREFIX="$BIN" PI_EXT_DIR="$PIEXT" CLAUDE_SETTINGS="$SETTINGS" \
+    OPENCODE_CONFIG_DIR="$OC" OPENCODE_TUI_CONFIG="$OCCONF" \
     /bin/bash "$WREN" install 2>&1 >/dev/null; printf 'EXIT:%s' "$?")
 exit_code="${out##*EXIT:}"
 stderr_out="${out%EXIT:*}"
@@ -1528,7 +1535,8 @@ else
     printf '{"model":"opus"}\n' >"$SETTINGS"
     cp "$SETTINGS" "$BOX/before68"
     env NO_COLOR=1 PREFIX="$BIN" PI_EXT_DIR="$PIEXT" CLAUDE_SETTINGS="$SETTINGS" \
-        QODER_CONFIG_DIR="$RO/qoder/nested" "$WREN" install >"$BOX/out68.txt" 2>"$BOX/err68.txt"
+        QODER_CONFIG_DIR="$RO/qoder/nested" OPENCODE_CONFIG_DIR="$OC" OPENCODE_TUI_CONFIG="$OCCONF" \
+        "$WREN" install >"$BOX/out68.txt" 2>"$BOX/err68.txt"
     E68=$?
     if [[ "$E68" == "1" ]] \
        && [[ -z "$(ls -A "$BIN")" && -z "$(ls -A "$PIEXT")" ]] \
@@ -1693,7 +1701,7 @@ fi
 # ============================================================
 new_box
 printf '{"type":"user","timestamp":"2026-09-28T10:00:00Z","message":{"content":"a"}}\n' >"$BOX/tr75.jsonl"
-printf '{"type":"assistant","timestamp":"2026-09-28T10:00:07.4Z","message":{"usage":{"input_tokens":100,"output_tokens":10,"cache_read_input_tokens":80}}}\n' >>"$BOX/tr75.jsonl"
+printf '{"type":"assistant","timestamp":"2026-09-28T10:00:07.400Z","message":{"usage":{"input_tokens":100,"output_tokens":10,"cache_read_input_tokens":80}}}\n' >>"$BOX/tr75.jsonl"
 # 新轮开窗：只有 user、没有 assistant（生成等待期的 transcript 形态）
 printf '{"type":"user","timestamp":"2026-09-28T10:05:00Z","message":{"content":"b"}}\n' >>"$BOX/tr75.jsonl"
 printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$BOX/tr75.jsonl" \
@@ -1719,14 +1727,14 @@ fi
 new_box
 : >"$BOX/tr76.jsonl"
 printf '{"type":"user","timestamp":"2026-09-28T10:00:00Z","message":{"content":"a"}}\n' >"$BOX/tr76.jsonl"
-printf '{"type":"assistant","timestamp":"2026-09-28T10:00:07.4Z","message":{"usage":{"input_tokens":100,"output_tokens":10,"cache_read_input_tokens":80}}}\n' >>"$BOX/tr76.jsonl"
+printf '{"type":"assistant","timestamp":"2026-09-28T10:00:07.400Z","message":{"usage":{"input_tokens":100,"output_tokens":10,"cache_read_input_tokens":80}}}\n' >>"$BOX/tr76.jsonl"
 printf '{"type":"user","timestamp":"2026-09-28T10:05:00Z","message":{"content":"b"}}\n' >>"$BOX/tr76.jsonl"
 run_qc76() {
     printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$BOX/tr76.jsonl" \
         | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q76" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1
 }
 t76_wait="$(run_qc76)"   # 等待期：显示 round1 旧值 TTFT 7.4s
-printf '{"type":"assistant","timestamp":"2026-09-28T10:05:03.1Z","message":{"usage":{"input_tokens":120,"output_tokens":5,"cache_read_input_tokens":90}}}\n' >>"$BOX/tr76.jsonl"
+printf '{"type":"assistant","timestamp":"2026-09-28T10:05:03.100Z","message":{"usage":{"input_tokens":120,"output_tokens":5,"cache_read_input_tokens":90}}}\n' >>"$BOX/tr76.jsonl"
 printf '{"type":"assistant","timestamp":"2026-09-28T10:05:09Z","message":{"usage":{"input_tokens":130,"output_tokens":6,"cache_read_input_tokens":95}}}\n' >>"$BOX/tr76.jsonl"
 t76_done="$(run_qc76)"   # 增量续读：配对 round2 首片，第二条不改写
 if printf '%s' "$t76_wait" | grep -qF "TTFT 7.4s" \
@@ -1777,7 +1785,7 @@ fi
 new_box
 : >"$BOX/tr77.jsonl"
 printf '{"type":"user","timestamp":"2026-09-28T10:00:00Z","message":{"content":"a"}}\n' >"$BOX/tr77.jsonl"
-printf '{"type":"assistant","timestamp":"2026-09-28T10:00:07.4Z","message":{"usage":{"input_tokens":52100,"output_tokens":236,"cache_read_input_tokens":47000}}}\n' >>"$BOX/tr77.jsonl"
+printf '{"type":"assistant","timestamp":"2026-09-28T10:00:07.400Z","message":{"usage":{"input_tokens":52100,"output_tokens":236,"cache_read_input_tokens":47000}}}\n' >>"$BOX/tr77.jsonl"
 run_qc77() {
     printf '{"cwd":"/tmp","model":{"display_name":"GLM-4.7"},"transcript_path":"%s","context_window":{"total_input_tokens":30000,"context_window_size":1000000,"used_percentage":3}}' "$BOX/tr77.jsonl" \
         | env -u COLORTERM COLUMNS=80 WREN_CACHE_DIR="$BOX/q77" "$@" python3 "$QC_PAYLOAD" 2>/dev/null \
@@ -2039,6 +2047,465 @@ if [[ $t85_ok -eq 1 ]]; then
     pass T85 "TTFT boundary probes: display-synced tiers, +/-1ms bands same tier, 3-side identical"
 else
     fail T85 "boundary mismatch (see stderr)"
+fi
+
+# ============================================================
+# opencode（wren-oc.tsx + wren-oc.ts，TUI 插件）——
+# 安装器部分在沙箱里真跑；渲染部分用 node 直接跑纯函数核心（无宿主依赖）
+# ============================================================
+OC_CORE_TS="$OC_CORE_PAYLOAD"
+OCHARN="$TMPROOT/oc-harness.mjs"
+cat >"$OCHARN" <<'EOF'
+const { buildLines } = await import(process.env.OC_CORE)
+const lines = buildLines(JSON.parse(process.env.OC_FIXTURE))
+lines.forEach((segs, i) => {
+  console.log(`L${i + 1}=${segs.map((s) => s.text).join("")}`)
+  for (const s of segs) if (s.text.trim()) console.log(`T${i + 1}:${s.text}=${s.tone}`)
+})
+EOF
+# oc_render <fixture-json> → 每个段一行：`L1=<明文>` / `T1:<段文本>=<色名>`
+oc_render() {
+    OC_CORE="$OC_CORE_TS" OC_FIXTURE="$1" node "$OCHARN" 2>/dev/null
+}
+# 最小 payload：无会话、无 git、无窗口
+OC_MIN='{"width":120,"cwd":"/tmp","home":"/home/u","branch":null,"head":"","ab":"","added":0,"modified":0,"deleted":0,"herdr":"","durationMs":null,"inputTokens":0,"outputTokens":0,"cacheRead":0,"cacheWrite":0,"compactions":0,"ctxPercent":null,"ctxWindow":0,"model":"Test-Model","thinking":"","ttftMs":null}'
+# 满配 payload：git 脏 + herdr + 时长 + token/缓存/压缩 + 窗口
+OC_FULL='{"width":120,"cwd":"/home/u/Code/proj","home":"/home/u","branch":"main","head":"main","ab":" ↑1↓2","added":4,"modified":2,"deleted":1,"herdr":"w1:t2:p3","durationMs":3900000,"inputTokens":12000,"outputTokens":3000,"cacheRead":1200000,"cacheWrite":0,"compactions":2,"ctxPercent":8.4,"ctxWindow":200000,"model":"claude-opus-5","thinking":"high","ttftMs":6600}'
+
+# ============================================================
+# T86: install oc → 两个 payload 就位 + 新建 tui.json 并写入相对 spec
+# ============================================================
+new_box
+run_wren install oc
+if [[ "$WREN_EXIT" == "0" ]] \
+   && cmp -s "$OC/plugins/wren-oc.tsx" "$OC_PAYLOAD" \
+   && cmp -s "$OC/plugins/wren-oc.ts" "$OC_CORE_PAYLOAD" \
+   && [[ "$(json_field "$OCCONF" "d['plugin']")" == "['./plugins/wren-oc.tsx']" ]]; then
+    pass T86 "install oc: payloads copied + plugin spec written to tui.json"
+else
+    fail T86 "exit=$WREN_EXIT files=[$(ls -A "$OC" 2>/dev/null | tr '\n' ' ')] conf=[$(cat "$OCCONF" 2>/dev/null)]"
+fi
+
+# ============================================================
+# T87: 幂等——重复 install oc 不重复追加 spec，payload 刷成最新副本
+# ============================================================
+new_box
+run_wren install oc
+printf '// 手改过的旧副本\n' >"$OC/plugins/wren-oc.tsx"
+run_wren install oc
+spec_n="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['plugin'].count('./plugins/wren-oc.tsx'))" "$OCCONF" 2>/dev/null)"
+if [[ "$WREN_EXIT" == "0" && "$spec_n" == "1" ]] && cmp -s "$OC/plugins/wren-oc.tsx" "$OC_PAYLOAD"; then
+    pass T87 "install oc idempotent: single spec entry, payload refreshed"
+else
+    fail T87 "exit=$WREN_EXIT spec_n=[$spec_n]"
+fi
+
+# ============================================================
+# T88: JSONC 保真——注释/其他键/其他插件条目原样保留，卸载后逐字还原
+# ============================================================
+new_box
+cat >"$OCCONF" <<'EOF2'
+{
+  // 我自己的注释，不能被吞
+  "theme": "dracula",
+  "plugin": [
+    "./plugins/other.tsx", // 尾注也留着
+    "./plugins/two.tsx"
+  ],
+  "keybinds": { "leader": "ctrl+x" } // 行尾注释
+}
+EOF2
+cp "$OCCONF" "$BOX/before88"
+run_wren install oc
+inst_ok=1
+printf '%s' "$(cat "$OCCONF")" | grep -qF "// 我自己的注释，不能被吞" || inst_ok=0
+printf '%s' "$(cat "$OCCONF")" | grep -qF "// 尾注也留着" || inst_ok=0
+printf '%s' "$(cat "$OCCONF")" | grep -qF '"./plugins/other.tsx"' || inst_ok=0
+printf '%s' "$(cat "$OCCONF")" | grep -qF '"./plugins/two.tsx"' || inst_ok=0
+printf '%s' "$(cat "$OCCONF")" | grep -qF '"./plugins/wren-oc.tsx"' || inst_ok=0
+run_wren uninstall oc
+diff -q "$BOX/before88" "$OCCONF" >/dev/null || inst_ok=0
+if [[ $inst_ok -eq 1 ]]; then
+    pass T88 "JSONC comments/keys/other plugins preserved; uninstall restores bytes"
+else
+    fail T88 "after install+uninstall: [$(cat "$OCCONF")]"
+fi
+
+# ============================================================
+# T89: 只有 tui.jsonc（没有 tui.json）时接管 jsonc，不新建 tui.json
+#      （不显式设 OPENCODE_TUI_CONFIG，走默认路径推导）
+# ============================================================
+new_box
+rm -f "$OCCONF"
+printf '{\n  "plugin": []\n}\n' >"$OC/tui.jsonc"
+env NO_COLOR=1 PREFIX="$BIN" PI_EXT_DIR="$PIEXT" CLAUDE_CONFIG_DIR="$CLAUDE" CLAUDE_SETTINGS="$SETTINGS" \
+    QODER_CONFIG_DIR="$QODER" QODER_SETTINGS="$QODER_SETTINGS" OPENCODE_CONFIG_DIR="$OC" \
+    "$WREN" install oc >"$BOX/out89.txt" 2>"$BOX/err89.txt"
+if [[ "$?" == "0" ]] \
+   && grep -qF '"./plugins/wren-oc.tsx"' "$OC/tui.jsonc" \
+   && [[ ! -e "$OC/tui.json" ]]; then
+    pass T89 "tui.jsonc taken over when tui.json is absent (no new file)"
+else
+    fail T89 "jsonc=[$(cat "$OC/tui.jsonc" 2>/dev/null)] tui.json=[$(ls "$OC" | tr '\n' ' ')]"
+fi
+
+# ============================================================
+# T90: uninstall oc——只摘自己的 spec + 删自己的 payload，其他插件不动；再执行幂等
+# ============================================================
+new_box
+cat >"$OCCONF" <<'EOF2'
+{
+  "plugin": ["./plugins/other.tsx"]
+}
+EOF2
+run_wren install oc
+run_wren uninstall oc
+first_out="$WREN_OUT"
+if [[ "$WREN_EXIT" == "0" ]] \
+   && [[ "$(json_field "$OCCONF" "d['plugin']")" == "['./plugins/other.tsx']" ]] \
+   && [[ ! -e "$OC/plugins/wren-oc.tsx" && ! -e "$OC/plugins/wren-oc.ts" ]]; then
+    run_wren uninstall oc
+    if [[ "$WREN_EXIT" == "0" ]] && printf '%s' "$WREN_OUT" | grep -qF "left alone"; then
+        pass T90 "uninstall oc removes only our spec/payloads; second run idempotent"
+    else
+        fail T90 "second run exit=$WREN_EXIT out=[$WREN_OUT]"
+    fi
+else
+    fail T90 "first run exit=$WREN_EXIT conf=[$(cat "$OCCONF")] files=[$(ls -A "$OC/plugins" 2>/dev/null | tr '\n' ' ')] out=[$first_out]"
+fi
+
+# ============================================================
+# T91: 被改过的 payload 不删（与 cc/pi 同口径），但 spec 仍摘掉
+# ============================================================
+new_box
+run_wren install oc
+printf '// 用户手改\n' >"$OC/plugins/wren-oc.tsx"
+run_wren uninstall oc
+if [[ "$WREN_EXIT" == "0" ]] \
+   && [[ -f "$OC/plugins/wren-oc.tsx" ]] \
+   && printf '%s' "$WREN_OUT" | grep -qF "left alone" \
+   && ! grep -qF 'wren-oc.tsx' "$OCCONF"; then
+    pass T91 "modified oc payload left alone; spec still removed from tui.json"
+else
+    fail T91 "exit=$WREN_EXIT files=[$(ls -A "$OC/plugins" | tr '\n' ' ')] conf=[$(cat "$OCCONF")]"
+fi
+
+# ============================================================
+# T92: 配置目录不可写 → 预检挡住，零副作用（不装 payload、不建配置）
+# ============================================================
+if [[ "$(id -u)" == "0" ]]; then
+    skip T92 "running as root; read-only dir is not enforced"
+else
+    new_box
+    RO92="$BOX/ro92"; mkdir -p "$RO92"; chmod 555 "$RO92"
+    env NO_COLOR=1 PREFIX="$BIN" PI_EXT_DIR="$PIEXT" CLAUDE_CONFIG_DIR="$CLAUDE" CLAUDE_SETTINGS="$SETTINGS" \
+        QODER_CONFIG_DIR="$QODER" QODER_SETTINGS="$QODER_SETTINGS" \
+        OPENCODE_CONFIG_DIR="$RO92" OPENCODE_TUI_CONFIG="$RO92/tui.json" \
+        "$WREN" install oc >"$BOX/out92.txt" 2>"$BOX/err92.txt"
+    E92=$?
+    chmod 755 "$RO92"
+    if [[ "$E92" == "1" ]] && [[ -z "$(ls -A "$RO92")" ]]; then
+        pass T92 "unwritable opencode config dir -> exit 1, zero side effects"
+    else
+        fail T92 "exit=$E92 ro=[$(ls -A "$RO92" | tr '\n' ' ')] err=[$(cat "$BOX/err92.txt")]"
+    fi
+fi
+
+# ============================================================
+# T93: 读不懂的 tui.json（顶层数组 / 数组未闭合）→ exit 1，文件与 payload 都不碰
+# ============================================================
+new_box
+printf '["./plugins/other.tsx"]\n' >"$OCCONF"
+cp "$OCCONF" "$BOX/before93a"
+run_wren install oc
+e93a=$WREN_EXIT
+printf '{ "plugin": [\n' >"$OCCONF"
+cp "$OCCONF" "$BOX/before93b"
+run_wren install oc
+e93b=$WREN_EXIT
+if [[ "$e93a" == "1" && "$e93b" == "1" ]] && [[ ! -e "$OC/plugins" ]] \
+   && grep -qF '"./plugins/other.tsx"' "$BOX/before93a" && ! printf '%s' "$(cat "$BOX/before93b")" | grep -qF 'wren-oc'; then
+    pass T93 "malformed tui.json -> exit 1, no payload installed, file untouched"
+else
+    fail T93 "a=$e93a b=$e93b plugins=[$(ls -A "$OC" 2>/dev/null | tr '\n' ' ')]"
+fi
+
+# ============================================================
+# T94: target 别名与非法 target（别名只多不少：opencode == oc）
+# ============================================================
+new_box
+run_wren install opencode
+alias_ok=$WREN_EXIT
+run_wren install oc9
+bad_exit=$WREN_EXIT
+if [[ "$alias_ok" == "0" ]] && grep -qF '"./plugins/wren-oc.tsx"' "$OCCONF" \
+   && [[ "$bad_exit" == "2" ]] && grep -qF "unsupported target" "$BOX/err.txt"; then
+    pass T94 "install opencode aliases oc; unknown target -> exit 2"
+else
+    fail T94 "alias=$alias_ok bad=$bad_exit err=[$(cat "$BOX/err.txt")]"
+fi
+
+# ============================================================
+# T95: install all / uninstall all 把四个宿主都接上、都摘干净
+# ============================================================
+new_box
+run_wren install all
+inst_all=1
+[[ -f "$CLAUDE/wren-cc" ]] || inst_all=0
+[[ -f "$PIEXT/wren-pi.ts" ]] || inst_all=0
+[[ -f "$QODER/wren-qc.py" ]] || inst_all=0
+[[ -f "$OC/plugins/wren-oc.tsx" ]] || inst_all=0
+[[ "$(json_field "$SETTINGS" "d['statusLine']['command']")" == "$CLAUDE/wren-cc" ]] || inst_all=0
+[[ "$(json_field "$QODER_SETTINGS" "d['statusLine']['command']")" == "$QODER/wren-qc.py" ]] || inst_all=0
+grep -qF '"./plugins/wren-oc.tsx"' "$OCCONF" || inst_all=0
+run_wren uninstall all
+un_all=1
+[[ -e "$CLAUDE/wren-cc" || -e "$PIEXT/wren-pi.ts" || -e "$QODER/wren-qc.py" || -e "$OC/plugins/wren-oc.tsx" ]] && un_all=0
+grep -qF 'wren-oc.tsx' "$OCCONF" && un_all=0
+[[ "$(json_field "$SETTINGS" "d.get('statusLine')")" == "None" ]] || un_all=0
+if [[ $inst_all -eq 1 && $un_all -eq 1 ]]; then
+    pass T95 "install all wires 4 hosts; uninstall all unwires them"
+else
+    fail T95 "install_all=$inst_all uninstall_all=$un_all claude=[$(ls -A "$CLAUDE" | tr '\n' ' ')] oc=[$(ls -A "$OC" | tr '\n' ' ')] conf=[$(cat "$OCCONF" 2>/dev/null)]"
+fi
+
+# ============================================================
+# T96: oc 最小 payload → 两行 + oc 徽标，不无中生有
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T96 "node with .ts type-stripping not available"
+else
+    t96="$(oc_render "$OC_MIN")"
+    if [[ "$(printf '%s' "$t96" | grep -c '^L')" == "2" ]] \
+       && printf '%s' "$t96" | grep -qxF "L1=/tmp | oc" \
+       && printf '%s' "$t96" | grep -qxF "L2=↑0 ↓0 | R0 | Test-Model"; then
+        pass T96 "oc minimal payload: 2 lines, oc badge, no invented segments"
+    else
+        fail T96 "out=[$(printf '%s' "$t96" | tr '\n' '~')]"
+    fi
+fi
+
+# ============================================================
+# T97: oc 满配 payload → 行1 git/herdr/时长，行2 token/CH/CP/ctx/模型·思考
+#      + 999_500 不得渲染成 1000K（与 cc/pi 同款守门）
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T97 "node with .ts type-stripping not available"
+else
+    t97="$(oc_render "$OC_FULL")"
+    t97m="$(oc_render '{"width":120,"cwd":"/tmp","home":"/tmp","branch":null,"head":"","ab":"","added":0,"modified":0,"deleted":0,"herdr":"","durationMs":null,"inputTokens":999500,"outputTokens":300,"cacheRead":0,"cacheWrite":0,"compactions":0,"ctxPercent":null,"ctxWindow":0,"model":"m","thinking":"","ttftMs":null}')"
+    if printf '%s' "$t97" | grep -qxF "L1=~/Code/proj | main ↑1↓2 +4 ~1 ✱2 | w1:t2:p3 | oc · 1h5m" \
+       && printf '%s' "$t97" | grep -qxF "L2=↑12K ↓3K | R1.2M CH99.01% CP2 | 8.40%/200K TTFT 6.6s | claude-opus-5 · high" \
+       && printf '%s' "$t97m" | grep -qxF "L2=↑1.0M ↓300 | R0 | m" \
+       && ! printf '%s' "$t97m" | grep -qF "1000K"; then
+        pass T97 "oc full payload matches wren layout; 999_500 -> 1.0M"
+    else
+        fail T97 "full=[$(printf '%s' "$t97" | tr '\n' '~')] fmt=[$(printf '%s' "$t97m" | tr '\n' '~')]"
+    fi
+fi
+
+# ============================================================
+# T98: oc 行2 梯子丢弃顺序 TTFT → CH → CP；头/ctx%/模型名永不剔
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T98 "node with .ts type-stripping not available"
+else
+    t98_ok=1
+    drop_ttft=0 drop_ch=0 drop_cp=0
+    for w in $(seq 120 -1 30); do
+        body="${OC_FULL/\"width\":120/\"width\":$w}"
+        out="$(oc_render "$body")"
+        l2="$(printf '%s' "$out" | grep '^L2=')"
+        printf '%s' "$l2" | grep -qF "TTFT" || { [[ $drop_ttft -eq 0 ]] && drop_ttft=$w; }
+        printf '%s' "$l2" | grep -qF "CH" || { [[ $drop_ch -eq 0 ]] && drop_ch=$w; }
+        printf '%s' "$l2" | grep -qF "CP" || { [[ $drop_cp -eq 0 ]] && drop_cp=$w; }
+        # 核心段与模型名（粉）在梯子生效的宽度区间内不许消失（与 pi T73 同口径）。
+        # ctx% 允许全形 `8.40%/200K` 或短形 `8%`（oc 侧窄预算先换短形保 CH/TTFT，见 T106）
+        case "$w" in 90|81|80|70|65|55)
+            printf '%s' "$out" | grep -qF "↑12K ↓3K" || t98_ok=0
+            printf '%s' "$out" | grep -qF "R1.2M" || t98_ok=0
+            printf '%s' "$out" | grep -qE "8\.40%/200K|[^0-9]8%" || t98_ok=0
+            printf '%s' "$out" | grep -qF "T2:claude-opus-5=pink" || t98_ok=0
+            ;;
+        esac
+    done
+    if [[ $t98_ok -eq 1 && $drop_ttft -gt 0 && $drop_ch -gt 0 && $drop_cp -gt 0 ]] \
+       && [[ $drop_ttft -gt $drop_ch && $drop_ch -gt $drop_cp ]]; then
+        pass T98 "oc line2 ladder: TTFT($drop_ttft) -> CH($drop_ch) -> CP($drop_cp); cores never dropped"
+    else
+        fail T98 "ok=$t98_ok drop_ttft=$drop_ttft drop_ch=$drop_ch drop_cp=$drop_cp"
+    fi
+fi
+
+# ============================================================
+# T99: oc 极端 CJK（长中文路径 + 长中文分支）两行都不超宽（按显示格计）
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T99 "node with .ts type-stripping not available"
+else
+    CJK99='{"width":80,"cwd":"/home/u/中文项目目录名称很长的十六个汉字/另一个很长的中文目录名称十六个汉字/最后一级超长中文目录名称十六个字","home":"/home/u","branch":"二十四字符分支名称测试用abcdefghijklmnop","head":"main","ab":" ↑0↓0","added":0,"modified":0,"deleted":0,"herdr":"","durationMs":null,"inputTokens":1000,"outputTokens":100,"cacheRead":1000,"cacheWrite":0,"compactions":0,"ctxPercent":50,"ctxWindow":200000,"model":"m","thinking":"high","ttftMs":6600}'
+    t99="$(oc_render "$CJK99")"
+    t99_l1="$(printf '%s' "$t99" | grep '^L1=' | sed 's/^L1=//')"
+    t99_l2="$(printf '%s' "$t99" | grep '^L2=' | sed 's/^L2=//')"
+    w1="$(cjk_strip "$t99_l1")"; w1="${w1%%$'\n'*}"
+    w2="$(cjk_strip "$t99_l2")"; w2="${w2%%$'\n'*}"
+    if [[ -n "$t99_l1" && -n "$t99_l2" ]] && [[ "$w1" -le 80 && "$w2" -le 80 ]] && printf '%s' "$t99_l1" | grep -qF "| oc"; then
+        pass T99 "oc CJK extreme: line1=${w1} line2=${w2} both <= 80"
+    else
+        fail T99 "l1=[$t99_l1]($w1) l2=[$t99_l2]($w2)"
+    fi
+fi
+
+# ============================================================
+# T100: oc TTFT 四档色 + 显示值同步（±1ms 带内同档、跨带换档）
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T100 "node with .ts type-stripping not available"
+else
+    oc_ttft() {  # $1 = ms → "色名 显示值"
+        local body line
+        body='{"width":120,"cwd":"/tmp","home":"/tmp","branch":null,"head":"","ab":"","added":0,"modified":0,"deleted":0,"herdr":"","durationMs":null,"inputTokens":1000,"outputTokens":10,"cacheRead":0,"cacheWrite":0,"compactions":0,"ctxPercent":null,"ctxWindow":0,"model":"m","thinking":"","ttftMs":'"$1"'}'
+        line="$(oc_render "$body" | grep '^T2:TTFT')"
+        [[ -n "$line" ]] || return 0
+        line="${line#T2:}"
+        printf '%s %s' "${line##*=}" "${line%=*}"
+    }
+    t100_ok=1
+    for probe in "4700:green TTFT 4.7s" "4949:green TTFT 4.9s" "4999:fg TTFT 5.0s" "5000:fg TTFT 5.0s" \
+                 "19999:fg TTFT 20s" "20499:fg TTFT 20s" "20500:yellow TTFT 21s" \
+                 "59999:yellow TTFT 1m00s" "60499:yellow TTFT 1m00s" "60500:red TTFT 1m01s" "3700000:red TTFT 1h01m"; do
+        ms="${probe%%:*}"; want="${probe#*:}"
+        got="$(oc_ttft "$ms")"
+        [[ "$got" == "$want" ]] || { t100_ok=0; echo "  oc ms=$ms want=[$want] got=[$got]" >&2; }
+    done
+    if [[ $t100_ok -eq 1 ]]; then
+        pass T100 "oc TTFT tiers: display-synced 4-tier colour, +/-1ms bands same tier"
+    else
+        fail T100 "tier mismatch (see stderr)"
+    fi
+fi
+
+# ============================================================
+# T101: 真机 e2e——装到沙箱配置后，opencode TUI 里真渲染出两行（无 opencode/tmux 则 SKIP）
+#       唯一直接锁宿主 TUI 插件 API 的用例：slot 名/模块形态变了会在这里碎。
+#       XDG_CONFIG_HOME 一并改道：opencode 会把默认全局配置目录".叠加"进来，
+#       不改道的话用户真实装的同一个 payload 会让本用例恒真（测不到沙箱那份）
+# ============================================================
+if ! command -v opencode >/dev/null 2>&1 || ! command -v tmux >/dev/null 2>&1; then
+    skip T101 "opencode or tmux not available"
+else
+    new_box
+    run_wren install oc
+    mkdir -p "$BOX/proj" "$BOX/xdg"
+    (cd "$BOX/proj" && git -c init.defaultBranch=main init -q >/dev/null 2>&1)
+    SESS="wren_t101_$BOX_N"
+    tmux kill-session -t "$SESS" 2>/dev/null || true
+    tmux new-session -d -s "$SESS" -x 120 -y 40 \
+        "cd '$BOX/proj' && XDG_CONFIG_HOME='$BOX/xdg' OPENCODE_CONFIG_DIR='$OC' opencode 2>'$BOX/oc.log'" >/dev/null 2>&1
+    # 高负载下首帧可能 >25s：轮询等断言内容出现，最多 75s
+    pane=""
+    for _ in $(seq 1 25); do
+        sleep 3
+        pane="$(tmux capture-pane -p -t "$SESS" 2>/dev/null)"
+        if printf '%s' "$pane" | grep -qF "tab agents" && printf '%s' "$pane" | grep -qE "↑0 ↓0"; then
+            break
+        fi
+    done
+    tmux kill-session -t "$SESS" 2>/dev/null || true
+    # 行1 与宿主的 `tab agents  ctrl+p commands` 同行（证明落在 prompt 框下方那一行、顶掉了 cwd）
+    # 行2 只含 git 计数（无会话、无 provider 限额）
+    if printf '%s' "$pane" | grep -F "tab agents" | grep -qF "| oc" \
+       && printf '%s' "$pane" | grep -qE "^ *↑0 ↓0 \| R0[[:space:]]*$"; then
+        pass T101 "real opencode TUI renders wren two lines below the prompt box"
+    else
+        fail T101 "pane=[$(printf '%s' "$pane" | tail -4 | tr '\n' '~')] log=[$(tail -2 "$BOX/oc.log" 2>/dev/null | tr '\n' '~')]"
+    fi
+fi
+
+# ============================================================
+# T102: CRLF 配置需逐字节还原（读/写不能用 universal newline 转换）
+#       Linux/mac 上的 text mode 会把 \r\n 读成 \n，install 一次就整文件改行尾
+# ============================================================
+new_box
+printf '{\r\n  "theme": "dracula",\r\n  "plugin": [\r\n    "./plugins/other.tsx"\r\n  ]\r\n}\r\n' >"$OCCONF"
+cp "$OCCONF" "$BOX/before102"
+run_wren install oc
+run_wren uninstall oc
+t102_cr="$(python3 -c "import sys;print(open(sys.argv[1],'rb').read().count(b'\\r'))" "$OCCONF")"
+if [[ "$t102_cr" == "6" ]] && diff -q "$BOX/before102" "$OCCONF" >/dev/null; then
+    pass T102 "CRLF tui.json survives install+uninstall byte-for-byte (6 CR kept)"
+else
+    fail T102 "cr=$t102_cr diff=[$(diff "$BOX/before102" "$OCCONF" | head -3 | tr '\n' '~')]"
+fi
+
+# ============================================================
+# T103: plugin 键值不是数组 → 预检就拒，exit 1 且零副作用
+#     （否则会追出重复的 plugin 键，把用户原值遮蔽掉）
+# ============================================================
+new_box
+printf '{\n  "plugin": "./plugins/other.tsx"\n}\n' >"$OCCONF"
+cp "$OCCONF" "$BOX/before103"
+run_wren install oc
+if [[ "$WREN_EXIT" == "1" ]] && diff -q "$BOX/before103" "$OCCONF" >/dev/null \
+   && [[ ! -e "$OC/plugins" ]] && printf '%s' "$WREN_ERR" | grep -qF "non-array"; then
+    pass T103 "non-array plugin value -> exit 1 before payload install, file untouched"
+else
+    fail T103 "exit=$WREN_EXIT plugins=[$(ls -A "$OC" 2>/dev/null | tr '\n' ' ')] err=[$WREN_ERR]"
+fi
+
+# ============================================================
+# T104: 核心文件改名迁移——早期落点 plugins/wren-oc-core.ts 被识别并删除
+# ============================================================
+new_box
+mkdir -p "$OC/plugins"
+printf '// wren 的 opencode 侧排版核心（旧名）\n' >"$OC/plugins/wren-oc-core.ts"
+run_wren install oc
+if [[ "$WREN_EXIT" == "0" ]] \
+   && [[ ! -e "$OC/plugins/wren-oc-core.ts" ]] \
+   && cmp -s "$OC/plugins/wren-oc.ts" "$OC_CORE_PAYLOAD" \
+   && printf '%s' "$WREN_OUT" | grep -qF "migrated"; then
+    pass T104 "install oc migrates legacy wren-oc-core.ts -> wren-oc.ts"
+else
+    fail T104 "exit=$WREN_EXIT files=[$(ls -A "$OC/plugins" 2>/dev/null | tr '\n' ' ')] out=[$WREN_OUT]"
+fi
+
+# ============================================================
+# T105: 空 cwd + 空身份组（oc 侧把 cwd 交给宿主行、模型交给宿主 prompt 行）
+#       行1 首段就是 git 组、无悬空分隔符；行2 无尾部 " | "、无粉色模型段
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T105 "node with .ts type-stripping not available"
+else
+    OC_NOID='{"width":120,"cwd":"","home":"/home/u","branch":"main","head":"main","ab":" ↑1↓2","added":4,"modified":2,"deleted":1,"herdr":"w1:t2:p3","durationMs":3900000,"inputTokens":12000,"outputTokens":3000,"cacheRead":1200000,"cacheWrite":0,"compactions":2,"ctxPercent":8.4,"ctxWindow":200000,"model":"","thinking":"","ttftMs":6600}'
+    t105="$(oc_render "$OC_NOID")"
+    if printf '%s' "$t105" | grep -qxF "L1=main ↑1↓2 +4 ~1 ✱2 | w1:t2:p3 | oc · 1h5m" \
+       && printf '%s' "$t105" | grep -qxF "L2=↑12K ↓3K | R1.2M CH99.01% CP2 | 8.40%/200K TTFT 6.6s" \
+       && ! printf '%s' "$t105" | grep -qE '^L[12]=.*\| $' \
+       && ! printf '%s' "$t105" | grep -qE '^T[12]:.*=pink' \
+       && ! printf '%s' "$t105" | grep -qE '^T2: · ='; then
+        pass T105 "empty cwd + empty model: no leading/trailing separator, no identity group"
+    else
+        fail T105 "out=[$(printf '%s' "$t105" | tr '\n' '~')]"
+    fi
+fi
+
+# ============================================================
+# ============================================================
+# T106: 行1/行2 双预算——行1 与宿主 usage/快捷键同行要收窄，行2 独占整行不收窄
+#       （78 列窗格曾因共用行1 预算把 TTFT/ctx% 全挤掉）
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T106 "node with .ts type-stripping not available"
+else
+    # 行2 在 49 格内：ctx% 先换短形 `16%`（保窗口位置：CH 之后、TTFT 之前），CH/TTFT 都保住
+    OC_DUAL='{"width":49,"cwd":"/home/u/Code/proj","home":"/home/u","branch":"feat/wren_support_opencode","head":"feat/wren_support_opencode","ab":" ↑0↓0","added":0,"modified":11,"deleted":0,"herdr":"w1:t2:p3","durationMs":82900000,"inputTokens":898000,"outputTokens":14000,"cacheRead":7200000,"cacheWrite":0,"compactions":0,"ctxPercent":16.29,"ctxWindow":1000000,"model":"","thinking":"","ttftMs":3700}'
+    t106="$(oc_render "$OC_DUAL")"
+    if printf '%s' "$t106" | grep -qF "L2=↑898K ↓14K | R7.2M CH88.91% | 16% TTFT 3.7s" \
+       && printf '%s' "$t106" | grep -qxF "L1=feat/wre…pencode ↑0↓0 ✱11 | w1:t2:p3 | oc · 23h1m"; then
+        pass T106 "narrow budget swaps ctx% to short form before dropping CH/TTFT"
+    else
+        fail T106 "out=[$(printf '%s' "$t106" | tr '\n' '~')]"
+    fi
 fi
 
 # ---------- 汇总 ----------
