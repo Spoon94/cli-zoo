@@ -1,5 +1,5 @@
 # wren 测试结果
-执行时间：2026-09-30 22:19:23
+执行时间：2026-10-01 16:56:19
 
 | ID | 状态 | 备注 |
 |----|------|------|
@@ -100,13 +100,14 @@
 | T95 | PASS | install all wires 4 hosts; uninstall all unwires them |
 | T96 | PASS | oc minimal payload: 2 lines, oc badge, no invented segments |
 | T97 | PASS | oc full payload matches wren layout; 999_500 -> 1.0M |
-| T98 | PASS | oc line2 ladder: TTFT(76) -> CH(64) -> CP(55); cores never dropped |
+| T98 | PASS | oc line2 ladder: TTFT(68) -> CH(64) -> CP(55); cores never dropped |
 | T99 | PASS | oc CJK extreme: line1=71 line2=58 both <= 80 |
 | T100 | PASS | oc TTFT tiers: display-synced 4-tier colour, +/-1ms bands same tier |
-| T101 | PASS | real opencode TUI renders wren two lines inside the prompt box |
+| T101 | PASS | real opencode TUI renders wren two lines below the prompt box |
 | T102 | PASS | CRLF tui.json survives install+uninstall byte-for-byte (6 CR kept) |
 | T103 | PASS | non-array plugin value -> exit 1 before payload install, file untouched |
 | T104 | PASS | install oc migrates legacy wren-oc-core.ts -> wren-oc.ts |
 | T105 | PASS | empty cwd + empty model: no leading/trailing separator, no identity group |
+| T106 | PASS | narrow budget swaps ctx% to short form before dropping CH/TTFT |
 
-汇总：Total 105 / Pass 105 / Fail 0 / Skip 0
+汇总：Total 106 / Pass 106 / Fail 0 / Skip 0

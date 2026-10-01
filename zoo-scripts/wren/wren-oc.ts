@@ -67,7 +67,12 @@ export function truncateSegments(segs: Segment[], width: number): Segment[] {
 
 // 分支折叠：尾重头轻（头 8 / 尾 15），与 wren.py 的 fold_branch 同规则
 export function foldBranch(b: string, maxLen = 24): string {
-	return visibleWidth(b) <= maxLen ? b : sliceCells(b, 8, false) + "…" + sliceCells(b, 15, true);
+	const w = visibleWidth(b);
+	if (w <= maxLen) return b;
+	// 折成 head8 + … + tail（maxLen−9）；maxLen 太小时只留头
+	const keep = maxLen - 9;
+	if (keep >= 1) return sliceCells(b, 8, false) + "…" + sliceCells(b, keep, true);
+	return sliceCells(b, maxLen, false);
 }
 
 // 999_500~999_999 走 Math.round(n/1000) 会得到 1000K，必须显示 1.0M
@@ -125,7 +130,10 @@ export const TTFT_BUDGET = 11;
 export const DUR_BUDGET = visibleWidth(" · 99h59m");
 
 export type OcInput = {
+	/** 行2 的宽度预算（整行独占） */
 	width: number;
+	/** 行1 的宽度预算（与宿主 usage/快捷键同行时更窄）；缺省 = width */
+	width1?: number;
 	/** cwd 显示；空串 = 不渲染 cwd 段（宿主已在别处显示时用） */
 	cwd: string;
 	home: string;
@@ -164,7 +172,8 @@ function ctxTone(percent: number | null): Tone {
 
 export function buildLines(i: OcInput): Segment[][] {
 	const sep: Segment = { text: " | ", tone: "comment" };
-	const width = i.width > 0 ? i.width : 80;
+	const width = i.width1 ?? (i.width > 0 ? i.width : 80); // 行1 预算（与宿主 usage/快捷键同行）
+	const width2 = i.width > 0 ? i.width : 80; // 行2 预算（整行独占）
 
 	// ---------- 行1 ----------
 	const home = i.home;
@@ -174,15 +183,20 @@ export function buildLines(i: OcInput): Segment[][] {
 	const durText = i.durationMs != null ? fmtDurationElapsed(Math.max(0, i.durationMs)) : "";
 	const hasBranch = !!i.branch && i.head !== "" && !i.head.startsWith("(");
 	const gitRest = hasBranch ? visibleWidth(` | ${foldBranch(i.branch!)}${i.ab}`) + countsWidth(i) : 0;
+	// herdr 与徽标是固定宽度的段，放不下就整段丢，不能像路径/分支那样截半（底行预算比框内窄，
+	// 窄到 54 格时会出现 "| w11:t1:" 这种半个 id）
+	const badgeRest = visibleWidth(" | oc");
 	const herdrRest = i.herdr ? visibleWidth(` | ${i.herdr}`) : 0;
-	const baseRest = gitRest + herdrRest + visibleWidth(" | oc");
+	const minPath = 9;
+	const keepHerdr = i.herdr ? width - gitRest - badgeRest >= herdrRest + minPath : false;
+	const baseRest = gitRest + (keepHerdr ? herdrRest : 0) + badgeRest;
 	let keepDuration = durText !== "";
 	let rest = baseRest + (keepDuration ? DUR_BUDGET : 0);
-	if (keepDuration && width - rest < 16) {
+	if (keepDuration && width - rest < minPath) {
 		keepDuration = false;
 		rest = baseRest;
 	}
-	const maxPath = Math.max(16, width - rest);
+	const maxPath = Math.max(minPath, width - rest);
 	const segs = cwd.split("/");
 	let displayPath = cwd;
 	if (visibleWidth(cwd) > maxPath) {
@@ -200,27 +214,50 @@ export function buildLines(i: OcInput): Segment[][] {
 		}
 	}
 
-	const line1: Segment[] = [];
-	const group = (segs: Segment[]) => {
-		if (!segs.length) return;
-		if (line1.length) line1.push(sep);
-		line1.push(...segs);
+	// 行1 尾部级联：整行放不下时先丢 git 计数（+4/~1/✱6），再硬截断——避免把 ↑0↓0 切成 ↑0↓
+	// cwd 可省（宿主已在 prompt 框下沿显示它时，oc 侧传空串避重复）
+	const line1With = (k: { counts: boolean; ab: boolean; cwd: boolean; herdr?: boolean; dur?: boolean; fold?: number }): Segment[] => {
+		const segs: Segment[] = [];
+		const g = (arr: Segment[]) => {
+			if (!arr.length) return;
+			if (segs.length) segs.push(sep);
+			segs.push(...arr);
+		};
+		if (k.cwd && displayPath) g([{ text: displayPath, tone: "comment" }]);
+		const git: Segment[] = [];
+		if (hasBranch) {
+			git.push({ text: foldBranch(i.branch!, k.fold ?? 24), tone: "purple" });
+			if (k.ab && i.ab) git.push({ text: i.ab, tone: "fg" });
+			if (k.counts) {
+				if (i.added) git.push({ text: " ", tone: "fg" }, { text: `+${i.added}`, tone: "green" });
+				if (i.deleted) git.push({ text: " ", tone: "fg" }, { text: `~${i.deleted}`, tone: "red" });
+				if (i.modified) git.push({ text: " ", tone: "fg" }, { text: `✱${i.modified}`, tone: "yellow" });
+			}
+		}
+		g(git);
+		// herdr 坐标（面板位置）默认保到最后：级联里排在 cwd 之后丢（不用 keepHerdr 门，级联自己控制）
+		if ((k.herdr ?? true) && i.herdr) g([{ text: i.herdr, tone: "comment" }]);
+		const badge: Segment[] = [{ text: "oc", tone: "comment" }];
+		if ((k.dur ?? keepDuration) && durText) badge.push({ text: " · ", tone: "comment" }, { text: durText, tone: "fg" });
+		g(badge);
+		return segs;
 	};
-	// cwd 可省（宿主已在 prompt 框下一行显示它时，oc 侧传空串避重复）
-	if (displayPath) group([{ text: displayPath, tone: "comment" }]);
-	const gitSegs: Segment[] = [];
-	if (hasBranch) {
-		gitSegs.push({ text: foldBranch(i.branch!), tone: "purple" });
-		if (i.ab) gitSegs.push({ text: i.ab, tone: "fg" });
-		if (i.added) gitSegs.push({ text: " ", tone: "fg" }, { text: `+${i.added}`, tone: "green" });
-		if (i.deleted) gitSegs.push({ text: " ", tone: "fg" }, { text: `~${i.deleted}`, tone: "red" });
-		if (i.modified) gitSegs.push({ text: " ", tone: "fg" }, { text: `✱${i.modified}`, tone: "yellow" });
-	}
-	group(gitSegs);
-	if (i.herdr) group([{ text: i.herdr, tone: "comment" }]);
-	const badge: Segment[] = [{ text: "oc", tone: "comment" }];
-	if (keepDuration) badge.push({ text: " · ", tone: "comment" }, { text: durText, tone: "fg" });
-	group(badge);
+	const line1Full = line1With({ counts: true, ab: true, cwd: true });
+	// 级联优先级：段 > 分支长度 > cwd > 时长 > 计数 > ab > herdr。
+	// 时长（`· 24h37m`）与 herdr 是面板身份信息，比 cwd 更后丢；
+	// 分支按折叠档 24→20→16→12→8 从宽到窄试。全放不下才硬截断。
+	const folds = [24, 20, 16, 12, 8] as const;
+	const variants: Segment[][] = [];
+	const pushVariants = (counts: boolean, ab: boolean, cwd: boolean, dur: boolean, herdr = true) => {
+		for (const f of folds) variants.push(line1With({ counts, ab, cwd, dur, herdr, fold: f }));
+	};
+	pushVariants(true, true, true, true);
+	pushVariants(true, true, false, true);
+	pushVariants(true, true, false, false);
+	pushVariants(false, true, false, false);
+	pushVariants(false, false, false, false);
+	pushVariants(false, false, false, false, false);
+	const line1: Segment[] = variants.find((v) => visibleWidth(plain(v)) <= width) ?? line1Full;
 
 	// ---------- 行2 ----------
 	const chText =
@@ -228,32 +265,44 @@ export function buildLines(i: OcInput): Segment[][] {
 			? `CH${((i.cacheRead / (i.inputTokens + i.cacheRead + i.cacheWrite)) * 100).toFixed(2)}%`
 			: "";
 	const cpText = i.compactions > 0 ? `CP${i.compactions}` : "";
-	const ctxText = i.ctxWindow > 0 ? `${i.ctxPercent != null ? `${i.ctxPercent.toFixed(2)}%` : "?"}/${fmtTokens(i.ctxWindow)}` : "";
+	// 上下文占用与 TTFT 也是「整段丢」的语义，窄到放不下就整段不显示，
+	// 不能只留 `| 16.24%/1M` 或留个孤零零的 `TTFT`
+	const ctxFull = i.ctxWindow > 0 ? `${i.ctxPercent != null ? `${i.ctxPercent.toFixed(2)}%` : "?"}/${fmtTokens(i.ctxWindow)}` : "";
+	const ctxShort = i.ctxWindow > 0 && i.ctxPercent != null ? `${Math.round(i.ctxPercent)}%` : "";
 	const ttftText = i.ttftMs != null ? fmtTtft(i.ttftMs) : "";
+	const ctxBudget = ctxFull ? visibleWidth(`${sep.text}${ctxFull}`) : 0;
+	const ttftBudget = ttftText ? 1 + visibleWidth(ttftText) : 0;
 	const identity: Segment[] = i.model ? [{ text: i.model, tone: "pink" }] : [];
 	if (identity.length && i.thinking) identity.push({ text: " · ", tone: "fg" }, { text: i.thinking, tone: "cyan" });
 
-	const assemble = (k: { ttft: boolean; ch: boolean; cp: boolean }): Segment[] => {
+	type Keep = { ttft: boolean; ch: boolean; cp: boolean; ctx: boolean; ctxShort?: boolean };
+	const assemble = (k: Keep): Segment[] => {
 		const out: Segment[] = [{ text: `↑${fmtTokens(i.inputTokens)} ↓${fmtTokens(i.outputTokens)}`, tone: "fg" }];
 		out.push(sep, { text: `R${fmtTokens(i.cacheRead)}`, tone: "fg" });
 		if (k.ch) out.push({ text: " ", tone: "fg" }, { text: chText, tone: "cyan" });
 		if (k.cp) out.push({ text: " ", tone: "fg" }, { text: cpText, tone: "comment" });
-		if (ctxText) out.push(sep, { text: ctxText, tone: ctxTone(i.ctxPercent) });
+		if (k.ctx) out.push(sep, { text: k.ctxShort ? ctxShort : ctxFull || ctxShort, tone: ctxTone(i.ctxPercent) });
 		if (k.ttft) out.push({ text: " ", tone: "fg" }, { text: ttftText, tone: ttftColor(i.ttftMs) });
 		if (identity.length) out.push(sep, ...identity);
 		return out;
 	};
-	const budget = (k: { ttft: boolean; ch: boolean; cp: boolean }): number => {
+	const budget = (k: Keep): number => {
 		const used = visibleWidth(plain(assemble(k)));
 		return used + (k.ttft ? Math.max(0, TTFT_BUDGET - visibleWidth(ttftText)) : 0);
 	};
-	let keep = { ttft: !!ttftText, ch: !!chText, cp: !!cpText };
-	for (const drop of ["ttft", "ch", "cp"] as const) {
-		if (budget(keep) <= width) break;
+	// 超宽时先把 ctx% 换成短形 `16%`（丢窗口大小、保住 CH/TTFT），仍不够再走梯子
+	// TTFT → CH → CP → ctx%（顺序与 cc/pi 一致；ctx 永远在 CH/CP 之后、TTFT 之前）
+	let keep: Keep = { ttft: !!ttftText, ch: !!chText, cp: !!cpText, ctx: !!ctxFull };
+	if (budget(keep) > width2 && keep.ctx && ctxShort) {
+		const shortKeep: Keep = { ...keep, ctxShort: true };
+		if (budget(shortKeep) <= width2) keep = shortKeep;
+	}
+	for (const drop of ["ttft", "ch", "cp", "ctx"] as const) {
+		if (budget(keep) <= width2) break;
 		keep = { ...keep, [drop]: false };
 	}
 
-	return [truncateSegments(line1, width), truncateSegments(assemble(keep), width)];
+	return [truncateSegments(line1, width), truncateSegments(assemble(keep), width2)];
 }
 
 function countsWidth(i: OcInput): number {

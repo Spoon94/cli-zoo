@@ -50,7 +50,7 @@ opencode 没有 statusline 命令协议也没有 `statusLine` 配置键，接入
 
 | 位置 | 来源 |
 |------|------|
-| cwd | `api.state.path.directory`（家目录用 `os.homedir()` 折叠）；**oc 侧默认传空串不渲染**：宿主 prompt 框下沿自带 cwd |
+| cwd | `api.state.path.directory`（家目录用 `os.homedir()` 折叠）；wren 行1 就渲染在宿主底行原本显示 cwd 的那一格（hint 顶掉它） |
 | 分支 / ahead-behind / 增删改 | 自己跑 `git status --porcelain=v2 --branch`（15s 轮询 + Solid signal），解析与 cc/pi 同一套；`api.state.vcs.branch` 只能给分支名，没有 ab 与脏文件分类 |
 | ↑in/↓out / R | `session.tokens`（宿主维护的会话累计；`input`/`output` 与 per-message 求和等价） |
 | CH | 末条 assistant 的 `cache.read / (input + cache.read + cache.write)`（与 cc/pi 同式；无缓存不显示） |
@@ -63,8 +63,9 @@ opencode 没有 statusline 命令协议也没有 `statusLine` 配置键，接入
 
 形态与降级的五点不同：
 
-- **slot**：v1（1.18.x）没有 statusline 专用 slot，用 `session_prompt_right` / `home_prompt_right`——即 prompt 框内那一行（宿主左组 `agent · model · variant` 的右侧）。两行会把 prompt 框撑高一行，不占额外布局。slot API 不给可用宽度，只能按容器宽预留左组（会话路由 `terminal − 38`，home 路由 `prompt.max_width(默认 75) − 47`），预留不足时两边会互相挤碎。
-- **去重**：oc 侧不渲染 cwd（宿主 prompt 框下沿已有）与模型 · 思考（宿主 prompt 行左组已有），避免与宿主同屏重复；其余三宿主无此依赖。
+- **slot**：v1（1.18.x）没有 statusline 专用 slot，用 `session_prompt` / `home_prompt` 的 **replace 模式**：把宿主自带的 `<api.ui.Prompt>` 原样重渲染（透传 `session_id/visible/disabled/on_submit/ref`），只多传 `hint`——宿主源码里 prompt 框下方那一行的左半是 `props.hint ?? cwd`，给了 hint 就顶掉 cwd，wren 两行落进那一格（多行会把该行撑高一行，不占 transcript）。slot 回调的第一参数是 `{theme}`，契约 props 在**第二参数**。契约意外变化时退回裸 Prompt（不给 hint），输入框仍在。
+- **宽度预算（双预算）**：行1 与宿主那一行的右半（usage `162.4K (16%)` + `ctrl+p commands`）共处一行，预算 = 容器宽 − 右半实宽（按宿主 usage 同口径动态算）；行2 独占整行，预算 = 容器宽。行1 放不下时级联丢段（git 计数 → ahead-behind → cwd，分支有 14 格紧凑折叠档）、行2 梯子丢段（TTFT → CH → CP → ctx%，ctx% 有 `16%` 短形兜底）。home 路由的容器宽是 `prompt.max_width`（默认 75），不是终端宽。
+- **去重**：oc 侧不渲染模型 · 思考（宿主 prompt 框内左侧同一行已有 `agent · model · variant`）；cwd 恢复显示——wren 行1 正好占了宿主原来显示 cwd 的那一格。其余三宿主无此依赖。
 - **崩溃隔离**：slot 渲染里抛异常会直接把整个 TUI 打到崩溃页（1.18.33 实测），因此取数与排版全包在 try/catch 里，失败时降级成一行裸 cwd + 徽标。
 - **色档**：不做 256 档转换，直接给 RGB 十六进制（`<text fg>`），由宿主/终端决定降档；`NO_COLOR` 非空时逐行单色输出（不靠宿主配合）。
 - **相对路径 spec**：payload 拷到 `<tui.json 同目录>/plugins/`，配置里写 `./plugins/wren-oc.tsx`（宿主按声明它的配置文件解析相对路径）。核心与适配层是两个文件，卸载时一并处理。

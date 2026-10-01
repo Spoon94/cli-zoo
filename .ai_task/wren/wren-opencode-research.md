@@ -99,10 +99,10 @@ WREN-SMOKE line2 …                        ← 注入的 app_bottom（第 2 行
 
 | 项 | 说明 |
 |---|---|
-| 常驻占行 | `session_prompt_right` / `home_prompt_right` 在 prompt 框内那一行，两行只把 prompt 框撑高 1 行，不占 transcript（早前用 `app_bottom` 时要占 2 行） |
-| v1 无 statusline 位 | 最接近的就是 prompt 行右侧（本次采用）或 `app_bottom`（活动路由下方整宽、可多行）；`home_footer` 是 single_winner，会顶掉内置 footer，不用 |
-| 宽度预算 | slot API 不给可用宽度，只能按容器宽预留左组：会话路由 `terminal − 38`，home 路由 `prompt.max_width(默认 75) − 47`。预留不足两边会互相挤碎（实测：75 宽的 home 框用 33 预算就把左组压成 `Build ·DeepSeek`） |
-| 信息重复 | 内置 prompt 行左组已显示 agent · model · variant，prompt 框下沿已显示 cwd；oc 侧这两段直接不渲染（core 传空串），避免同屏重复。其余三宿主无此依赖 |
+| 常驻占行 | `session_prompt` / `home_prompt` replace 模式 + `hint`：wren 两行落在 prompt 框正下方那一行的左半（原本是 cwd），只把那一行撑高 1 行，不占 transcript（早前 `app_bottom` 要占 2 行、`session_prompt_right` 会与左组抢宽） |
+| v1 无 statusline 位 | 最终采用 replace prompt + hint（实测 `props.hint ?? cwd`，给了 hint 就顶掉 cwd）；`home_footer` 是 single_winner 会顶掉内置 footer，不用 |
+| 宽度预算 | 两行都在宿主 hint 的左半容器里（列宽 = 容器 − 右半），slot API 不给可用宽度：按宿主 usage 同口径动态估右半（`166.1K (17%)` 一位小数 + `ctrl+p commands` + gap）。预算内放不下时行1 先折分支（24→20→16→12→8 五档，foldBranch 真生效）、再丢 cwd → 时长 → 计数 → ab → herdr；行2 超宽先把 ctx% 换短形 `16%`（保 CH/TTFT），再梯子（TTFT → CH → CP → ctx%）。超预算时 OpenTUI 会压缩段间空格而不是截断（实测），预算必须算准 |
+| 信息重复 | 内置 prompt 框内左侧已显示 agent · model · variant，oc 侧模型 · 思考不渲染（core 传空串）；cwd 恢复显示（wren 行1 正好占宿主那一格）。其余三宿主无此依赖 |
 | 折叠宽度 | 无 `COLUMNS` 概念，宽度取 `api.renderer.width`（实测可用），核心自己逐段截断，宿主 `truncate` 仅兜底 |
 | 主题冲突 | wren 假定深色底 + Dracula 硬编码；oc 侧直接给 RGB 十六进制由宿主决定降档，不跟主题 |
 | v2 未覆盖 | 本次不实现 v2（用户拍板）。v2 的 slot 名/模块形态/配置文件都不同，见第 2 节 |
@@ -122,7 +122,7 @@ WREN-SMOKE line2 …                        ← 注入的 app_bottom（第 2 行
 
 | 文件 | 角色 |
 |---|---|
-| `zoo-scripts/wren/wren-oc.tsx` | TUI 插件适配层：`{ id: "wren.oc", tui }`，注册 `session_prompt_right` / `home_prompt_right` slot；Solid signal + 15s 轮询 git/CP；全部 try/catch 兜底 |
+| `zoo-scripts/wren/wren-oc.tsx` | TUI 插件适配层：`{ id: "wren.oc", tui }`，replace `session_prompt` / `home_prompt` 并透传契约 props，只多传 `hint`；Solid signal + 15s 轮询 git/CP；全部 try/catch 兜底 |
 | `zoo-scripts/wren/wren-oc.ts` | 排版纯函数（段列表、折叠梯子、数值口径），无宿主依赖，node 可直接跑 |
 | `zoo-scripts/wren/wren` | 新增 target `oc`（别名 `opencode`）：拷 payload、JSONC 定向编辑 `tui.json(c)` 的 `plugin` 数组、卸载只拂自己的 |
 | `.test_scripts/wren-test.sh` | T86-T95 安装器（幂等/JSONC 保真/jsonc 接管/只删自己/预检/别名/all 四侧）+ T96-T100、T105 核心渲染（两行/满配/梯子/CJK/TTFT 分档/去重）+ T101 真机 TUI e2e |

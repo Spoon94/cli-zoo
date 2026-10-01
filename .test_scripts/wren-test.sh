@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# wren-test.sh - 自动运行 .test_task/wren-test.md 中的 105 个用例。
+# wren-test.sh - 自动运行 .test_task/wren-test.md 中的 106 个用例。
 #
 # 用法: bash .test_scripts/wren-test.sh
 # 写出: .test_res/wren-test-res.md
@@ -2319,11 +2319,12 @@ else
         printf '%s' "$l2" | grep -qF "TTFT" || { [[ $drop_ttft -eq 0 ]] && drop_ttft=$w; }
         printf '%s' "$l2" | grep -qF "CH" || { [[ $drop_ch -eq 0 ]] && drop_ch=$w; }
         printf '%s' "$l2" | grep -qF "CP" || { [[ $drop_cp -eq 0 ]] && drop_cp=$w; }
-        # 核心段与模型名（粉）在梯子生效的宽度区间内不许消失（与 pi T73 同口径）
+        # 核心段与模型名（粉）在梯子生效的宽度区间内不许消失（与 pi T73 同口径）。
+        # ctx% 允许全形 `8.40%/200K` 或短形 `8%`（oc 侧窄预算先换短形保 CH/TTFT，见 T106）
         case "$w" in 90|81|80|70|65|55)
             printf '%s' "$out" | grep -qF "↑12K ↓3K" || t98_ok=0
             printf '%s' "$out" | grep -qF "R1.2M" || t98_ok=0
-            printf '%s' "$out" | grep -qF "8.40%/200K" || t98_ok=0
+            printf '%s' "$out" | grep -qE "8\.40%/200K|[^0-9]8%" || t98_ok=0
             printf '%s' "$out" | grep -qF "T2:claude-opus-5=pink" || t98_ok=0
             ;;
         esac
@@ -2401,14 +2402,21 @@ else
     tmux kill-session -t "$SESS" 2>/dev/null || true
     tmux new-session -d -s "$SESS" -x 120 -y 40 \
         "cd '$BOX/proj' && XDG_CONFIG_HOME='$BOX/xdg' OPENCODE_CONFIG_DIR='$OC' opencode 2>'$BOX/oc.log'" >/dev/null 2>&1
-    sleep 25
-    pane="$(tmux capture-pane -p -t "$SESS" 2>/dev/null)"
+    # 高负载下首帧可能 >25s：轮询等断言内容出现，最多 75s
+    pane=""
+    for _ in $(seq 1 25); do
+        sleep 3
+        pane="$(tmux capture-pane -p -t "$SESS" 2>/dev/null)"
+        if printf '%s' "$pane" | grep -qF "tab agents" && printf '%s' "$pane" | grep -qE "↑0 ↓0"; then
+            break
+        fi
+    done
     tmux kill-session -t "$SESS" 2>/dev/null || true
-    # 行1 右对齐到 prompt 框右沿（宿主左组与 wren 之间必有空白分隔；被挤碎时这里是单空格或无空格）
+    # 行1 与宿主的 `tab agents  ctrl+p commands` 同行（证明落在 prompt 框下方那一行、顶掉了 cwd）
     # 行2 只含 git 计数（无会话、无 provider 限额）
-    if printf '%s' "$pane" | grep -qE "^.*┃.*main.*\| oc[[:space:]]*$" \
-       && printf '%s' "$pane" | grep -qE "^.*┃.*↑0 ↓0 \| R0[[:space:]]*$"; then
-        pass T101 "real opencode TUI renders wren two lines inside the prompt box"
+    if printf '%s' "$pane" | grep -F "tab agents" | grep -qF "| oc" \
+       && printf '%s' "$pane" | grep -qE "^ *↑0 ↓0 \| R0[[:space:]]*$"; then
+        pass T101 "real opencode TUI renders wren two lines below the prompt box"
     else
         fail T101 "pane=[$(printf '%s' "$pane" | tail -4 | tr '\n' '~')] log=[$(tail -2 "$BOX/oc.log" 2>/dev/null | tr '\n' '~')]"
     fi
@@ -2478,6 +2486,25 @@ else
         pass T105 "empty cwd + empty model: no leading/trailing separator, no identity group"
     else
         fail T105 "out=[$(printf '%s' "$t105" | tr '\n' '~')]"
+    fi
+fi
+
+# ============================================================
+# ============================================================
+# T106: 行1/行2 双预算——行1 与宿主 usage/快捷键同行要收窄，行2 独占整行不收窄
+#       （78 列窗格曾因共用行1 预算把 TTFT/ctx% 全挤掉）
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T106 "node with .ts type-stripping not available"
+else
+    # 行2 在 49 格内：ctx% 先换短形 `16%`（保窗口位置：CH 之后、TTFT 之前），CH/TTFT 都保住
+    OC_DUAL='{"width":49,"cwd":"/home/u/Code/proj","home":"/home/u","branch":"feat/wren_support_opencode","head":"feat/wren_support_opencode","ab":" ↑0↓0","added":0,"modified":11,"deleted":0,"herdr":"w1:t2:p3","durationMs":82900000,"inputTokens":898000,"outputTokens":14000,"cacheRead":7200000,"cacheWrite":0,"compactions":0,"ctxPercent":16.29,"ctxWindow":1000000,"model":"","thinking":"","ttftMs":3700}'
+    t106="$(oc_render "$OC_DUAL")"
+    if printf '%s' "$t106" | grep -qF "L2=↑898K ↓14K | R7.2M CH88.91% | 16% TTFT 3.7s" \
+       && printf '%s' "$t106" | grep -qxF "L1=feat/wre…pencode ↑0↓0 ✱11 | w1:t2:p3 | oc · 23h1m"; then
+        pass T106 "narrow budget swaps ctx% to short form before dropping CH/TTFT"
+    else
+        fail T106 "out=[$(printf '%s' "$t106" | tr '\n' '~')]"
     fi
 fi
 

@@ -33,8 +33,8 @@
   <!-- 分隔线 3 -->
   <line x1="24" y1="280" x2="896" y2="280" stroke="#44475a" stroke-width="1"/>
 
-  <!-- oc 侧（opencode：TUI 插件渲到 prompt 框内那一行右侧；cwd 与模型 · 思考由宿主同屏显示，不重复） -->
-  <text x="24" y="300" fill="#6272a4" font-size="11">opencode（prompt 框内）</text>
-  <text x="24" y="324" xml:space="preserve"><tspan fill="#6272a4">┃ Build · claude-opus-5 · max  </tspan><tspan fill="#bd93f9">main</tspan><tspan fill="#f8f8f2"> ↑0↓0 </tspan><tspan fill="#50fa7b">+3</tspan><tspan fill="#6272a4"> | wC:t1:p1 | oc</tspan><tspan fill="#6272a4"> · </tspan><tspan fill="#f8f8f2">15m</tspan></text>
-  <text x="24" y="346" xml:space="preserve"><tspan fill="#6272a4">┃                       </tspan><tspan fill="#f8f8f2">↑17K ↓7 | R20K </tspan><tspan fill="#8be9fd">CH54.46%</tspan><tspan fill="#6272a4"> | </tspan><tspan fill="#50fa7b">7.19%/262K</tspan><tspan fill="#f8f8f2"> TTFT 4.3s</tspan></text>
+  <!-- oc 侧（opencode：replace prompt + hint，两行落在 prompt 框正下方那一行左半；右半是宿主 usage/快捷键） -->
+  <text x="24" y="300" fill="#6272a4" font-size="11">opencode（prompt 框下方那一行）</text>
+  <text x="24" y="324" xml:space="preserve"><tspan fill="#6272a4">~/Code/cli-zoo | </tspan><tspan fill="#bd93f9">main</tspan><tspan fill="#f8f8f2"> ↑0↓0 </tspan><tspan fill="#50fa7b">+3</tspan><tspan fill="#6272a4"> | wC:t1:p1 | oc</tspan><tspan fill="#6272a4"> · </tspan><tspan fill="#f8f8f2">15m</tspan><tspan fill="#6272a4">        162.4K  ctrl+p commands</tspan></text>
+  <text x="24" y="346" xml:space="preserve"><tspan fill="#f8f8f2">↑17K ↓7 | R20K </tspan><tspan fill="#8be9fd">CH54.46%</tspan><tspan fill="#6272a4"> | </tspan><tspan fill="#50fa7b">7.19%/262K</tspan><tspan fill="#f8f8f2"> TTFT 4.3s</tspan></text>
 </svg>
