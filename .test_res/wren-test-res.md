@@ -1,5 +1,5 @@
 # wren 测试结果
-执行时间：2026-10-01 16:56:19
+执行时间：2026-10-03 00:51:36
 
 | ID | 状态 | 备注 |
 |----|------|------|
@@ -82,7 +82,7 @@
 | T77 | PASS | inflight turn keeps last completed TTFT (no flash / no early value) |
 | T78 | PASS | first chunk atomically replaces TTFT (TTFT 12s, old value gone) |
 | T79 | PASS | qc line2 ladder color-agnostic; TTFT survives truecolor at width 80 |
-| T80 | PASS | 3-host line2 ladder identical & ordered (w90/81/80/70/65/55: TCP TCP -CP -CP --P ---) |
+| T80 | PASS | 3-host line2 ladder identical & ordered (w90/81/80/70/65/60: TCP TCP -CP -CP --P --P) |
 | T81 | PASS | install cc migrates legacy $PREFIX/wren-cc, writes absolute command |
 | T82 | PASS | foreign $PREFIX/wren-cc left alone |
 | T83 | PASS | cc/qc TTFT 4-tier colour: 18 probes (raw-ms + rounded boundaries), text+code identical |
@@ -103,11 +103,12 @@
 | T98 | PASS | oc line2 ladder: TTFT(68) -> CH(64) -> CP(55); cores never dropped |
 | T99 | PASS | oc CJK extreme: line1=71 line2=58 both <= 80 |
 | T100 | PASS | oc TTFT tiers: display-synced 4-tier colour, +/-1ms bands same tier |
-| T101 | PASS | real opencode TUI renders wren two lines below the prompt box |
+| T101 | SKIP | opencode or tmux not available |
 | T102 | PASS | CRLF tui.json survives install+uninstall byte-for-byte (6 CR kept) |
 | T103 | PASS | non-array plugin value -> exit 1 before payload install, file untouched |
 | T104 | PASS | install oc migrates legacy wren-oc-core.ts -> wren-oc.ts |
 | T105 | PASS | empty cwd + empty model: no leading/trailing separator, no identity group |
 | T106 | PASS | narrow budget swaps ctx% to short form before dropping CH/TTFT |
+| T107 | PASS | cc narrow tier: ◈/▂▄▆█/⏱ icons, quartile×color orthogonal, TTFT->CH drop |
 
-汇总：Total 106 / Pass 106 / Fail 0 / Skip 0
+汇总：Total 107 / Pass 106 / Fail 0 / Skip 1

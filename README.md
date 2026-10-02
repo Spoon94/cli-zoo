@@ -93,7 +93,7 @@ cwd 恢复显示——wren 行1 正好占宿主原来显示 cwd 的那一格。�
 因为那里没有宿主自带信息可依赖。窄窗格行1 先折分支（24→20→16→12→8 五档），再依次丢 cwd、时长、
 git 计数、ahead-behind，herdr 坐标最后丢；行2 超宽时先把 ctx% 换短形 `16%`（保 CH/TTFT），仍不够再按梯子丢（TTFT → CH → CP → ctx%）。
 
-行 1 = cwd + git + herdr 位置 + 宿主徽标 · 会话时长；行 2 = 累计 token + 缓存（读取量 / `CH` 命中率 / `CP` 压缩次数）+ 上下文占用 + 首片延迟（`TTFT`）+ 模型 · 思考（oc 侧模型 · 思考跟宿主重复不渲染）。长路径长分支自动折叠不溢出，窄终端行2 先换短形 ctx%（`16%`）再按梯子丢弃次要段（TTFT → CH → CP → ctx%）。`ctx%` 与 `TTFT` 三档/四档突变着色（TTFT：绿 <5s、白 5–20s、黄 20–60s、红 >60s，判据为屏幕显示值）。装完在 pi 里用 `/footer` 切换。
+行 1 = cwd + git + herdr 位置 + 宿主徽标 · 会话时长；行 2 = 累计 token + 缓存（读取量 / `CH` 命中率 / `CP` 压缩次数）+ 上下文占用 + 首片延迟（`TTFT`）+ 模型 · 思考（oc 侧模型 · 思考跟宿主重复不渲染）。长路径长分支自动折叠不溢出，窄终端行2 先换短形 ctx%（`16%`）再按梯子丢弃次要段（TTFT → CH → CP → ctx%）。cc 侧 ≤55 列（移动端 herdr 会把 pane 拖成 51 列）进窄档：预算按实绘宽 `COLUMNS−5` 收（宿主缩进与尾部省略号），行2 换短形（`CH99.9%` / `24%` / `TTF7.1s`）、身份组整组不渲染（CC 输入框已带模型信息），丢序改 CP → TTFT → CH 保住独有指标。`ctx%` 与 `TTFT` 三档/四档突变着色（TTFT：绿 <5s、白 5–20s、黄 20–60s、红 >60s，判据为屏幕显示值）。装完在 pi 里用 `/footer` 切换。
 
 四宿主差异（cc / pi / qc / oc）、安装器细节、`wren-pi.ts` 相对 pi 上游的有意修改、Dracula 色板，见 [zoo-scripts/wren/README.md](./zoo-scripts/wren/README.md)；测试见 [docs/testing.md](./docs/testing.md)。
 

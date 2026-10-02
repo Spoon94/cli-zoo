@@ -481,6 +481,15 @@ def main():
         term_w = int(os.environ.get("COLUMNS") or 80)
     except ValueError:
         term_w = 80
+    # 窄档（≤55 列；移动端 herdr 会把 pane PTY 拖成 51 列）：CC 给 statusline 的
+    # 实绘宽 ≈ COLUMNS−5（左缩进 2 + 尾部留白/省略号），预算按实绘宽收，否则满宽
+    # 输出被宿主钝刀切尾、先丢的总是行尾徽标与身份组。窄档行2 按用户裁定取舍：
+    # R/CP 丢（低频里程数）、CH 两位小数原样、TTFT 换秒表图标 ⏱（计宽按 2 格
+    # 防御 iOS 表情宽）、ctx% 简化整数、模型·思考保、分隔符紧排（| 不带空格）——
+    # 铁律项全在时 44 格，51 列实绘 46 格内放得下。
+    narrow = term_w <= 55
+    if narrow:
+        term_w = max(24, term_w - 5)
     # 行1 预算 = 终端宽 − 其余段的可见宽。可变长字段按上界常量预留
     # （设计文档 §1.1-2）：时长按 9 格常量计入，不按当前值——否则数值
     # 变宽（43m→2h5m）会让折叠好的 cwd 当场掉一级，肉眼可见地抖。
@@ -498,6 +507,17 @@ def main():
         keep_duration = False  # 地板仍溢 → 丢时长
     if keep_duration:
         rest += DUR_REST_W
+    # 窄档用户裁定：时长不渲染（低频慢变量，宽档看得到）；herdr 坐标恒在，
+    # 装不下时 git 计数/ahead-behind 先让位（裁 colored_git 至裸分支名）。
+    if narrow:
+        keep_duration = False
+        if rest + 16 > term_w and colored_git:
+            colored_git = c("purple", fold_branch(branch, 24))  # 裸分支（去 ab/dmg）
+            rest -= dwidth(f"{ab}{dmg_plain}")
+            ab = dmg = dmg_plain = ""
+        if rest + 16 > term_w and colored_git:
+            colored_git = ""  # 分支也保不住 → 裸 cwd + 坐标 + 徽标
+            rest -= dwidth(f" | {fold_branch(branch, 24)}")
     path_budget = max(16, term_w - rest)
     display_cwd = fold_path(short_cwd, path_budget)
     line1 = (c("comment", display_cwd)
@@ -519,40 +539,66 @@ def main():
     pct_name = "green" if pct_val <= 70 else ("yellow" if pct_val <= 90 else "red")
     sep = c("comment", "|")
     cp_s = f"CP{compactions}" if compactions else ""
+    # 窄档短形（用户裁定）：CH 前缀 CH→◈、ctx% 整数 + 四分位块高图标
+    # （▂0-25 ▄25-50 ▆50-75 █75-100，等宽四分位=几何体积，与三档色阈值
+    # （70/90）解耦——图标说「占了几成」，颜色说「风险等级」，█+黄=体积满
+    # 但仍在容忍区，两维信息正交；块元素族 U+2580 终端渲染最稳）、TTFT 换
+    # ⏱ 前缀。三段图标 EAW=N/A 不触发 iOS emoji；◈/块高按实显 1 格，
+    # ⏱ 按 2 格防御 iOS 表情宽；R/CP 窄档不进段表。
+    if narrow:
+        pct_icon = "▂" if pct_val < 25 else ("▄" if pct_val < 50 else ("▆" if pct_val < 75 else "█"))
+        ch_s = "◈" + ch[2:] if ch else ch
+        ctx_s = f"{pct_icon}{pct_val:.0f}%" if ctx_pct else ""
+        ttft_s = "⏱" + ttft[len("TTFT "):] if ttft else ""
+        ttft_budget = "⏱""99m5"  # 上界占位；预算串 47 格超 46 时 51 列会误丢 ⏱，
+        # 按当前真实分布（中位 13.2s）占位取 99m5 已足够，色档余量吸收极端值
+    else:
+        ch_s, ctx_s, ttft_s, ttft_budget = ch, ctx_pct, ttft, TTFT_BUDGET_S
 
     def build2(use_ttft, use_ch, use_cp):
         """按存活段拼行2；返回 (上色串, 预算无色串)。预算串里 TTFT 用上界占位。
         预算串必须全程无色——dwidth 按 char 记宽，混入 ANSI 会让 truecolor
         档预算虚高 ~23 格/段，梯子把不超宽的 TTFT 误丢（色档不得影响折叠）。"""
-        ledger = f"R{fmt(cache_r)}"
+        ledger = "" if narrow else f"R{fmt(cache_r)}"
         ledger_p = ledger
-        if use_ch and ch:
-            ledger += " " + c("cyan", ch)
-            ledger_p += " " + ch
-        if use_cp and cp_s:
+        if use_ch and ch_s:
+            ledger += " " + c("cyan", ch_s) if ledger else c("cyan", ch_s)
+            ledger_p += " " + ch_s if ledger_p else ch_s
+        if use_cp and cp_s and not narrow:
             ledger += " " + c("comment", cp_s)
             ledger_p += " " + cp_s
         stat = stat_p = ""
-        if ctx_pct:
-            stat, stat_p = c(pct_name, ctx_pct), ctx_pct
-        if use_ttft and ttft:
-            t = c(ttft_color(st["ttft_ms"]), ttft)
+        if ctx_s:
+            stat, stat_p = c(pct_name, ctx_s), ctx_s
+        if use_ttft and ttft_s:
+            t = c(ttft_color(st["ttft_ms"]), ttft_s)
             stat = f"{stat} {t}" if stat else t
-            stat_p = f"{stat_p} {TTFT_BUDGET_S}" if stat_p else TTFT_BUDGET_S
-        line = f"{c('fg', f'↑{fmt(input_t)} ↓{fmt(output_t)}')} {sep} {ledger}"
-        plain = f"↑{fmt(input_t)} ↓{fmt(output_t)} | {ledger_p}"
+            stat_p = f"{stat_p} {ttft_budget}" if stat_p else ttft_budget
+        j = "|" if narrow else f" {sep} "  # 窄档紧分隔：3 个分隔省 6 格
+        head = c("fg", f"↑{fmt(input_t)} ↓{fmt(output_t)}")
+        line = head + (j + ledger if ledger else "")
+        plain = f"↑{fmt(input_t)} ↓{fmt(output_t)}" + (("|" if narrow else " | ") + ledger_p if ledger_p else "")
         if stat:
-            line += f" {sep} {stat}"
-            plain += f" | {stat_p}"
+            if narrow:
+                line += (j if ledger else "") + stat
+                plain += (("|" if ledger else "") + stat_p) if ledger else stat_p
+            else:
+                line += f" {sep} {stat}"
+                plain += f" | {stat_p}"
+        # 窄档身份组也进（用户裁定：模型·思考不可丢）；超预算时在梯子里截模型名
         ident_c = [c("pink", model_name)] + ([c("cyan", thinking)] if thinking else [])
-        line += f" {sep} " + " · ".join(ident_c)
-        plain += " | " + (" · ".join([model_name] + ([thinking] if thinking else [])))
+        ident_plain = " · ".join([model_name] + ([thinking] if thinking else []))
+        if ident_c:
+            line += (j + " · ".join(ident_c)) if narrow else f" {sep} " + " · ".join(ident_c)
+            plain += (("|" + ident_plain) if narrow else " | " + ident_plain)
         return line, plain
 
-    # 折叠梯子: 溢出按 TTFT→CH→CP 丢弃（新段先丢）；再溢出 truncate_display 兜底
+    # 折叠梯子: 溢出按序丢弃（宽档 TTFT→CH→CP 新段先丢；窄档 CP→TTFT→CH，
+    # 保住独有指标）；再溢出 truncate_display 兜底
     flags = dict(use_ttft=True, use_ch=True, use_cp=True)
     line2, plain2 = build2(**flags)
-    for key in ("use_ttft", "use_ch", "use_cp"):
+    order = ("use_cp", "use_ttft", "use_ch") if narrow else ("use_ttft", "use_ch", "use_cp")
+    for key in order:
         if dwidth(plain2) <= term_w:
             break
         flags[key] = False

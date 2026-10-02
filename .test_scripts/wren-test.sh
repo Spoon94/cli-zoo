@@ -1826,7 +1826,7 @@ EOF2
         printf '%s' "$s"
     }
     t80_ok=1; t80_seen=""; t80_err=""
-    for w in 90 81 80 70 65 55; do
+    for w in 90 81 80 70 65 60; do
         cc80=$(printf '{"cwd":"/tmp","model":{"display_name":"claude-opus-5"},"effort":{"level":"xhigh"},"context_window":{"context_window_size":1000000},"transcript_path":"%s"}' "$T80_TR" \
             | NO_COLOR=1 COLUMNS=$w WREN_CACHE_DIR="$BOX/c80-$w" python3 "$CC_PAYLOAD" 2>/dev/null | tail -1)
         qc80=$(printf '{"cwd":"/tmp","model":{"display_name":"claude-opus-5"},"effort":"xhigh","context_window":{"context_window_size":1000000},"transcript_path":"%s"}' "$T80_TR" \
@@ -1839,10 +1839,12 @@ EOF2
         [[ "$t80_a" == "$t80_b" && "$t80_b" == "$t80_c" ]] || { t80_ok=0; t80_err="$t80_err[W=$w cc=$t80_a qc=$t80_b pi=$t80_c]"; }
         t80_seen="$t80_seen $t80_a"
     done
-    # 三侧同签名之外，再钉住丢序与阀值：90/81→TCP 80/70→-CP 65→--P 55→---
-    # （81 是「全在」的临界点：预算常量差 1 格就会在这一档暴露）
-    if [[ $t80_ok -eq 1 && "$t80_seen" == " TCP TCP -CP -CP --P ---" ]]; then
-        pass T80 "3-host line2 ladder identical & ordered (w90/81/80/70/65/55:$t80_seen)"
+    # 三侧同签名之外，再钉住丢序与阀值：90/81→TCP 80/70→-CP 65/60→--P
+    # （81 是「全在」的临界点：预算常量差 1 格就会在这一档暴露。
+    #  ≤55 是 cc 独有的窄档短形层——CC 宿主实绘宽 ≈ COLUMNS−5 且输入框已带模型，
+    #  同构断言只覆盖宽档，窄档由 T107 单钉）
+    if [[ $t80_ok -eq 1 && "$t80_seen" == " TCP TCP -CP -CP --P --P" ]]; then
+        pass T80 "3-host line2 ladder identical & ordered (w90/81/80/70/65/60:$t80_seen)"
     else
         fail T80 "seen:[$t80_seen] mismatch:$t80_err"
     fi
@@ -2506,6 +2508,65 @@ else
     else
         fail T106 "out=[$(printf '%s' "$t106" | tr '\n' '~')]"
     fi
+fi
+
+# ============================================================
+# T107: cc 窄档（≤55 列，移动端 herdr 会把 pane PTY 拖成 51 列）——
+#       预算按实绘宽 COLUMNS−5 收（宿主左缩进 2 + 尾部留白/省略号）；
+#       用户裁定取舍：R/CP 窄档不进段表、CH 两位小数原样但前缀换 ◈、
+#       ctx% 整数 + 四分位块高图标（▂<25 ▄<50 ▆<75 █≥75，与色档 70/90
+#       正交：图标=体积，颜色=风险）、TTFT 换 ⏱ 前缀（计宽按 2 格防御
+#       iOS 表情宽）、模型·思考保留、行1 时长不渲染、紧分隔 |。
+#       兜底丢序（比 51 列更窄）：⏱ → ◈；↑in↓out 与 ◐ctx% 永不整段丢。
+# ============================================================
+new_box
+T107_TR="$BOX/tr107.jsonl"
+cat >"$T107_TR" <<'EOF2'
+{"type":"user","timestamp":"2026-09-19T04:18:46.065Z","message":{"content":"hi"}}
+{"type":"assistant","timestamp":"2026-09-19T04:18:58.465Z","message":{"usage":{"input_tokens":743000,"output_tokens":117000,"cache_read_input_tokens":19560000,"cache_creation_input_tokens":0}}}
+{"type":"system","subtype":"compact_boundary","isSidechain":false,"compactMetadata":{"trigger":"manual","postTokens":284200}}
+EOF2
+t107_at() {
+    printf '{"cwd":"/tmp","model":{"display_name":"m"},"effort":{"level":"xhigh"},"context_window":{"context_window_size":1000000},"transcript_path":"%s"}' "$T107_TR" \
+        | NO_COLOR=1 COLUMNS=$1 WREN_CACHE_DIR="$BOX/c107-$1" python3 "$CC_PAYLOAD" 2>/dev/null | tail -1
+}
+# 四分位图标矩阵：同 fixture 换 ctx 值，钉 ▂▄▆█ 四档与色档正交（80%=█但黄）
+t107_ctx() {
+    printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":1000000,"current_usage":{"input_tokens":%d,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}},"transcript_path":"%s"}' \
+        "$((1000000 * $1 / 100))" "$T107_TR" \
+        | NO_COLOR=1 COLUMNS=51 WREN_CACHE_DIR="$BOX/c107x-$1" python3 "$CC_PAYLOAD" 2>/dev/null | tail -1
+}
+t107_51="$(t107_at 51)"; t107_42="$(t107_at 42)"; t107_36="$(t107_at 36)"
+t107_90="$(printf '{"cwd":"/tmp","model":{"display_name":"claude-opus-5"},"effort":{"level":"xhigh"},"context_window":{"context_window_size":1000000},"transcript_path":"%s"}' "$T107_TR" \
+    | NO_COLOR=1 COLUMNS=90 WREN_CACHE_DIR="$BOX/c107-90" python3 "$CC_PAYLOAD" 2>/dev/null | tail -1)"
+t107_l1="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":1000000},"transcript_path":"%s"}' "$T107_TR" \
+    | NO_COLOR=1 COLUMNS=51 HERDR_WORKSPACE_ID=w9 HERDR_TAB_ID=w9:t1 HERDR_PANE_ID=w9:p1 WREN_CACHE_DIR="$BOX/c107-l1" python3 "$CC_PAYLOAD" 2>/dev/null | head -1)"
+t107_q12="$(t107_ctx 12)"; t107_q37="$(t107_ctx 37)"; t107_q62="$(t107_ctx 62)"; t107_q80="$(t107_ctx 80)"; t107_q96="$(t107_ctx 96)"
+# 模型名用短名 m（身份组 21 格的长名会把 ⏱ 提前挤掉，级界随内容浮动属预期）：
+# 51 满配 ◈96.34%+▂28%+⏱12s+身份组；42（预算37）⏱ 让位；36（预算31）◈ 让位、▂28% 紧贴
+# 90 宽档原样；行1 时长不在、herdr 坐标在
+if printf '%s' "$t107_51" | grep -qF "◈96.34%" \
+   && printf '%s' "$t107_51" | grep -qF "▄28%" \
+   && printf '%s' "$t107_51" | grep -qF "⏱12s" \
+   && printf '%s' "$t107_51" | grep -qF "|m · xhigh" \
+   && ! printf '%s' "$t107_51" | grep -qF "R19.6M" \
+   && ! printf '%s' "$t107_51" | grep -qF "CP1" \
+   && ! printf '%s' "$t107_51" | grep -qF "28.42%" \
+   && printf '%s' "$t107_42" | grep -qF "◈96.34%" \
+   && ! printf '%s' "$t107_42" | grep -qF "⏱" \
+   && ! printf '%s' "$t107_36" | grep -qF "◈" \
+   && printf '%s' "$t107_36" | grep -qF "117K▄28%" \
+   && printf '%s' "$t107_90" | grep -qF "R19.6M CH96.34% CP1 | 28.42%/1M TTFT 12s | claude-opus-5" \
+   && printf '%s' "$t107_l1" | grep -qF "w9:t1:p1" \
+   && ! printf '%s' "$t107_l1" | grep -qE "· [0-9]+[hm]" \
+   && printf '%s' "$t107_q12" | grep -qF "▂12%" \
+   && printf '%s' "$t107_q37" | grep -qF "▄37%" \
+   && printf '%s' "$t107_q62" | grep -qF "▆62%" \
+   && printf '%s' "$t107_q80" | grep -qF "█80%" \
+   && printf '%s' "$t107_q96" | grep -qF "█96%"; then
+    pass T107 "cc narrow tier: ◈/▂▄▆█/⏱ icons, quartile×color orthogonal, TTFT->CH drop"
+else
+    fail T107 "51=[$t107_51] 42=[$t107_42] 36=[$t107_36] 90=[$t107_90] l1=[$t107_l1] q12=[$t107_q12] q37=[$t107_q37] q62=[$t107_q62] q80=[$t107_q80] q96=[$t107_q96]"
 fi
 
 # ---------- 汇总 ----------
