@@ -2543,7 +2543,7 @@ t107_l1="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{
     | NO_COLOR=1 COLUMNS=51 HERDR_WORKSPACE_ID=w9 HERDR_TAB_ID=w9:t1 HERDR_PANE_ID=w9:p1 WREN_CACHE_DIR="$BOX/c107-l1" python3 "$CC_PAYLOAD" 2>/dev/null | head -1)"
 t107_q12="$(t107_ctx 12)"; t107_q37="$(t107_ctx 37)"; t107_q62="$(t107_ctx 62)"; t107_q80="$(t107_ctx 80)"; t107_q96="$(t107_ctx 96)"
 # 模型名用短名 m（身份组 21 格的长名会把 ⏱ 提前挤掉，级界随内容浮动属预期）：
-# 51 满配 ◈96.34%+▂28%+⏱12s+身份组；42（预算37）⏱ 让位；36（预算31）◈ 让位、▂28% 紧贴
+# 51 满配 ◈96.34%+▄28%+⏱12s+身份组；42（预算37，身份组 m·xhigh 长版）⏱ 让位；36（预算31）⏱/◈ 双让、▄28% 紧贴
 # 90 宽档原样；行1 时长不在、herdr 坐标在
 if printf '%s' "$t107_51" | grep -qF "◈96.34%" \
    && printf '%s' "$t107_51" | grep -qF "▄28%" \
@@ -2554,8 +2554,9 @@ if printf '%s' "$t107_51" | grep -qF "◈96.34%" \
    && ! printf '%s' "$t107_51" | grep -qF "28.42%" \
    && printf '%s' "$t107_42" | grep -qF "◈96.34%" \
    && ! printf '%s' "$t107_42" | grep -qF "⏱" \
+   && ! printf '%s' "$t107_36" | grep -qF "⏱" \
    && ! printf '%s' "$t107_36" | grep -qF "◈" \
-   && printf '%s' "$t107_36" | grep -qF "117K▄28%" \
+   && printf '%s' "$t107_36" | grep -qF "117K|▄28%" \
    && printf '%s' "$t107_90" | grep -qF "R19.6M CH96.34% CP1 | 28.42%/1M TTFT 12s | claude-opus-5" \
    && printf '%s' "$t107_l1" | grep -qF "w9:t1:p1" \
    && ! printf '%s' "$t107_l1" | grep -qE "· [0-9]+[hm]" \

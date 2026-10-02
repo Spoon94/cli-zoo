@@ -426,7 +426,6 @@ def main():
                 parts.append(c(name, f"{mark}{count}"))
         dmg = " " + " ".join(parts) if parts else ""
         dmg_plain = " " + " ".join(plain_parts) if plain_parts else ""
-    git_part = f"{branch}{ab}{dmg}" if branch else ""
 
     # ---- herdr 位置 ----
     herdr_parts = [os.getenv("HERDR_WORKSPACE_ID"),
@@ -501,43 +500,47 @@ def main():
     # cwd 的 … 地板：最后一档 "…/<尾段>"，尾段再长按格截（fold_path 自带）。
     dur_s = f" {c('comment', '·')} {c('fg', duration)}" if duration else ""
     dur_w = DUR_REST_W if duration else 0
-    fixed = dwidth(f" | {herdr_tag}") if herdr_tag else 0
-    fixed += dwidth(" | cc") + dur_w
+    herdr_w = dwidth(f" | {herdr_tag}") if herdr_tag else 0
 
-    def git_w(blen, ab_v=None, dmg_v=None):
-        """git 段宽度探针：分支预算 blen + 指定 ab/dmg（缺省用当前值）。"""
-        if ab_v is None:
-            ab_v = ab
-        if dmg_v is None:
-            dmg_v = dmg_plain
-        return dwidth(f" | {'x' * blen}{ab_v}{dmg_v}")
+    def git_w(blen, with_ab):
+        """git 段宽度探针：按「分支折叠后真实宽度」计，不按档位上界虚记
+        （虚记会把 21 格短分支也多折一级，CR 实测 fea…tier）。"""
+        return dwidth(f" | {fold_branch(branch, blen) if branch else ''}"
+                     f"{ab if with_ab else ''}{dmg_plain}")
 
-    # 逐级让位：时长 → ab → 分支五档 → cwd 地板 16→8；任一级落地即停。
-    # cwd 地板 8 = "…/尾段截断"（用户裁定「目录长度压缩」优先于丢任何铁律段；
-    # dmg/herdr/cc 全保时 51 列极端叠加（24 折分支+dmg+9 格坐标）需 cwd 压到 8）。
-    keep_duration = bool(duration)
-    b_budget = 24
-    drop_ab = False
+    # 让位顺序（穷举搜索，靠循环序表达优先级）：时长 → 分支六档（先于 ab——
+    # 分支折叠只丢中段字符，ab 是精确计数丢了就没了）→ ab → cwd 地板 16→8→4。
+    # cwd 地板 8/4 = "…/尾段截断"（用户裁定「目录长度压缩」优先于丢铁律段；
+    # dmg/herdr/cc 全保时 51 列极端叠加需 cwd 压到 8）。
+    # CR 修正：旧版 blen 每级内先试丢 ab，51 列 blen=24 原样档就把 ab 弄丢；
+    # 窄档还白算一级时长让位。≤31 列极端叠加为物理极限区，交 truncate 兜底。
+    keep_duration = bool(duration) and not narrow  # 窄档裁定不渲染时长
+    b_budget, drop_ab = 24, False
+    found = False
     for floor in (16, 8, 4):
-        for blen in (24, 20, 16, 12, 8, 4):
-            b_budget = blen
-            ab_v = "" if drop_ab else ab
-            w = git_w(blen, ab_v) + fixed - (0 if keep_duration else dur_w)
-            if keep_duration and w + floor > term_w:
-                keep_duration = False
-                w -= dur_w
-            if ab_v and w + floor > term_w:  # ab 无 … 形态，分支 ≤12 档仍不够才整段丢
-                drop_ab = True
-                w -= dwidth(ab_v)
-            if w + floor > term_w and blen > 4:
-                continue
+        for with_dur in ([True, False] if keep_duration else [False]):
+            for with_ab in ([True, False] if ab else [False]):
+                for blen in (24, 20, 16, 12, 8, 4):
+                    w = git_w(blen, with_ab) + herdr_w + dwidth(" | cc") \
+                        + (dur_w if with_dur else 0) + floor
+                    if w <= term_w:
+                        b_budget, keep_duration, drop_ab = blen, with_dur, (not with_ab and bool(ab))
+                        found = True
+                        break
+                if found:
+                    break
+            if found:
+                break
+        if found:
             break
-        rest = git_w(b_budget, "" if drop_ab else ab) + fixed - (0 if keep_duration else dur_w)
-        if rest + floor <= term_w:
-            break
+    if not found:
+        # 物理极限区（极端叠加 <~34 列）：落到最小配置（分支 4 档、丢 ab、丢时长、
+        # cwd 地板 4），铁律段尽量靠前，剩余交 truncate——不能保持 blen=24 初值
+        # 让钝刀从 herdr/cc 切起（CR 发现 34 列实测回退成 24 档全形）。
+        b_budget, drop_ab = 4, bool(ab)
     if drop_ab:
         ab = ""
-    rest = git_w(b_budget) + fixed - (0 if keep_duration else dur_w)
+    rest = git_w(b_budget, bool(ab)) + herdr_w + dwidth(" | cc") + (dur_w if keep_duration else 0)
     path_budget = max(8, term_w - rest)
     display_cwd = fold_path(short_cwd, path_budget)
     colored_git = (c("purple", fold_branch(branch, b_budget)) + c("fg", ab) + dmg) if branch else ""
@@ -580,6 +583,11 @@ def main():
         """按存活段拼行2；返回 (上色串, 预算无色串)。预算串里 TTFT 用上界占位。
         预算串必须全程无色——dwidth 按 char 记宽，混入 ANSI 会让 truecolor
         档预算虚高 ~23 格/段，梯子把不超宽的 TTFT 误丢（色档不得影响折叠）。"""
+        # 段列表（colored, plain）成对收集，出口统一 join——窄/宽档只差分隔符
+        # 与成员（窄档 R/CP 不进、紧排 |），不再各写一套拼接分支。
+        segs = []
+        segs.append((c("fg", f"↑{fmt(input_t)} ↓{fmt(output_t)}"),
+                     f"↑{fmt(input_t)} ↓{fmt(output_t)}"))
         ledger = "" if narrow else f"R{fmt(cache_r)}"
         ledger_p = ledger
         if use_ch and ch_s:
@@ -588,6 +596,8 @@ def main():
         if use_cp and cp_s and not narrow:
             ledger += " " + c("comment", cp_s)
             ledger_p += " " + cp_s
+        if ledger:
+            segs.append((ledger, ledger_p))
         stat = stat_p = ""
         if ctx_s:
             stat, stat_p = c(pct_name, ctx_s), ctx_s
@@ -595,24 +605,15 @@ def main():
             t = c(ttft_color(st["ttft_ms"]), ttft_s)
             stat = f"{stat} {t}" if stat else t
             stat_p = f"{stat_p} {ttft_budget}" if stat_p else ttft_budget
-        j = "|" if narrow else f" {sep} "  # 窄档紧分隔：3 个分隔省 6 格
-        head = c("fg", f"↑{fmt(input_t)} ↓{fmt(output_t)}")
-        line = head + (j + ledger if ledger else "")
-        plain = f"↑{fmt(input_t)} ↓{fmt(output_t)}" + (("|" if narrow else " | ") + ledger_p if ledger_p else "")
         if stat:
-            if narrow:
-                line += (j if ledger else "") + stat
-                plain += (("|" if ledger else "") + stat_p) if ledger else stat_p
-            else:
-                line += f" {sep} {stat}"
-                plain += f" | {stat_p}"
-        # 窄档身份组也进（用户裁定：模型·思考不可丢）；超预算时在梯子里截模型名
+            segs.append((stat, stat_p))
         ident_c = [c("pink", model_name)] + ([c("cyan", thinking)] if thinking else [])
-        ident_plain = " · ".join([model_name] + ([thinking] if thinking else []))
-        if ident_c:
-            line += (j + " · ".join(ident_c)) if narrow else f" {sep} " + " · ".join(ident_c)
-            plain += (("|" + ident_plain) if narrow else " | " + ident_plain)
-        return line, plain
+        if ident_c:  # 窄档身份组也进（用户裁定：模型·思考不可丢）
+            segs.append((" · ".join(ident_c),
+                         " · ".join([model_name] + ([thinking] if thinking else []))))
+        j = "|" if narrow else f" {sep} "   # 窄档紧分隔：3 个分隔省 6 格
+        jp = "|" if narrow else " | "        # plain 用无色分隔（预算串必须全程无色）
+        return (j.join(s[0] for s in segs), jp.join(s[1] for s in segs))
 
     # 折叠梯子: 溢出按序丢弃（宽档 TTFT→CH→CP 新段先丢；窄档 CP→TTFT→CH，
     # 保住独有指标）；再溢出 truncate_display 兜底
