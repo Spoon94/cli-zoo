@@ -231,14 +231,21 @@ def fold_path(p, budget):
 
 
 def fold_branch(b, max_len=24):
-    """分支折叠：超长截中段，尾重头轻（head 8 / tail 15，均按显示格计）。
+    """分支折叠：max_len 驱动（行1 梯子逐级传 24→20→16→12→8）。
+    尾重头轻（head/tail 按 max_len 三七开，均按显示格计）。
     CR 轮 9：50/50 等分时头部大半被 feature/ 这类前缀占掉、有效信息只剩几个字符；
     ticket 号在 slug 前的情况（PROJ-1234-add-xxx）任何截法都会丢，不做启发式。
     CR 轮 11：触发条件与切片都改按显示格，此前 py 按格、ts 按码点，
     13 个汉字的分支（26 格 / 13 码点）在 cc 折、在 pi 不折。"""
     if dwidth(b) <= max_len:
         return b
-    return slice_cells(b, 8) + "…" + slice_cells(b, 15, from_end=True)
+    if max_len <= 4:  # 极窄档：只剩 "…" + 尾 2
+        return "…" + slice_cells(b, max(2, max_len - 1), from_end=True)
+    head = max(3, max_len * 3 // 10 - 1)          # …，头 30%
+    tail = max(4, max_len - head - 1)             # 尾吃剩余，兜住最后一级 8 格
+    if head + 1 + tail > max_len:                 # 兜底互踩时尾让位（小档防溢出）
+        tail = max(2, max_len - head - 1)
+    return slice_cells(b, head) + "…" + slice_cells(b, tail, from_end=True)
 
 
 def accumulate(st, d):
@@ -388,7 +395,7 @@ def main():
     short_cwd = cwd.replace(home, "~")
 
     # ---- git: 单次 porcelain v2（branch + ahead/behind + 增/删/改） ----
-    branch, ab, dmg = "", "", ""
+    branch, ab, dmg, dmg_plain = "", "", "", ""
     stg = sh(["git", "-C", cwd, "status", "--porcelain=v2", "--branch"])
     if stg:
         added = modified = deleted = 0
@@ -467,11 +474,8 @@ def main():
     thinking = (data.get("effort") or {}).get("level") or st["effort"]
 
     # ---- 行1: 目录 + git + herdr 位置（Dracula: 灰底座 + 紫分支 + 增删改三色） ----
-    # dmg 的 +/~/✱ 三段在 git 解析处已各自上色；这里补 branch（紫）与 ab（白）。
-    # 分支超 24 字符折叠中段（两侧同构，wren.ts 的 foldBranch 同规则）
-    colored_git = ""
-    if branch:
-        colored_git = c("purple", fold_branch(branch, 24)) + c("fg", ab) + dmg
+    # dmg 的 +/~/✱ 三段在 git 解析处已各自上色；分支（紫）与 ab（白）在行1
+    # 梯子处按预算拼装（下方 b_budget 驱动），此处不预拼。
     # 行1 尾的宿主徽标：同屏多个 agent 时区分 CC / pi（词汇表复用 wren install 的目标名）。
     # 长路径/长分支折叠：行1 是信息密度最低的行，溢出时优先压缩它保住行2 和徽标。
     # CC 宿主对超宽行是直接砍尾，不折叠的话丢的是 herdr/徽标段。
@@ -490,41 +494,58 @@ def main():
     narrow = term_w <= 55
     if narrow:
         term_w = max(24, term_w - 5)
-    # 行1 预算 = 终端宽 − 其余段的可见宽。可变长字段按上界常量预留
-    # （设计文档 §1.1-2）：时长按 9 格常量计入，不按当前值——否则数值
-    # 变宽（43m→2h5m）会让折叠好的 cwd 当场掉一级，肉眼可见地抖。
-    rest = 0
-    if branch:
-        rest += dwidth(f" | {fold_branch(branch, 24)}{ab}{dmg_plain}")
-    if herdr_tag:
-        rest += dwidth(f" | {herdr_tag}")
-    rest += dwidth(" | cc")
-    # 行1 梯子（先丢时长）：cwd 先走 path_budget 折叠；仅当折到 16 格地板
-    # 后 rest 仍超 term_w 才丢时长退裸徽标（设计文档 §4；§1.1-1 的
-    # 「先丢时长再动 cwd」括注是笔误，以本节实现为准）。
+    # 行1 梯子（宽窄档统一，用户裁定）：永不丢 dmg / herdr 坐标 / cc 徽标；
+    # 溢出让位顺序：时长 → ahead-behind → 分支五档折叠（24→20→16→12→8，
+    # 折叠用 … 省略中段，用户裁定「分支长度压缩」）→ cwd 折叠（头尾 … 省略，
+    # 「目录长度压缩」）。所有段都有 … 化路径，无整段消失，无 truncate 钝刀。
+    # cwd 的 … 地板：最后一档 "…/<尾段>"，尾段再长按格截（fold_path 自带）。
+    dur_s = f" {c('comment', '·')} {c('fg', duration)}" if duration else ""
+    dur_w = DUR_REST_W if duration else 0
+    fixed = dwidth(f" | {herdr_tag}") if herdr_tag else 0
+    fixed += dwidth(" | cc") + dur_w
+
+    def git_w(blen, ab_v=None, dmg_v=None):
+        """git 段宽度探针：分支预算 blen + 指定 ab/dmg（缺省用当前值）。"""
+        if ab_v is None:
+            ab_v = ab
+        if dmg_v is None:
+            dmg_v = dmg_plain
+        return dwidth(f" | {'x' * blen}{ab_v}{dmg_v}")
+
+    # 逐级让位：时长 → ab → 分支五档 → cwd 地板 16→8；任一级落地即停。
+    # cwd 地板 8 = "…/尾段截断"（用户裁定「目录长度压缩」优先于丢任何铁律段；
+    # dmg/herdr/cc 全保时 51 列极端叠加（24 折分支+dmg+9 格坐标）需 cwd 压到 8）。
     keep_duration = bool(duration)
-    if keep_duration and rest + DUR_REST_W + 16 > term_w:
-        keep_duration = False  # 地板仍溢 → 丢时长
-    if keep_duration:
-        rest += DUR_REST_W
-    # 窄档用户裁定：时长不渲染（低频慢变量，宽档看得到）；herdr 坐标恒在，
-    # 装不下时 git 计数/ahead-behind 先让位（裁 colored_git 至裸分支名）。
-    if narrow:
-        keep_duration = False
-        if rest + 16 > term_w and colored_git:
-            colored_git = c("purple", fold_branch(branch, 24))  # 裸分支（去 ab/dmg）
-            rest -= dwidth(f"{ab}{dmg_plain}")
-            ab = dmg = dmg_plain = ""
-        if rest + 16 > term_w and colored_git:
-            colored_git = ""  # 分支也保不住 → 裸 cwd + 坐标 + 徽标
-            rest -= dwidth(f" | {fold_branch(branch, 24)}")
-    path_budget = max(16, term_w - rest)
+    b_budget = 24
+    drop_ab = False
+    for floor in (16, 8, 4):
+        for blen in (24, 20, 16, 12, 8, 4):
+            b_budget = blen
+            ab_v = "" if drop_ab else ab
+            w = git_w(blen, ab_v) + fixed - (0 if keep_duration else dur_w)
+            if keep_duration and w + floor > term_w:
+                keep_duration = False
+                w -= dur_w
+            if ab_v and w + floor > term_w:  # ab 无 … 形态，分支 ≤12 档仍不够才整段丢
+                drop_ab = True
+                w -= dwidth(ab_v)
+            if w + floor > term_w and blen > 4:
+                continue
+            break
+        rest = git_w(b_budget, "" if drop_ab else ab) + fixed - (0 if keep_duration else dur_w)
+        if rest + floor <= term_w:
+            break
+    if drop_ab:
+        ab = ""
+    rest = git_w(b_budget) + fixed - (0 if keep_duration else dur_w)
+    path_budget = max(8, term_w - rest)
     display_cwd = fold_path(short_cwd, path_budget)
+    colored_git = (c("purple", fold_branch(branch, b_budget)) + c("fg", ab) + dmg) if branch else ""
     line1 = (c("comment", display_cwd)
              + (f" {c('comment', '|')} {colored_git}" if colored_git else "")
              + (f" {c('comment', '|')} {c('comment', herdr_tag)}" if herdr_tag else "")
              + f" {c('comment', '|')} {c('comment', 'cc')}"
-             + (f" {c('comment', '·')} {c('fg', duration)}" if keep_duration else ""))
+             + (dur_s if keep_duration else ""))
 
     # ---- 行2: 账本 | 状态 | 身份 ----
     # 组间 |、组内空格；仅尾部身份组用 ·。状态组 = ctx%/win + TTFT。

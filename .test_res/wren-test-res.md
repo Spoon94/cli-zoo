@@ -1,5 +1,5 @@
 # wren 测试结果
-执行时间：2026-10-03 00:51:36
+执行时间：2026-10-03 01:10:13
 
 | ID | 状态 | 备注 |
 |----|------|------|
@@ -44,10 +44,10 @@
 | T39 | PASS | cc Dracula: truecolor/256/NO_COLOR three modes |
 | T40 | PASS | pi Dracula: getColorMode truecolor/256 + NO_COLOR override |
 | T41 | PASS | CH survives compaction (old value, pi-aligned) |
-| T42 | PASS | cc folding: path=…/with-a-long-name-that-will-overflow branch=feature/…esting-overflow |
+| T42 | PASS | cc folding: path=…/with-a-long-name-that-will-overflow branch=featur…-testing-overflow |
 | T43 | PASS | pi branch folding (feature/…esting-overflow) |
-| T44 | PASS | CJK path display width 61 <= 80 |
-| T45 | PASS | CJK extreme line fits: nc=70 tc=70, color-independent folding |
+| T44 | PASS | CJK path display width 13 <= 80 |
+| T45 | PASS | CJK extreme line fits: nc=69 tc=69, color-independent folding |
 | T46 | PASS | pi CJK extreme line width 75 <= 80 |
 | T47 | PASS | qc minimal payload: 2 lines, qc badge, no invented segments |
 | T48 | PASS | qc ↑in/↓out from transcript sums, not native per-request field |
