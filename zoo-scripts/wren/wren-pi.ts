@@ -100,11 +100,20 @@ function stripAnsi(s: string): string {
 }
 
 // 压平换行（与 cc 的 one_line 同款）：宿主按行渲染 statusline，字段里的 \n/\r/
-// Unicode 行界会把 2 行契约顶成 3+ 行。herdr env 用；压平后为空的段会被
-// filter(Boolean) 拆掉（cc 同法）。
+// Unicode 行界会把 2 行契约顶成 3+ 行。herdr env / 模型名 / 思考等级用；
+// 压平后为空的段会被 filter(Boolean) 拆掉（cc 同法）。非字符串原样返回
+// （与 cc 的 isinstance 门同语义）。
 const ONE_LINE_RE = /[\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029]/g;
 function oneLine(s: string | undefined): string | undefined {
-	return s === undefined ? undefined : s.replace(ONE_LINE_RE, "");
+	return typeof s === "string" ? s.replace(ONE_LINE_RE, "") : s;
+}
+
+// 半偶舍入（银行家）：cc/qc 窄档 ctx% 用 Python :.0f（74.5→74、50.5→50），
+// JS toFixed(0)/Math.round 是半上（74.5→75）——手写对齐三侧，别单侧分叉
+// （交叉审 P3）。仅窄档整数化用；宽档 .2f 残差是已记录的既有口径。
+function roundHalfEven(v: number): number {
+	const fl = Math.floor(v), d = v - fl;
+	return d > 0.5 ? fl + 1 : d < 0.5 ? fl : fl % 2 === 0 ? fl : fl + 1;
 }
 
 // 分支折叠六档（行1 梯子逐级传 24→20→16→12→8→4），与 wren-cc.py 的 fold_branch 同规则：
@@ -435,9 +444,10 @@ export default function (pi: ExtensionAPI) {
 					const sep2 = c("comment", "|");
 
 					// 身份组：模型粉 · 思考青（时长已上移行1，不再参与行2）；
-					// 拼接移进 build2 的段表（窄/宽同构），这里只留名字解析
-					const raw = model?.name || model?.id || "no-model";
-					const display = raw.includes("/") ? raw.split("/").pop()! : raw;
+					// 拼接移进 build2 的段表（窄/宽同构），这里只留名字解析。
+					// 压平 + 尾斜杠空段回落（对齐 cc one_line(raw).split("/")[-1] or "?"）：
+					// 注入 \n 顶飞 2 行契约；"prefix/" 切空段留悬空 "| ·" 尾（交叉审 P1/P2）
+					const display = oneLine(model?.name || model?.id || "no-model")!.split("/").pop() || "?";
 
 					// 行2 梯子（与 cc 同一套段表）：段列表 + 逐段剔，每段 (colored, plain)
 					// 成对收集、量宽只看 plain（预算串全程无色，色档不得影响折叠）。
@@ -459,7 +469,7 @@ export default function (pi: ExtensionAPI) {
 					const pctNum = ctxUsage?.percent ?? null;
 					const chS = narrow ? (chText.startsWith("CH") ? "◈" + chText.slice(2) : chText) : chText;
 					const ctxS = narrow
-						? (pctNum == null ? "" : `${pctNum < 25 ? "▂" : pctNum < 50 ? "▄" : pctNum < 75 ? "▆" : "█"}${pctNum.toFixed(0)}%`)
+						? (pctNum == null ? "" : `${pctNum < 25 ? "▂" : pctNum < 50 ? "▄" : pctNum < 75 ? "▆" : "█"}${roundHalfEven(pctNum)}%`)
 						: ctxPercentText;
 					const ttftS = narrow ? (ttftText ? "⏱" + ttftText.slice(5) : "") : ttftText;
 					const ttftBudgetS = narrow ? "⏱⏱" + "99m59s" : TTFT_BUDGET_S;
@@ -486,9 +496,12 @@ export default function (pi: ExtensionAPI) {
 							statP = statP ? `${statP} ${ttftBudgetS}` : ttftBudgetS;
 						}
 						if (statC) { segsC.push(statC); segsP.push(statP); }
-						// 身份组窄档也进（契约：模型·思考不可丢），组内仍 · 分隔
-						const identC = [c("pink", display)].concat(ctx.thinkingLevel ? [c("cyan", ctx.thinkingLevel)] : []);
-						const identP = [display].concat(ctx.thinkingLevel ? [ctx.thinkingLevel] : []);
+						// 身份组窄档也进（契约：模型·思考不可丢），组内仍 · 分隔；
+						// thinkingLevel 压平（交叉审 P1）：注入 \n 顶飞 2 行契约，压平后
+						// 空串不进段表
+						const thinking = oneLine(ctx.thinkingLevel) ?? "";
+						const identC = [c("pink", display)].concat(thinking ? [c("cyan", thinking)] : []);
+						const identP = [display].concat(thinking ? [thinking] : []);
 						if (identC.length) { segsC.push(identC.join(" · ")); segsP.push(identP.join(" · ")); }
 						return [segsC.join(narrow ? "|" : ` ${sep2} `), segsP.join(narrow ? "|" : " | ")];
 					};

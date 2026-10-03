@@ -2737,7 +2737,7 @@ else
     printf '%s' "$t116_a_l1" | grep -qF "w9:t1EVIL:p1" || t116_ok=0
     [[ $t116_a_n -eq 2 ]] || t116_ok=0
     # B：无 herdr 段（无 w9/:，只剩路径 + 徽标）
-    printf '%s' "$t116_b_l1" | grep -qF "~/Code/cli-zoo | pi" || t116_ok=0
+    printf '%s' "$t116_b_l1" | grep -qF "| pi" || t116_ok=0
     printf '%s' "$t116_b_l1" | grep -qE 'w9|:p' && t116_ok=0
     # C：空段被拆——w9:p1 紧凑拼接，无 :: 残留
     printf '%s' "$t116_c_l1" | grep -qF "w9:p1 | pi" || t116_ok=0
@@ -2746,6 +2746,137 @@ else
         pass T116 "pi herdr env flattened: newline-injection stays 2 lines, empty segment dropped"
     else
         fail T116 "A(n=$t116_a_n)=[$t116_a_l1] B=[$t116_b_l1] C=[$t116_c_l1]"
+    fi
+fi
+
+# ============================================================
+# T117: pi 窄档四分位边界 + 半偶舍入（交叉审 P3 变异补测）——
+#       25/50/75 三边界没测过（矩阵只有 12/37/62/80/96）；半值 .5 处
+#       Python :.0f（银行家）与 JS toFixed(0)/Math.round（半上）分叉，
+#       pi 手写 roundHalfEven 对齐 cc/qc。附 cc 同值 74.5% 交叉验证。
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T117 "node with .ts type-stripping not available"
+else
+    T117_BR='[{"type":"compaction"},{"type":"message","message":{"role":"assistant","usage":{"input":743000,"output":117000,"cacheRead":19560000,"cacheWrite":0}}}]'
+    t117_ctx() {  # $1 = percent
+        env -u HERDR_WORKSPACE_ID -u HERDR_TAB_ID -u HERDR_PANE_ID NO_COLOR=1 WIDTH=51 BRANCH="$T117_BR" TTFT_MS=12400 MSG_UPDATES=0 \
+            MODEL_NAME=m CTX_USAGE="{\"tokens\":284200,\"contextWindow\":1000000,\"percent\":$1}" \
+            WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs" \
+            node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null | tail -1
+    }
+    t117_ok=1
+    # 整数边界：▂<25 ▄<50 ▆<75 █≥75（边界值归上档）
+    [[ "$(t117_ctx 25)"  == *"▄25%"*  ]] || t117_ok=0
+    [[ "$(t117_ctx 50)"  == *"▆50%"*  ]] || t117_ok=0
+    [[ "$(t117_ctx 75)"  == *"█75%"*  ]] || t117_ok=0
+    # 半偶舍入：.5 归偶（toFixed(0)/Math.round 会给 25/51/75，全红）
+    [[ "$(t117_ctx 24.5)" == *"▂24%"* ]] || t117_ok=0
+    [[ "$(t117_ctx 25.5)" == *"▄26%"* ]] || t117_ok=0
+    [[ "$(t117_ctx 49.5)" == *"▄50%"* ]] || t117_ok=0
+    [[ "$(t117_ctx 50.5)" == *"▆50%"* ]] || t117_ok=0
+    [[ "$(t117_ctx 74.5)" == *"▆74%"* ]] || t117_ok=0
+    [[ "$(t117_ctx 75.5)" == *"█76%"* ]] || t117_ok=0
+    # cc 交叉验证：tokens=149000/200000 → 74.5% 精确 → cc :.0f=74
+    printf '{"cwd":"/tmp","model":{"display_name":"m"},"effort":{"level":"xhigh"},"context_window":{"current_usage":{"input_tokens":149000,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"context_window_size":200000}}' \
+        | NO_COLOR=1 COLUMNS=51 python3 "$CC_PAYLOAD" 2>/dev/null | tail -1 | grep -qF "▆74%" || t117_ok=0
+    if [[ $t117_ok -eq 1 ]]; then
+        pass T117 "pi narrow quartile boundaries 25/50/75 + banker's rounding (.5->even), cc parity at 74.5%"
+    else
+        fail T117 "25=[$(t117_ctx 25)] 50=[$(t117_ctx 50)] 75=[$(t117_ctx 75)] 24.5=[$(t117_ctx 24.5)] 50.5=[$(t117_ctx 50.5)] 74.5=[$(t117_ctx 74.5)] 75.5=[$(t117_ctx 75.5)]"
+    fi
+fi
+
+# ============================================================
+# T118: pi 预算地板（变异补测）——max(4, width-5) 变异成 max(24,·)
+#       时现有用例全绿；钉 COLUMNS 20/10/6 三档：有内容、逐格不超宽。
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T118 "node with .ts type-stripping not available"
+else
+    T118_BR='[{"type":"compaction"},{"type":"message","message":{"role":"assistant","usage":{"input":743000,"output":117000,"cacheRead":19560000,"cacheWrite":0}}}]'
+    t118_run() {  # $1 = WIDTH
+        env -u HERDR_WORKSPACE_ID -u HERDR_TAB_ID -u HERDR_PANE_ID NO_COLOR=1 WIDTH="$1" BRANCH="$T118_BR" TTFT_MS=12400 MSG_UPDATES=0 \
+            MODEL_NAME=m CTX_USAGE='{"tokens":284200,"contextWindow":1000000,"percent":28.42}' \
+            WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs" \
+            node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null | tail -1
+    }
+    t118_20="$(t118_run 20)"; t118_10="$(t118_run 10)"; t118_6="$(t118_run 6)"
+    t118_ok=1
+    # 逐格钉形：预算 15/5/4（梯子丢空后硬截到预算宽）
+    [[ "$t118_20" == "743K/117K|▄28%|" ]] || t118_ok=0
+    [[ "$t118_10" == "743K/" ]] || t118_ok=0
+    [[ "$t118_6" == "743K" ]] || t118_ok=0
+    if [[ $t118_ok -eq 1 ]]; then
+        pass T118 "pi narrow budget floor max(4,W-5): W=20/10/6 -> exact truncated forms"
+    else
+        fail T118 "20=[$t118_20] 10=[$t118_10] 6=[$t118_6]"
+    fi
+fi
+
+# ============================================================
+# T119: pi 徽标两遍锁定（变异补测）——整删两遍重拼后现有用例全绿；
+#       39 格长 herdr 标签 + 51 列把徽标挤出自然序，第二遍（徽标优先）
+#       必须保住前缀位，herdr 让位。
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T119 "node with .ts type-stripping not available"
+else
+    T119_X="$(printf 'x%.0s' {1..33})"
+    T119_OUT="$(env -u HERDR_WORKSPACE_ID -u HERDR_TAB_ID -u HERDR_PANE_ID NO_COLOR=1 WIDTH=51 TTFT_MS=12400 MSG_UPDATES=0 \
+        HERDR_WORKSPACE_ID=w9 HERDR_TAB_ID="w9:$T119_X" HERDR_PANE_ID=w9:p1 \
+        WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs" \
+        node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null)"
+    T119_L1="$(printf '%s' "$T119_OUT" | head -1)"
+    T119_N="$(printf '%s\n' "$T119_OUT" | wc -l | tr -d ' ')"
+    t119_ok=1
+    # 物理极限区：徽标铁律保住（前缀位），长 herdr 让位，2 行契约不破。
+    # 断言 cwd 无关（任意 checkout 下尾缀 | pi 成立），长标签逐字不在场
+    [[ "$T119_L1" == *" | pi" ]] || t119_ok=0
+    printf '%s' "$T119_L1" | grep -qF "w9:$T119_X" && t119_ok=0
+    [[ $T119_N -eq 2 ]] || t119_ok=0
+    if [[ $t119_ok -eq 1 ]]; then
+        pass T119 "pi badge two-pass lock: long herdr yields, badge keeps prefix slot at floor width"
+    else
+        fail T119 "l1=[$T119_L1] n=$T119_N"
+    fi
+fi
+
+# ============================================================
+# T120: pi 模型名/思考等级压平 + 尾斜杠空段回落（交叉审 P1/P2）——
+#       与 cc one_line(raw).split("/")[-1] or "?" 同口径；注入 \n
+#       不得顶飞 2 行契约，"prefix/" 不得留悬空 "| ·" 尾。
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T120 "node with .ts type-stripping not available"
+else
+    T120_BR='[{"type":"compaction"},{"type":"message","message":{"role":"assistant","usage":{"input":743000,"output":117000,"cacheRead":19560000,"cacheWrite":0}}}]'
+    t120_run() {  # $@ = 额外 env；W=90 宽档（身份组形态与窄档共用解析）
+        env -u HERDR_WORKSPACE_ID -u HERDR_TAB_ID -u HERDR_PANE_ID NO_COLOR=1 WIDTH=90 BRANCH="$T120_BR" TTFT_MS=12400 MSG_UPDATES=0 "$@" \
+            WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs" \
+            node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null
+    }
+    t120_a="$(t120_run MODEL_NAME=$'evil\nmodel' THINKING=$'high\nx')"
+    t120_b="$(t120_run MODEL_NAME='anthropic/' | tail -1)"
+    t120_c="$(t120_run MODEL_NAME=$'\n' | tail -1)"
+    t120_d="$(t120_run THINKING=$'\n' | tail -1)"
+    t120_a_n="$(printf '%s\n' "$t120_a" | wc -l | tr -d ' ')"
+    t120_ok=1
+    # P1：换行压平进段，2 行契约不破
+    printf '%s' "$t120_a" | grep -qF "evilmodel · highx" || t120_ok=0
+    [[ $t120_a_n -eq 2 ]] || t120_ok=0
+    # P2：尾斜杠空段回落 "?"，无悬空 "| ·"
+    printf '%s' "$t120_b" | grep -qF "| ? · high" || t120_ok=0
+    printf '%s' "$t120_b" | grep -qF "| ·" && t120_ok=0
+    # 纯换行模型名压平后为空 → 同样回落 "?"
+    printf '%s' "$t120_c" | grep -qF "| ? · high" || t120_ok=0
+    # 思考等级压平后为空 → 不进段表（无尾随 " · "）
+    printf '%s' "$t120_d" | grep -qE '\| claude-opus-5$' || t120_ok=0
+    printf '%s' "$t120_d" | grep -qF " · $" && t120_ok=0
+    if [[ $t120_ok -eq 1 ]]; then
+        pass T120 "pi model/thinking flattened; trailing-slash and empty-after-flatten fall back to '?'"
+    else
+        fail T120 "a(n=$t120_a_n)=[$(printf '%s' "$t120_a" | tr '\n' '~')] b=[$t120_b] c=[$t120_c] d=[$t120_d]"
     fi
 fi
 
