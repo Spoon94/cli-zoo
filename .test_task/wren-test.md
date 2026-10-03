@@ -146,6 +146,7 @@
 | T113 | 卸载 | 预置 `statusLine: {type, command, padding: 5}` → install → uninstall | `statusLine` 存活且恰为 `{'padding': 5}`、键序 `model\|statusLine`（**B-6 只摘自家键守门**） |
 | T114 | oc | `oneLine`（cc one_line 同字符集）六组样例 ts/py 交叉 + tsx herdr 三段使用 | ts 输出与 python 逐字相同；tsx 三段 grep 到 `oneLine(...)`（**B-2 herdr 压平守门**） |
 | T115 | oc | 结构钉：`session_prompt` 兜底分支的裸 Prompt | 白名单 + ref 全透传（**B-3 兜底丢 props 守门**；行为面由 T101 真机 e2e 兜） |
+| T116 | pi | herdr env 注入：harness 注 `HERDR_TAB_ID=$'t1\nEVIL'`、纯 `\n`、`\n`+WS/PANE 三探针（`env -u` 隔离真实 herdr env） | 换行压平进段（行1 `w9:t1EVIL:p1`）且总行数=2；纯 `\n` 且无他段→herdr 段消失；空段被 `filter(Boolean)` 拆掉无 `::`（**pi herdr env 压平守门**；非空转已证：回退旧代码 n=3 红） |
 
 ## 条件用例（不满足条件时 SKIP，不算 FAIL）
 
@@ -154,7 +155,7 @@
 | T24 | 以 root 运行时文件权限不生效（`chmod 555` 仍可写） |
 | T68 | 同上（依赖 chmod 555 生效） |
 | T92 | 同上（oc 侧只读配置目录探针） |
-| T27-T32、T38、T40、T43、T46、T69-T73、T77-T78、T80、T96-T100、T108 | 无 `node`，或 `node` 不支持直接执行 `.ts`（Node 22.6+ 的 type stripping） |
+| T27-T32、T38、T40、T43、T46、T69-T73、T77-T78、T80、T96-T100、T108、T116 | 无 `node`，或 `node` 不支持直接执行 `.ts`（Node 22.6+ 的 type stripping） |
 | T101 | 无 `opencode` 或无 `tmux`（真机 e2e） |
 
 其余用例只依赖 bash / python3 / coreutils，且全程在用户态临时目录作业。

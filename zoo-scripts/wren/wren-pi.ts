@@ -99,6 +99,14 @@ function stripAnsi(s: string): string {
 	return s.replace(ANSI_RE, "");
 }
 
+// 压平换行（与 cc 的 one_line 同款）：宿主按行渲染 statusline，字段里的 \n/\r/
+// Unicode 行界会把 2 行契约顶成 3+ 行。herdr env 用；压平后为空的段会被
+// filter(Boolean) 拆掉（cc 同法）。
+const ONE_LINE_RE = /[\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029]/g;
+function oneLine(s: string | undefined): string | undefined {
+	return s === undefined ? undefined : s.replace(ONE_LINE_RE, "");
+}
+
 // 分支折叠六档（行1 梯子逐级传 24→20→16→12→8→4），与 wren-cc.py 的 fold_branch 同规则：
 // ≥24 档三侧同构 head8/tail15（CR 轮 9 尾重头轻）；<24 档窄档私有（头≈30% 尾吃剩余）；
 // ≤4 档只剩 …+尾2；0 档 git 段整体让位（物理极限区最后一级）。
@@ -153,9 +161,9 @@ export default function (pi: ExtensionAPI) {
 	const install = (ctx: any) => {
 		const sessionStart = Date.now();
 		const herdrId = [
-			process.env.HERDR_WORKSPACE_ID,
-			process.env.HERDR_TAB_ID?.split(":").pop(),
-			process.env.HERDR_PANE_ID?.split(":").pop(),
+			oneLine(process.env.HERDR_WORKSPACE_ID),
+			oneLine(process.env.HERDR_TAB_ID?.split(":").pop()),
+			oneLine(process.env.HERDR_PANE_ID?.split(":").pop()),
 		]
 			.filter(Boolean)
 			.join(":");
