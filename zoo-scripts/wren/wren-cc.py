@@ -184,6 +184,14 @@ def strip_ansi(s):
     return _ANSI_RE.sub("", s)
 
 
+def one_line(s):
+    """压平换行（猎杀四轮 #4）：宿主按行渲染 statusline，字段里的 \\n/\\r/
+    Unicode 行界会把 2 行契约顶成 3+ 行。display_name/effort/herdr env 用。"""
+    if not isinstance(s, str):
+        return s
+    return "".join(ch for ch in s if ch not in "\n\r\v\f\x1c\x1d\x1e\x85  ")
+
+
 def truncate_display(s, maxw):
     """按显示宽度硬截断整行，ANSI 转义原样保留、宽度记 0。
     地位与 pi 侧的 truncateToWidth 相同：折叠公式算偏了也不会溢出。
@@ -291,14 +299,26 @@ def accumulate(st, d):
     if d.get("type") == "assistant" and "message" in d:
         m = d["message"]
         u = m.get("usage", {}) or {}
-        st["input_t"] += u.get("input_tokens", 0)
-        st["output_t"] += u.get("output_tokens", 0)
-        st["cache_r"] += u.get("cache_read_input_tokens", 0)
-        st["cache_w"] += u.get("cache_creation_input_tokens", 0)
-        st["last_prompt_tokens"] = (u.get("input_tokens", 0)
-                                    + u.get("cache_read_input_tokens", 0)
-                                    + u.get("cache_creation_input_tokens", 0))
-        st["last_cache_r"] = u.get("cache_read_input_tokens", 0)
+
+        def tok(key):
+            """token 字段净化（猎杀四轮 #1）：json.loads 接受非标 NaN/Infinity，
+            直接累加会让 fmt 的 round() 抛 ValueError/OverflowError 走裸 cwd；
+            负数/非数（str/dict/bool）一律当 0。"""
+            v = u.get(key, 0)
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                return 0
+            if isinstance(v, float) and not math.isfinite(v):
+                return 0
+            return v if v > 0 else 0
+
+        st["input_t"] += tok("input_tokens")
+        st["output_t"] += tok("output_tokens")
+        st["cache_r"] += tok("cache_read_input_tokens")
+        st["cache_w"] += tok("cache_creation_input_tokens")
+        st["last_prompt_tokens"] = (tok("input_tokens")
+                                    + tok("cache_read_input_tokens")
+                                    + tok("cache_creation_input_tokens"))
+        st["last_cache_r"] = tok("cache_read_input_tokens")
         st["post_tokens"] = None  # 压缩后已有真实请求 → postTokens 过期
         # TTFT：本轮首条 assistant 落盘 − 本轮真实 user 提交。首片常为 thinking 块，
         # 所以这是「首片延迟」语义（含 thinking 耗时），不是严格首 token。
@@ -309,7 +329,7 @@ def accumulate(st, d):
             st["ttft_ms"] = int((t_a - st["turn_user_ts"]) * 1000)
             st["turn_user_ts"] = None
         e = d.get("effort")
-        if e:
+        if isinstance(e, str) and e:  # 非字符串当缺失（猎杀四轮 #2，与 stdin 侧同守）
             st["effort"] = e
         if st["first_ts"] is None:
             ts = d.get("timestamp") or m.get("timestamp")
@@ -337,9 +357,14 @@ def scan_transcript(path):
             old = json.loads(cache_file.read_text())
         except Exception:
             old = None
-        # offset 超出当前长度 = 文件被重建，从头再来
-        if isinstance(old, dict) and old.get("path") == str(path) and 0 <= old.get("offset", 0) <= size:
-            offset = old["offset"]
+        # offset 毒型（猎杀四轮 #5：str "50"/float 6.5 会让比较或 seek 抛
+        # TypeError，崩在缓存重写之前 → 毒文件永不清除、每次渲染裸 cwd）：
+        # 只认 int（bool 排除），非法即全量重算并覆写。
+        old_off = old.get("offset") if isinstance(old, dict) else None
+        if (isinstance(old, dict) and old.get("path") == str(path)
+                and isinstance(old_off, int) and not isinstance(old_off, bool)
+                and 0 <= old_off <= size):
+            offset = old_off
             for k in st:
                 if k in old:
                     st[k] = old[k]
@@ -348,7 +373,7 @@ def scan_transcript(path):
         with open(path, "rb") as fh:
             fh.seek(offset)
             chunk = fh.read()
-    except OSError:
+    except (OSError, TypeError, ValueError):
         return st
 
     cut = chunk.rfind(b"\n")  # 末尾可能写了一半，留在下次
@@ -357,7 +382,11 @@ def scan_transcript(path):
     if cut < 0:
         return st
     chunk = chunk[:cut + 1]
-    for line in chunk.decode("utf-8", "ignore").splitlines():
+    # 按 \n 切而不是 splitlines()（猎杀四轮 #3）：splitlines 按 Unicode 全套行界
+    # 切（U+2028/2029/0085），用户粘贴含行分隔符的网页/JS 文本时（CC 落盘
+    # ensure_ascii=False 原样写）半行 json.loads 失败被吞 → 记录静默丢失、
+    # token 永久少记。JSONL 的行界只有 \n。
+    for line in chunk.decode("utf-8", "ignore").split("\n"):
         try:
             accumulate(st, json.loads(line))
         except Exception:
@@ -385,8 +414,9 @@ def main():
     cwd = data.get("cwd", os.getcwd())
     model = data.get("model", {})
     raw = model.get("display_name") or model.get("id", "?")
-    # 尾斜杠（"prefix/"）切出空段会留悬空 | 尾（Bug 猎杀 #4）；空则回落 "?"
-    model_name = raw.split("/")[-1] or "?"
+    # 尾斜杠（"prefix/"）切出空段会留悬空 | 尾（Bug 猎杀 #4）；空则回落 "?"；
+    # 换行压平（猎杀四轮 #4：注入 \n 会顶飞 2 行契约）
+    model_name = one_line(raw).split("/")[-1] or "?"
 
     # 上下文窗口 / 最近一次请求用量: 优先原生字段（context_window.current_usage 在
     # /compact 后为 null，正是需要用 compactMetadata.postTokens 兜底的时候）
@@ -444,9 +474,9 @@ def main():
         dmg_plain = " " + " ".join(plain_parts) if plain_parts else ""
 
     # ---- herdr 位置 ----
-    herdr_parts = [os.getenv("HERDR_WORKSPACE_ID"),
-                   (os.getenv("HERDR_TAB_ID") or "").split(":")[-1],
-                   (os.getenv("HERDR_PANE_ID") or "").split(":")[-1]]
+    herdr_parts = [one_line(os.getenv("HERDR_WORKSPACE_ID") or ""),
+                   one_line((os.getenv("HERDR_TAB_ID") or "").split(":")[-1]),
+                   one_line((os.getenv("HERDR_PANE_ID") or "").split(":")[-1])]
     herdr_tag = f"{':'.join(p for p in herdr_parts if p)}" if any(herdr_parts) else ""
 
     # ---- token / 压缩统计（增量解析） ----
@@ -489,10 +519,10 @@ def main():
     ttft = fmt_ttft(st["ttft_ms"]) if st["ttft_ms"] is not None else ""
 
     # effort.level 非字符串（int 等）会让 " · ".join 抛 TypeError 走裸 cwd
-    # 降级（Bug 猎杀 #5）——非字符串一律当缺失。
+    # 降级（Bug 猎杀 #5）——非字符串一律当缺失；换行压平（猎杀四轮 #4）。
     thinking = (data.get("effort") or {}).get("level")
-    thinking = thinking if isinstance(thinking, str) else ""
-    thinking = thinking or st["effort"]
+    thinking = one_line(thinking) if isinstance(thinking, str) else ""
+    thinking = thinking or one_line(st["effort"])
 
     # ---- 行1: 目录 + git + herdr 位置（Dracula: 灰底座 + 紫分支 + 增删改三色） ----
     # dmg 的 +/~/✱ 三段在 git 解析处已各自上色；分支（紫）与 ab（白）在行1
@@ -698,12 +728,34 @@ def main():
 
     # 出口兜底：折叠只保证「算出来不超宽」，这里保证「输出不超宽」。
     # 与 pi 侧 render 里的 truncateToWidth 同一地位。
+    # 猎杀四轮 #6 收尾：行短时 write 只进缓冲，断管在解释器退出 flush 阶段
+    # （TextIOWrapper.__del__）才炸——main 域 try 不到、顶层 except 接不住，
+    # RC=120 + stderr 噪音。这里主动 flush 把 BrokenPipeError 拉进可捕获域。
     sys.stdout.write(f"{truncate_display(line1, term_w)}\n{truncate_display(line2, term_w)}")
+    sys.stdout.flush()
 
 
 if __name__ == "__main__":
     try:
         main()
+    except BrokenPipeError:
+        # 下游早关（| true / >&-）：静默退出（猎杀四轮 #6——此前顶层兜底
+        # 会再 write 一次 None/断管 stdout，RC=1 + traceback 上 stderr）。
+        # os._exit 双跳：解释器退出时还会 flush 一次 sys.stdout（再遇断管
+        # 打 "Exception ignored ... BrokenPipeError" 且 RC=120），只有
+        # os._exit 跳过解释器收尾。
+        try:
+            devnull = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(devnull, sys.stdout.fileno())
+            sys.stdout = os.fdopen(devnull, "w")  # 换掉缓冲对象，exit flush 落 devnull
+        except Exception:
+            pass
+        os._exit(0)
     except Exception:
-        # statusline 宁可退化也不能空/挂住
-        sys.stdout.write(os.getcwd().replace(str(Path.home()), "~"))
+        # statusline 宁可退化也不能空/挂住。stdout 为 None（>&-）时
+        # 兜底自己别再炸（同猎杀 #6：AttributeError → RC1 + traceback）
+        if sys.stdout is not None:
+            try:
+                sys.stdout.write(os.getcwd().replace(str(Path.home()), "~"))
+            except Exception:
+                pass
