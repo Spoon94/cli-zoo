@@ -2515,8 +2515,11 @@ else
     # 行2 在 49 格内：ctx% 先换短形 `16%`（保窗口位置：CH 之后、TTFT 之前），CH/TTFT 都保住
     OC_DUAL='{"width":49,"cwd":"/home/u/Code/proj","home":"/home/u","branch":"feat/wren_support_opencode","head":"feat/wren_support_opencode","ab":" ↑0↓0","added":0,"modified":11,"deleted":0,"herdr":"w1:t2:p3","durationMs":82900000,"inputTokens":898000,"outputTokens":14000,"cacheRead":7200000,"cacheWrite":0,"compactions":0,"ctxPercent":16.29,"ctxWindow":1000000,"model":"","thinking":"","ttftMs":3700}'
     t106="$(oc_render "$OC_DUAL")"
+    # T133 后期望更新：folds 表补 4/0 档，级联按优先级（段 > 分支长度 > cwd）
+    # 在 fold-4 处提前命中——cwd 存活（…/proj）、分支让位到 4 档（…ode），
+    # 总宽 47 ≤ 49；旧行为是丢 cwd 保 16 档分支（旧表无 4/0 档可选）
     if printf '%s' "$t106" | grep -qF "L2=↑898K ↓14K | R7.2M CH88.91% | 16% TTFT 3.7s" \
-       && printf '%s' "$t106" | grep -qxF "L1=feat/wre…pencode ↑0↓0 ✱11 | w1:t2:p3 | oc · 23h1m"; then
+       && printf '%s' "$t106" | grep -qxF "L1=…/proj | …ode ↑0↓0 ✱11 | w1:t2:p3 | oc · 23h1m"; then
         pass T106 "narrow budget swaps ctx% to short form before dropping CH/TTFT"
     else
         fail T106 "out=[$(printf '%s' "$t106" | tr '\n' '~')]"
@@ -3333,6 +3336,67 @@ else
         pass T132 "pi narrow quantize chain: 2dp half-even then int; color reads quantized (cc parity)"
     else
         fail T132 "p1=[$(t132_run 25.499999)] p2=[$(t132_run 25.496)] cc=[$t132_cc] col=[$(printf '%s' "$t132_col" | LC_ALL=C sed 's/\x1b/ESC/g')]"
+    fi
+fi
+
+# ============================================================
+# T133: oc foldBranch 档位契约对齐（深度审核·决策落地）——旧单公式
+#       head8+…+tail(maxLen−9) 在 <24 档违反预算（12 档折出 14 格、8 档丢
+#       …），靠行1 出口硬截遮住。移植 cc/qc/pi 的六级+特例：24 档 8/15 同构、
+#       <24 三七开、≤4 …+尾段、0 空串；folds 表补 4/0 档。
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T133 "node with .ts type-stripping not available"
+else
+    t133_out="$(OC_CORE="$OC_CORE_TS" node -e '
+import(process.env.OC_CORE).then((m) => {
+  const b = "verylongbranchname-x";
+  const rows = [];
+  for (const n of [24, 12, 8, 4, 0]) {
+    const r = m.foldBranch(b, n);
+    rows.push(`${n}|${r}|${m.visibleWidth(r)}`);
+  }
+  const cjk = "一二三四五六七八九十百千万亿甲乙丙".slice(0, 13);
+  const c = m.foldBranch(cjk, 12);
+  rows.push(`cjk|${c}|${m.visibleWidth(c)}`);
+  rows.push(`short|${m.foldBranch("feat/x", 12)}`);
+  const l1 = (w) => {
+    const lines = m.buildLines({width:w, cwd:"/tmp", home:"/h", branch:b, head:b,
+      ab:" ↑1↓2", added:3, modified:1, deleted:2, herdr:"w9:t1:p1", durationMs:3600000,
+      inputTokens:100, outputTokens:50, cacheRead:200, cacheWrite:0, compactions:0,
+      ctxPercent:12.5, ctxWindow:200000, model:"m", thinking:"high", ttftMs:null});
+    const seg = lines[0];
+    const wsum = seg.reduce((a, s) => a + m.visibleWidth(s.text), 0);
+    const br = seg.find((s) => s.tone === "purple");
+    return `L1:${w}:${wsum}:${br ? br.text : "-"}`;
+  };
+  for (const w of [30, 26, 22]) rows.push(l1(w));
+  console.log(rows.join("\n"));
+});' 2>&1)"
+    t133_ok=1
+    # 24 档：20 ≤ 24 整名直过
+    printf '%s' "$t133_out" | grep -qF '24|verylongbranchname-x|20' || t133_ok=0
+    # 12 档：ver…chname-x 恰 12 格（旧公式给 verylong…e-x 14 格）
+    printf '%s' "$t133_out" | grep -qF '12|ver…chname-x|12' || t133_ok=0
+    # 8 档：ver…me-x 恰 8 格带 …（旧公式 verylong 无 …）
+    printf '%s' "$t133_out" | grep -qF '8|ver…me-x|8' || t133_ok=0
+    # 4 档：…+尾3 恰 4 格（三侧公式 max(2, maxLen−1)；≤3 档才 …+尾2）
+    printf '%s' "$t133_out" | grep -qF '4|…e-x|4' || t133_ok=0
+    # 0 档：空串（git 段让位）
+    printf '%s' "$t133_out" | grep -qF '0||0' || t133_ok=0
+    # CJK 13 码点 26 格：按格折（12 档内、非原串）
+    printf '%s' "$t133_out" | grep -E '^cjk\|' | grep -qF '一二三四五六七八九十百千万亿甲' && t133_ok=0
+    printf '%s' "$t133_out" | awk -F'|' '$1=="cjk" && $3+0>12 {exit 1}' || t133_ok=0
+    # 短名不折
+    printf '%s' "$t133_out" | grep -qF 'short|feat/x' || t133_ok=0
+    # 行1 级联：三档宽度都在预算内；26 列命中新 4 档（…e-x 在场证明 folds 表补档生效）
+    printf '%s' "$t133_out" | grep -qF 'L1:30:30:' || t133_ok=0
+    printf '%s' "$t133_out" | grep -qF 'L1:26:25:…e-x' || t133_ok=0
+    printf '%s' "$t133_out" | grep -qF 'L1:22:21:' || t133_ok=0
+    if [[ $t133_ok -eq 1 ]]; then
+        pass T133 "oc foldBranch tiers match cc/qc/pi: 8/15 at 24, 30/70 below, …+tail at 4, empty at 0; folds table has 4/0"
+    else
+        fail T133 "out=[$(printf '%s' "$t133_out" | tr '\n' '~')]"
     fi
 fi
 

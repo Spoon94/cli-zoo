@@ -72,14 +72,23 @@ export function truncateSegments(segs: Segment[], width: number): Segment[] {
 	return out;
 }
 
-// 分支折叠：尾重头轻（头 8 / 尾 15），与 wren.py 的 fold_branch 同规则
+// 分支折叠：maxLen 驱动（行1 梯子逐级传 24→20→16→12→8→4→0），与
+// cc/qc/pi 的 fold_branch 逐字同构：24 档三侧同构 head8/…/tail15（CR 轮 9
+// 尾重头轻）；<24 档头尾三七开（头≈30%、尾吃剩余，互踩时尾让位）；≤4 档
+// 只剩 …+尾段；0 档 git 段整体让位。触发与切片都按显示格（CJK 分支 26 格/
+// 13 码点按格折）。
+// 旧单公式 head8+…+tail(maxLen−9) 在 <24 档违反预算（12 档折出 14 格、
+// 8 档丢 … 省略标记，靠行1 出口硬截遮住）——决策落地：移植 cc 档位结构。
 export function foldBranch(b: string, maxLen = 24): string {
 	const w = visibleWidth(b);
 	if (w <= maxLen) return b;
-	// 折成 head8 + … + tail（maxLen−9）；maxLen 太小时只留头
-	const keep = maxLen - 9;
-	if (keep >= 1) return sliceCells(b, 8, false) + "…" + sliceCells(b, keep, true);
-	return sliceCells(b, maxLen, false);
+	if (maxLen >= 24) return sliceCells(b, 8, false) + "…" + sliceCells(b, 15, true);
+	if (maxLen <= 0) return "";
+	if (maxLen <= 4) return "…" + sliceCells(b, Math.max(2, maxLen - 1), true);
+	const head = Math.max(3, Math.floor((maxLen * 3) / 10) - 1);
+	let tail = Math.max(4, maxLen - head - 1);
+	if (head + 1 + tail > maxLen) tail = Math.max(2, maxLen - head - 1);
+	return sliceCells(b, head, false) + "…" + sliceCells(b, tail, true);
 }
 
 // 999_500~999_999 走 Math.round(n/1000) 会得到 1000K，必须显示 1.0M
@@ -268,8 +277,9 @@ export function buildLines(i: OcInput): Segment[][] {
 	const line1Full = line1With({ counts: true, ab: true, cwd: true });
 	// 级联优先级：段 > 分支长度 > cwd > 时长 > 计数 > ab > herdr。
 	// 时长（`· 24h37m`）与 herdr 是面板身份信息，比 cwd 更后丢；
-	// 分支按折叠档 24→20→16→12→8 从宽到窄试。全放不下才硬截断。
-	const folds = [24, 20, 16, 12, 8] as const;
+	// 分支按折叠档 24→20→16→12→8→4→0 从宽到窄试（4/0 档与 cc/qc/pi
+	// 的六级梯子对齐）。全放不下才硬截断。
+	const folds = [24, 20, 16, 12, 8, 4, 0] as const;
 	const variants: Segment[][] = [];
 	const pushVariants = (counts: boolean, ab: boolean, cwd: boolean, dur: boolean, herdr = true) => {
 		for (const f of folds) variants.push(line1With({ counts, ab, cwd, dur, herdr, fold: f }));
