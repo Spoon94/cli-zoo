@@ -58,6 +58,8 @@ def c(name, text):
 # TTFT 的预算宽度用上界占位串 `TTFT 99m59s` = 11 格（行2 梯子用）。
 DUR_REST_W = 9
 TTFT_BUDGET_S = "TTFT 99m59s"
+# 窄档身份组缩写（用户裁定：⏱ 升铁律后，模型名去 [1m] 后缀、思考等级缩写腾格子）
+_THINK_SHORT = {"xhigh": "xh", "high": "hi", "medium": "med", "low": "low", "max": "max"}
 
 ZERO_STATE = {
     "input_t": 0, "output_t": 0, "cache_r": 0, "cache_w": 0,
@@ -748,19 +750,23 @@ def main():
             stat_p = f"{stat_p} {ttft_budget}" if stat_p else ttft_budget
         if stat:
             segs.append((stat, stat_p))
-        ident_c = [c("pink", model_name)] + ([c("cyan", thinking)] if thinking else [])
+        # 窄档身份组缩短（用户裁定：⏱ 升铁律后腾格子）：模型名去 [1m] 后缀、
+        # 思考等级按 _THINK_SHORT 缩写（未知值保留原样）；宽档原样。
+        m_name = model_name.replace("[1m]", "") if narrow else model_name
+        t_name = (_THINK_SHORT.get(thinking, thinking) if narrow else thinking)
+        ident_c = [c("pink", m_name)] + ([c("cyan", t_name)] if t_name else [])
         if ident_c:  # 窄档身份组也进（用户裁定：模型·思考不可丢）
             segs.append((" · ".join(ident_c),
-                         " · ".join([model_name] + ([thinking] if thinking else []))))
+                         " · ".join([m_name] + ([t_name] if t_name else []))))
         j = "|" if narrow else f" {sep} "   # 窄档紧分隔：3 个分隔省 6 格
         jp = "|" if narrow else " | "        # plain 用无色分隔（预算串必须全程无色）
         return (j.join(s[0] for s in segs), jp.join(s[1] for s in segs))
 
-    # 折叠梯子: 溢出按序丢弃（宽档 TTFT→CH→CP 新段先丢；窄档 CP→TTFT→CH，
-    # 保住独有指标）；再溢出 truncate_display 兜底
+    # 折叠梯子: 溢出按序丢弃（宽档 TTFT→CH→CP 新段先丢；窄档 CP→CH——⏱ 升铁律
+    # 用户裁定不再参与丢弃，身份组缩短后 51 列满配放得下）；再溢出 truncate 兜底
     flags = dict(use_ttft=True, use_ch=True, use_cp=True)
     line2, plain2 = build2(**flags)
-    order = ("use_cp", "use_ttft", "use_ch") if narrow else ("use_ttft", "use_ch", "use_cp")
+    order = ("use_cp", "use_ch") if narrow else ("use_ttft", "use_ch", "use_cp")
     for key in order:
         if dwidth(plain2) <= term_w:
             break
