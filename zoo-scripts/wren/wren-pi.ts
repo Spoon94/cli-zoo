@@ -254,7 +254,9 @@ export default function (pi: ExtensionAPI) {
 					// 路径预算会掉到 16 地板以下时先把时长丢掉（整段退回裸徽标），再走折叠 / 硬截。
 					// 预算用上界常量而不是当前值宽度：数值变化不改变折叠决策（§1.1-2）。
 					const durText = fmtDurationElapsed(Date.now() - sessionStart);
-					const gitRest = hasBranch ? visibleWidth(` | ${foldBranch(branch)}${git.ab}${git.counts}`) : 0;
+					const gitRest = hasBranch || git.ab || git.counts
+						? visibleWidth(` | ${hasBranch ? foldBranch(branch) : ""}${git.ab}${git.counts}`)
+						: 0;
 					const herdrRest = herdrTag ? visibleWidth(` | ${herdrTag}`) : 0;
 					const baseRest = gitRest + herdrRest + visibleWidth(" | pi");
 					let keepDuration = true;
@@ -283,9 +285,11 @@ export default function (pi: ExtensionAPI) {
 					}
 					// Dracula: cwd/分隔线/herdr 灰、分支紫、ab 白（counts 已在拼接处上色）
 					const sep1 = c("comment", "|");
+					// detached HEAD：分支名不显示（设计），ab/counts 照常——counts 是铁律
+					// （Bug 猎杀 #2，与 wren-cc.py 同步：旧版 hasBranch 门控把脏树计数吞掉）
 					const coloredGit = hasBranch
 						? c("purple", foldBranch(branch)) + c("fg", git.ab) + git.counts
-						: "";
+						: (git.ab || git.counts ? (c("fg", git.ab) + git.counts).replace(/^ +/, "") : "");
 					// 行1 尾的宿主徽标：同屏多个 agent 时区分 CC / pi（词汇表复用 wren install 的目标名）
 					// 行1 尾的徽标 + 时长（顺序写死 `| 徽标 · 时长`，见设计 §1.1-1）：
 					// 徽标在前、时长在后 ⇒ 极端窄终端的 truncate 先吃时长、保住宿主徽标

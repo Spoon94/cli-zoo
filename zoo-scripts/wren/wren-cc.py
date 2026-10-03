@@ -11,6 +11,7 @@
 #          假定深色终端底色（Dracula 为暗底设计，白底下黄/前景/绿/青对比度 <1.5:1 不可读）
 import hashlib
 import json
+import math
 import os
 import re
 import subprocess
@@ -178,6 +179,11 @@ def slice_cells(s, maxw, from_end=False):
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 
+def strip_ansi(s):
+    """剥 ANSI 转义（量宽用）：dwidth 按 char 记宽，带色串虚高。"""
+    return _ANSI_RE.sub("", s)
+
+
 def truncate_display(s, maxw):
     """按显示宽度硬截断整行，ANSI 转义原样保留、宽度记 0。
     地位与 pi 侧的 truncateToWidth 相同：折叠公式算偏了也不会溢出。
@@ -240,6 +246,8 @@ def fold_branch(b, max_len=24):
         return b
     if max_len >= 24:  # 宽档默认档：三侧同构 8/15（d0dca44 曾误改三七开致跨实现分叉）
         return slice_cells(b, 8) + "…" + slice_cells(b, 15, from_end=True)
+    if max_len <= 0:  # 0 档 = git 段整体让位（物理极限区最后一级）
+        return ""
     if max_len <= 4:  # 极窄档：只剩 "…" + 尾 2
         return "…" + slice_cells(b, max(2, max_len - 1), from_end=True)
     head = max(3, max_len * 3 // 10 - 1)          # …，头 30%
@@ -377,7 +385,8 @@ def main():
     cwd = data.get("cwd", os.getcwd())
     model = data.get("model", {})
     raw = model.get("display_name") or model.get("id", "?")
-    model_name = raw.split("/")[-1]
+    # 尾斜杠（"prefix/"）切出空段会留悬空 | 尾（Bug 猎杀 #4）；空则回落 "?"
+    model_name = raw.split("/")[-1] or "?"
 
     # 上下文窗口 / 最近一次请求用量: 优先原生字段（context_window.current_usage 在
     # /compact 后为 null，正是需要用 compactMetadata.postTokens 兜底的时候）
@@ -393,7 +402,9 @@ def main():
     transcript = data.get("transcript_path", "")
 
     home = str(Path.home())
-    short_cwd = cwd.replace(home, "~")
+    # 家目录折叠只锚定路径前缀（Bug 猎杀 #3：无锚 replace 会把
+    # /Users/spoon<x>… 的兄弟目录错折成 ~<x>…，显示不存在的路径）
+    short_cwd = ("~" + cwd[len(home):]) if cwd == home or cwd.startswith(home + "/") else cwd
 
     # ---- git: 单次 porcelain v2（branch + ahead/behind + 增/删/改） ----
     branch, ab, dmg, dmg_plain = "", "", "", ""
@@ -403,7 +414,11 @@ def main():
         for ln in stg.splitlines():
             if ln.startswith("# branch.head "):
                 head = ln[len("# branch.head "):].strip()
-                branch = "" if head.startswith("(") else head  # detached 不显示
+                # detached 判定：porcelain v2 的 detached 形态是字面 "(detached)"；
+                # 以 "(" 开头的真实分支名（合法创建）不误伤。dmg/ab 不随 branch
+                # 空而丢（Bug 猎杀 #2：旧把 dmg 门控在 branch 下，detached 的
+                # 脏树计数整段消失，违反「dmg 铁律」）。
+                branch = "" if head == "(detached)" else head
             elif ln.startswith("# branch.ab "):
                 p = ln[len("# branch.ab "):].split()
                 if len(p) == 2:
@@ -459,10 +474,12 @@ def main():
         else (st["last_prompt_tokens"], st["last_cache_r"])
     ch = f"CH{ch_cache / ch_prompt * 100:.2f}%" if ch_prompt > 0 and ch_cache > 0 else ""
 
-    # 时长: 原生 cost.total_duration_ms → 回退 transcript 首条时间（cc 侧是宿主实测）
+    # 时长: 原生 cost.total_duration_ms → 回退 transcript 首条时间（cc 侧是宿主实测）。
+    # json.load 接受非标 Infinity（isinstance 过、int(inf) 抛 OverflowError 走裸 cwd
+    # 降级——Bug 猎杀 #6）；isfinite 同时挡 ±inf 与 nan。
     duration = ""
     total_ms = (data.get("cost") or {}).get("total_duration_ms")
-    if isinstance(total_ms, (int, float)) and total_ms > 0:
+    if isinstance(total_ms, (int, float)) and total_ms > 0 and math.isfinite(total_ms):
         duration = fmt_duration(int(total_ms))
     elif st["first_ts"]:
         import time
@@ -471,7 +488,11 @@ def main():
     # TTFT（首片延迟）：transcript 配对的真实 user → 首条 assistant，含 thinking
     ttft = fmt_ttft(st["ttft_ms"]) if st["ttft_ms"] is not None else ""
 
-    thinking = (data.get("effort") or {}).get("level") or st["effort"]
+    # effort.level 非字符串（int 等）会让 " · ".join 抛 TypeError 走裸 cwd
+    # 降级（Bug 猎杀 #5）——非字符串一律当缺失。
+    thinking = (data.get("effort") or {}).get("level")
+    thinking = thinking if isinstance(thinking, str) else ""
+    thinking = thinking or st["effort"]
 
     # ---- 行1: 目录 + git + herdr 位置（Dracula: 灰底座 + 紫分支 + 增删改三色） ----
     # dmg 的 +/~/✱ 三段在 git 解析处已各自上色；分支（紫）与 ab（白）在行1
@@ -505,12 +526,12 @@ def main():
 
     def git_w(blen, with_ab):
         """git 段宽度探针：按「分支折叠后真实宽度」计，不按档位上界虚记
-        （虚记会把 21 格短分支也多折一级，CR 实测 fea…tier）。branch 为空时
-        返回 0——line1 只在 colored_git 非空时渲染该段（含 " | " 前缀），
+        （虚记会把 21 格短分支也多折一级，CR 实测 fea…tier）。git 段各件
+        全空时返回 0——line1 只在 colored_git 非空时渲染该段（含 " | " 前缀），
         非 git cwd 若仍记 3 格幻影宽，目录预算被偷（CR 实测 rest 19 vs 17）。"""
-        if not branch:
+        if not (branch or ab or dmg_plain):
             return 0
-        return dwidth(f" | {fold_branch(branch, blen)}"
+        return dwidth(f" | {fold_branch(branch, blen) if branch else ''}"
                      f"{ab if with_ab else ''}{dmg_plain}")
 
     # 让位顺序（穷举搜索，靠循环序表达优先级）：时长 → 分支六档 → ab → cwd
@@ -540,11 +561,15 @@ def main():
         if found:
             break
     if not found:
-        # 物理极限区（极端叠加 <~34 列）：落到最小配置（分支 4 档、丢 ab、丢时长、
-        # cwd 地板 4），铁律段尽量靠前，剩余交 truncate——不能保持 blen=24 初值
-        # 让钝刀从 herdr/cc 切起（CR 发现 34 列实测回退成 24 档全形）。
-        # keep_duration 一并归位：rest 不再多记 9 格幻影时长（子代理 CR-A）。
+        # 物理极限区（实测 ASCII 坐标 24-37 列 / CJK 坐标 24-42 列，Bug 猎杀 #1）：
+        # 最小配置（分支 4 档、丢 ab/时长、cwd 地板 4）仍放不下时，逐段再丢
+        # git 计数段（dmg 是铁律但物理不可容时最后让位）——顺序 dmg 之后才轮到
+        # herdr 坐标，cc 徽标与坐标间至少留 " | cc" 5 格永不钝刀。
         b_budget, drop_ab, keep_duration, cwd_floor = 4, bool(ab), False, 4
+        if git_w(b_budget, False) + herdr_w + dwidth(" | cc") + 4 > term_w:
+            dmg = dmg_plain = ""
+        if git_w(b_budget, False) + herdr_w + dwidth(" | cc") + 4 > term_w:
+            b_budget, ab = 0, ""  # git 段整体让位（空时 git_w 已返回 0）
     if drop_ab:
         ab = ""
     rest = git_w(b_budget, bool(ab)) + herdr_w + dwidth(" | cc") + (dur_w if keep_duration else 0)
@@ -552,13 +577,28 @@ def main():
     # 超宽、truncate 砍行尾 cc 徽标（56 列实测）；!found 时地板 4（最小配置的一部分）。
     path_budget = max(cwd_floor, term_w - rest)
     display_cwd = fold_path(short_cwd, path_budget)
-    colored_git = (c("purple", fold_branch(branch, b_budget))
-                   + (c("fg", ab) if ab else "") + dmg) if branch else ""
-    line1 = (c("comment", display_cwd)
-             + (f" {c('comment', '|')} {colored_git}" if colored_git else "")
-             + (f" {c('comment', '|')} {c('comment', herdr_tag)}" if herdr_tag else "")
-             + f" {c('comment', '|')} {c('comment', 'cc')}"
-             + (dur_s if keep_duration else ""))
+    # detached HEAD：分支名不显示（设计），ab/dmg 照常——dmg 是铁律
+    colored_git = ((c("purple", fold_branch(branch, b_budget)) if branch else "")
+                   + (c("fg", ab) if ab else "") + dmg)
+    colored_git = colored_git.lstrip() if colored_git.strip() else ""
+    # Bug 猎杀 #1 悬空尾：预算内就按段拼，超预算按「右段优先保留」丢整段而非
+    # 钝刀切字符——尾分隔符永远跟着它的段走，不孤立。
+    # 段对 (colored, plain) 同 build2：量宽只看 plain——dwidth 不剥 ANSI，
+    # 拿带色段量宽会让 truecolor 每段虚记 ~24 格、段全被误丢（T45 实测复犯）。
+    l1_parts = []
+    if colored_git:
+        l1_parts.append((f" {c('comment', '|')} {colored_git}", f" | {strip_ansi(colored_git)}"))
+    if herdr_tag:
+        l1_parts.append((f" {c('comment', '|')} {c('comment', herdr_tag)}", f" | {herdr_tag}"))
+    l1_parts.append((f" {c('comment', '|')} {c('comment', 'cc')}", " | cc"))
+    if keep_duration:
+        l1_parts.append((dur_s, " · " + duration))
+    line1 = c("comment", display_cwd)
+    used = dwidth(display_cwd)
+    for part, part_p in l1_parts:
+        if used + dwidth(part_p) <= term_w:
+            line1 += part
+            used += dwidth(part_p)
 
     # ---- 行2: 账本 | 状态 | 身份 ----
     # 组间 |、组内空格；仅尾部身份组用 ·。状态组 = ctx%/win + TTFT。

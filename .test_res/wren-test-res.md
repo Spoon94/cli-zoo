@@ -1,5 +1,5 @@
 # wren 测试结果
-执行时间：2026-10-03 12:28:42
+执行时间：2026-10-03 13:29:35
 
 | ID | 状态 | 备注 |
 |----|------|------|
@@ -34,7 +34,7 @@
 | T29 | PASS | pi ctx% from getContextUsage; null -> ? |
 | T30 | PASS | pi cwd collapses $HOME (not hardcoded /Users) |
 | T32 | PASS | git segment identical on both sides (main ↑1↓0 +1 ~1 ✱1) |
-| T38 | PASS | detached/rename/conflict: sides agree (det=[\|] ren=[main ✱2] conf=[main ✱1]) |
+| T38 | PASS | detached/rename/conflict: sides agree (det=[✱1\|✱1] ren=[main ✱2] conf=[main ✱1]) |
 | T31 | PASS | pi CH uses 2 decimals |
 | T33 | PASS | install cc only touches CC side |
 | T34 | PASS | install pi only touches pi side |

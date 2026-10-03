@@ -819,9 +819,10 @@ else
     got_det="$(seg_both "$R38/det" detached)"
     got_ren="$(seg_both "$R38/ren" main)"
     got_conf="$(seg_both "$R38/conf" main)"
-    # detached：两侧都应没有 git 段（seg 为空）
+    # detached：分支名不显，dmg 照常（Bug 猎杀 #2 后两侧同构：seg=脏计数，无分支名）
     det_ok=0
-    [[ -z "${got_det%%|*}" && -z "${got_det#*|}" ]] \
+    [[ "${got_det%%|*}" != *"main"* && "${got_det#*|}" != *"main"* \
+       && "${got_det%%|*}" == "${got_det#*|}" && -n "${got_det%%|*}" ]] \
         && [[ "${got_det_pos%%|*}" == *"main"* && "${got_det_pos#*|}" == *"main"* ]] && det_ok=1
     # rename：git mv a→c（staged rename 记 ✱）+ b.txt 被改（也记 ✱）→ ✱2；
     # 关键是不出现 +1（staged rename 的 XY 是 R.，不是 A）
@@ -843,7 +844,7 @@ else
     if [[ $det_ok -eq 1 && $ren_ok -eq 1 && $conf_ok -eq 1 ]]; then
         pass T38 "detached/rename/conflict: sides agree (det=[$got_det] ren=[$ren_seg] conf=[$conf_seg])"
     else
-        fail T38 "det_ok=$det_ok ren_ok=$ren_ok conf_ok=$conf_ok conf_pre=$conf_pre det=[$got_det] ren=[$got_ren] conf=[$got_conf]"
+        fail T38 "det_ok=$det_ok ren_ok=$ren_ok conf_ok=$conf_ok conf_pre=$conf_pre pos=[$got_det_pos] det=[$got_det] ren=[$got_ren] conf=[$got_conf]"
     fi
 
     # ========================================================
