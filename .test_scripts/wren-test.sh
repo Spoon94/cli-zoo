@@ -2686,16 +2686,15 @@ t109_90="$(printf '{"cwd":"/tmp","model":{"display_name":"claude-opus-5"},"conte
 t109_l1="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":1000000},"transcript_path":"%s"}' "$T109_TR" \
     | NO_COLOR=1 COLUMNS=51 HERDR_WORKSPACE_ID=w9 HERDR_TAB_ID=w9:t1 HERDR_PANE_ID=w9:p1 WREN_CACHE_DIR="$BOX/c109-l1" python3 "$QC_PAYLOAD" 2>/dev/null | head -1)"
 t109_q12="$(t109_ctx 12)"; t109_q37="$(t109_ctx 37)"; t109_q62="$(t109_ctx 62)"; t109_q80="$(t109_ctx 80)"; t109_q96="$(t109_ctx 96)"
-if printf '%s' "$t109_55" | grep -qF "743K/117K|◈96.34%|▄28% ⏱12s|m · xhigh" \
-   && printf '%s' "$t109_51" | grep -qF "743K/117K|◈96.34%|▄28% ⏱12s|m · xhigh" \
+if printf '%s' "$t109_55" | grep -qF "743K/117K|◈96.34%|▄28% ⏱12s|m · xh" \
+   && printf '%s' "$t109_51" | grep -qF "743K/117K|◈96.34%|▄28% ⏱12s|m · xh" \
    && ! printf '%s' "$t109_51" | grep -qF "R19.6M" \
    && ! printf '%s' "$t109_51" | grep -qF "CP1" \
    && ! printf '%s' "$t109_51" | grep -qF "28.42%" \
-   && printf '%s' "$t109_42" | grep -qF "◈96.34%" \
-   && ! printf '%s' "$t109_42" | grep -qF "⏱" \
-   && ! printf '%s' "$t109_36" | grep -qF "⏱" \
+   && printf '%s' "$t109_42" | grep -qF "743K/117K|▄28% ⏱12s|m · xh" \
+   && ! printf '%s' "$t109_42" | grep -qF "◈" \
+   && printf '%s' "$t109_36" | grep -qF "743K/117K|▄28% ⏱12s|m · xh" \
    && ! printf '%s' "$t109_36" | grep -qF "◈" \
-   && printf '%s' "$t109_36" | grep -qF "117K|▄28%" \
    && printf '%s' "$t109_90" | grep -qF "R19.6M CH96.34% CP1 | 28.42%/1M TTFT 12s | claude-opus-5 · xhigh" \
    && printf '%s' "$t109_l1" | grep -qF "w9:t1:p1" \
    && printf '%s' "$t109_l1" | grep -qF "| qc" \
@@ -3598,6 +3597,57 @@ if [[ $t139_ok -eq 1 ]]; then
     pass T139 "physical-limit truecolor: no phantom separator slot after git segment cleared"
 else
     fail T139 "see stderr"
+fi
+
+# ============================================================
+# T140: 宽度探测链（终审十轮·任务 3）——qoder 宿主不给 COLUMNS（payload 无
+#       宽度字段、spawn env 原样继承），stdout 又是管道。链：COLUMNS env →
+#       控制终端（ctermid）→ 兜底 80。本用例用 pty 造 51 列控制终端、
+#       显式剥掉 COLUMNS 再跑 qc：应走窄档（短形 + xh 缩写），不是 80 宽档。
+# ============================================================
+new_box
+t140_tr="$BOX/t140.jsonl"
+printf '{"type":"user","timestamp":"2026-09-19T04:18:46.065Z","message":{"content":"hi"}}\n{"type":"assistant","timestamp":"2026-09-19T04:18:58.465Z","message":{"usage":{"input_tokens":743000,"output_tokens":117000,"cache_read_input_tokens":19560000,"cache_creation_input_tokens":0}}}\n{"type":"system","subtype":"compact_boundary","isSidechain":false,"compactMetadata":{"trigger":"manual","postTokens":284200}}\n{"type":"runtime-config","reasoningEffort":"xhigh"}\n' >"$t140_tr"
+t140_out="$(python3 - "$QC_PAYLOAD" "$t140_tr" "$BOX/c140" <<'T140PY'
+import fcntl, os, pty, select, struct, subprocess, sys, termios
+
+payload = '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":1000000},"transcript_path":"%s"}' % sys.argv[2]
+m, s = pty.openpty()
+fcntl.ioctl(s, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 51, 0, 0))
+env = {k: v for k, v in os.environ.items() if k != "COLUMNS"}
+env.update({"NO_COLOR": "1", "WREN_CACHE_DIR": sys.argv[3]})
+
+def preexec():
+    os.setsid()
+    fcntl.ioctl(s, termios.TIOCSCTTY, 0)
+
+p = subprocess.Popen([sys.executable, sys.argv[1]], stdin=subprocess.PIPE, stdout=s, stderr=s,
+                     env=env, preexec_fn=preexec)
+os.close(s)  # 父进程关掉 slave，子进程退出后 master 才有 EOF
+p.stdin.write(payload.encode())
+p.stdin.close()
+out = b""
+while True:
+    r, _, _ = select.select([m], [], [], 5)
+    if not r:
+        break
+    try:
+        chunk = os.read(m, 4096)
+    except OSError:
+        break
+    if not chunk:
+        break
+    out += chunk
+os.close(m)
+p.wait(timeout=10)
+sys.stdout.write(out.decode("utf-8", "ignore"))
+T140PY
+)"
+t140_l2="$(printf '%s' "$t140_out" | tail -1)"
+if printf '%s' "$t140_l2" | grep -qF "743K/117K|◈96.34%|▄28% ⏱12s|m · xh"; then
+    pass T140 "width probe chain: no COLUMNS + 51-col controlling tty triggers narrow tier"
+else
+    fail T140 "l2=[$t140_l2] out=[$(printf '%s' "$t140_out" | tr '\n' '~')]"
 fi
 
 # ---------- 汇总 ----------

@@ -64,6 +64,9 @@ def _color_mode():
 
 _C = _color_mode()
 
+# 窄档身份组缩写（用户裁定：⏱ 升铁律后，模型名去 [1m] 后缀、思考等级缩写腾格子）
+_THINK_SHORT = {"xhigh": "xh", "high": "hi", "medium": "med", "low": "low", "max": "max"}
+
 
 def c(name, text):
     """按当前色档给 text 上色；无色档原样返回。"""
@@ -587,10 +590,30 @@ def main():
     thinking = thinking_level(data, st["effort"], model_id)
 
     # ---- 行1 ----
+    # 宽度探测链（终审十轮·任务 3）：qoder 宿主执行 statusLine.command 时不把
+    # 终端宽放进 COLUMNS 环境变量（1.1.65 二进制实证：payload 无宽度字段、
+    # spawn env 原样继承宿主进程环境、无任何注入），stdout 又是管道 isatty 恒
+    # false。权威通道不存在 → COLUMNS env 有则用；无则读控制终端
+    # （os.ctermid()，statusline 由 pane 内 qodercli 拉起、控制终端即 pane PTY）；
+    # 都失败兜底 80。
+    term_w = 80
     try:
-        term_w = int(os.environ.get("COLUMNS") or 80)
+        _w = int(os.environ.get("COLUMNS") or 0)
+        if _w > 0:
+            term_w = _w
+        else:
+            try:
+                _fd = os.open(os.ctermid(), os.O_RDONLY)
+                try:
+                    _sz = os.get_terminal_size(_fd)
+                    if _sz.columns > 0:
+                        term_w = _sz.columns
+                finally:
+                    os.close(_fd)
+            except OSError:
+                pass
     except ValueError:
-        term_w = 80
+        pass
     # 窄档（≤55 列，与 cc 同触发；移动端 herdr 会把 pane PTY 拖成 51 列）：
     # 宿主实绘宽 ≈ COLUMNS−5（左缩进 2 + 尾部留白/省略号），预算按实绘宽收，
     # 否则满宽输出被宿主钝刀切尾、先丢的总是行尾徽标与身份组。窄档行1 不渲染
@@ -778,20 +801,24 @@ def main():
             stat_p = f"{stat_p} {ttft_budget}" if stat_p else ttft_budget
         if stat:
             segs.append((stat, stat_p))
-        ident_c = [c("pink", model_name)] + ([c("cyan", thinking)] if thinking else [])
+        # 窄档身份组缩短（用户裁定：⏱ 升铁律后腾格子）：模型名去 [1m] 后缀、
+        # 思考等级按 _THINK_SHORT 缩写（未知值保留原样）；宽档原样。
+        m_name = model_name.replace("[1m]", "") if narrow else model_name
+        t_name = (_THINK_SHORT.get(thinking, thinking) if narrow else thinking)
+        ident_c = [c("pink", m_name)] + ([c("cyan", t_name)] if t_name else [])
         if ident_c:  # 窄档身份组也进（用户裁定：模型·思考不可丢）
             segs.append((" · ".join(ident_c),
-                         " · ".join([model_name] + ([thinking] if thinking else []))))
+                         " · ".join([m_name] + ([t_name] if t_name else []))))
         j = "|" if narrow else f" {sep} "   # 窄档紧分隔：3 个分隔省 6 格
         jp = "|" if narrow else " | "        # plain 用无色分隔（预算串全程无色）
         return (j.join(s[0] for s in segs), jp.join(s[1] for s in segs))
 
-    # 折叠梯子: 溢出按序丢弃（宽档 TTFT→CH→CP 新段先丢；窄档 CP→TTFT→CH，
-    # 保住独有指标——R/CP 已不进段表，CP 此处对窄档是空操作但保持同构）；
+    # 折叠梯子: 溢出按序丢弃（宽档 TTFT→CH→CP 新段先丢；窄档 CP→CH——
+    # ⏱ 升铁律，与 cc/pi 同步：TTFT 永不剔；R/CP 已不进段表，CP 空操作）；
     # 再溢出 truncate_display 兜底
     flags = dict(use_ttft=True, use_ch=True, use_cp=True)
     line2, plain2 = build2(**flags)
-    order = ("use_cp", "use_ttft", "use_ch") if narrow else ("use_ttft", "use_ch", "use_cp")
+    order = ("use_cp", "use_ch") if narrow else ("use_ttft", "use_ch", "use_cp")
     for key in order:
         if dwidth(plain2) <= term_w:
             break

@@ -139,7 +139,8 @@
 | T106 | oc 渲染 | 窄预算（49 格，与宿主 usage/快捷键共行后的真实余量） | 行1 级联丢计数/ab 保 herdr；行2 先把 ctx% 换短形 `16%`（位置不变）保住 CH/TTFT，再不够才走梯子（**窄预算守门**：78 列窗格曾把 TTFT/herdr 全挤掉） |
 | T107 | cc 窄档 | `COLUMNS` 51/42/36/90 + 四分位矩阵（`current_usage` 原生） | 51：`743K/117K\|◈96.34%\|▄28% ⏱12s\|m · xhigh` 且无 R/CP/两位小数 ctx；42 丢 ⏱；36 再丢 ◈（`117K\|▄28%`）；90 宽档零变化；行1 时长不渲染、herdr 在；▂12/▄37/▆62/█80/█96（**cc 窄档守门**） |
 | T108 | pi 窄档 | 同 T107 输入面（harness 驱动：`BRANCH` JSON + `TTFT_MS` + `CTX_USAGE.percent`，新增 `MODEL_NAME` 便于短名探针） | 同 T107 形态断言：51 满配 `743K/117K\|◈96.34%\|▄28% ⏱12s\|m · xhigh`（无 R/CP/小数 ctx/↑↓）；42 丢 ⏱、36 再丢 ◈（`117K\|▄28%`）；**56 宽档边界**（R/↑↓ 原样、无 ⏱/◈，钉「≤55 才切窄」）；90 宽档零变化；行1 herdr 在、`\| pi` 在、无 `· ` 时长；▂▄▆█ 矩阵（**pi 窄档对齐 cc 守门**；非空转已证：narrow 永不触发/丢序反转两类注入均红） |
-| T109 | qc 窄档 | 同 T107 输入面（ctx 源换 qc 口径：`used_percentage` 原生 + postTokens 回落；effort 走 runtime-config） | 同 T107 形态断言（55/51 短形满配、42 丢 ⏱、36 丢 ◈、90 宽档零变化、四分位矩阵；行1 `\| qc` 在、无 `· ` 时长）（**qc 窄档对齐 cc 守门**） |
+| T109 | qc 窄档 | 同 T107 输入面（ctx 源换 qc 口径：`used_percentage` 原生 + postTokens 回落；effort 走 runtime-config） | 55/51 满配含 `m · xh` 缩写；42/36 丢 ◈ 保 ⏱（**⏱ 铁律后窄档丢序 CP→CH**）、90 宽档零变化（不缩写）、四分位矩阵；行1 `\| qc` 在、无 `· ` 时长（**qc 窄档对齐 cc 守门**） |
+| T140 | qc | pty 造 51 列控制终端（`TIOCSCTTY`）、env 剥掉 `COLUMNS` 后跑 qc | 行2 走窄档短形（`743K/117K\|◈…\|m · xh`）（**宽度探测链守门**：COLUMNS env → ctermid 控制终端 → 兜底 80；qoder 宿主实测不注入 COLUMNS） |
 | T110 | 安装 | 裸相对名 env：`CLAUDE_SETTINGS=settings.json`、`OPENCODE_TUI_CONFIG=tui.json`（CWD 落配置）、`QODER_SETTINGS=$BOX/alt/q.json` | 配置与 payload 同目录：cc 在 CWD 且 `$CLAUDE/wren-cc` 不存在、oc payload 在 `./plugins` 且 `$OC/plugins` 不存在、qc 全落 `alt/`（**B-1 分裂落点守门**） |
 | T111 | 安装 | tui.json 的 plugin 数组含对象条目 `{"src": "./plugins/wren-oc.tsx"}` | install 仍追加顶层字符串（数组 = `['./plugins/wren-oc.tsx', {…}]`）；uninstall 只删顶层串、对象原样、文件仍合法（**B-4 嵌套误命中守门**） |
 | T112 | 安装 | settings/tui.json/qc-settings 皆为 symlink（含悬空）后 `install all` | 三链接仍为 `-L`；真实目标内容已写入 statusLine/plugin（**B-5 symlink 顶掉守门**） |
