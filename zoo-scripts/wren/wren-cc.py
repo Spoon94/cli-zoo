@@ -494,18 +494,22 @@ def main():
     if narrow:
         term_w = max(24, term_w - 5)
     # 行1 梯子（宽窄档统一，用户裁定）：永不丢 dmg / herdr 坐标 / cc 徽标；
-    # 溢出让位顺序：时长 → ahead-behind → 分支五档折叠（24→20→16→12→8，
-    # 折叠用 … 省略中段，用户裁定「分支长度压缩」）→ cwd 折叠（头尾 … 省略，
-    # 「目录长度压缩」）。所有段都有 … 化路径，无整段消失，无 truncate 钝刀。
-    # cwd 的 … 地板：最后一档 "…/<尾段>"，尾段再长按格截（fold_path 自带）。
+    # 溢出让位顺序：时长（首丢，与 pi 侧/设计文档 §4 同构）→ ahead-behind →
+    # 分支六档折叠（24→20→16→12→8→4，… 省略中段，用户裁定「分支长度压缩」）
+    # → cwd 折叠（头尾 … 省略，「目录长度压缩」）。所有段都有 … 化路径，
+    # 无整段消失，无 truncate 钝刀（物理极限区除外）。
     dur_s = f" {c('comment', '·')} {c('fg', duration)}" if duration else ""
     dur_w = DUR_REST_W if duration else 0
     herdr_w = dwidth(f" | {herdr_tag}") if herdr_tag else 0
 
     def git_w(blen, with_ab):
         """git 段宽度探针：按「分支折叠后真实宽度」计，不按档位上界虚记
-        （虚记会把 21 格短分支也多折一级，CR 实测 fea…tier）。"""
-        return dwidth(f" | {fold_branch(branch, blen) if branch else ''}"
+        （虚记会把 21 格短分支也多折一级，CR 实测 fea…tier）。branch 为空时
+        返回 0——line1 只在 colored_git 非空时渲染该段（含 " | " 前缀），
+        非 git cwd 若仍记 3 格幻影宽，目录预算被偷（CR 实测 rest 19 vs 17）。"""
+        if not branch:
+            return 0
+        return dwidth(f" | {fold_branch(branch, blen)}"
                      f"{ab if with_ab else ''}{dmg_plain}")
 
     # 让位顺序（穷举搜索，靠循环序表达优先级）：时长 → 分支六档（先于 ab——
@@ -515,16 +519,20 @@ def main():
     # CR 修正：旧版 blen 每级内先试丢 ab，51 列 blen=24 原样档就把 ab 弄丢；
     # 窄档还白算一级时长让位。≤31 列极端叠加为物理极限区，交 truncate 兜底。
     keep_duration = bool(duration) and not narrow  # 窄档裁定不渲染时长
-    b_budget, drop_ab = 24, False
+    b_budget, drop_ab, cwd_floor = 24, False, 16
     found = False
+    # 让位优先级 = 循环层级（外层先牺牲）：时长 → 分支六档 → ab → cwd 地板。
+    # 与 pi 侧/设计文档 §4 对齐「时长首丢」（子代理 CR-N2：旧循环 blen 最内，
+    # 实际牺牲序是分支→ab→时长，与注释相反且与 pi 分歧）。
     for floor in (16, 8, 4):
         for with_dur in ([True, False] if keep_duration else [False]):
-            for with_ab in ([True, False] if ab else [False]):
-                for blen in (24, 20, 16, 12, 8, 4):
+            for blen in (24, 20, 16, 12, 8, 4):
+                for with_ab in ([True, False] if ab else [False]):
                     w = git_w(blen, with_ab) + herdr_w + dwidth(" | cc") \
                         + (dur_w if with_dur else 0) + floor
                     if w <= term_w:
                         b_budget, keep_duration, drop_ab = blen, with_dur, (not with_ab and bool(ab))
+                        cwd_floor = floor
                         found = True
                         break
                 if found:
@@ -537,13 +545,17 @@ def main():
         # 物理极限区（极端叠加 <~34 列）：落到最小配置（分支 4 档、丢 ab、丢时长、
         # cwd 地板 4），铁律段尽量靠前，剩余交 truncate——不能保持 blen=24 初值
         # 让钝刀从 herdr/cc 切起（CR 发现 34 列实测回退成 24 档全形）。
-        b_budget, drop_ab = 4, bool(ab)
+        # keep_duration 一并归位：rest 不再多记 9 格幻影时长（子代理 CR-A）。
+        b_budget, drop_ab, keep_duration, cwd_floor = 4, bool(ab), False, 4
     if drop_ab:
         ab = ""
     rest = git_w(b_budget, bool(ab)) + herdr_w + dwidth(" | cc") + (dur_w if keep_duration else 0)
-    path_budget = max(8, term_w - rest)
+    # 地板随命中的 floor 走（子代理 CR-B）：floor=4 命中时若仍顶回 8，赤字带整行
+    # 超宽、truncate 砍行尾 cc 徽标（56 列实测）；!found 时地板 4（最小配置的一部分）。
+    path_budget = max(cwd_floor, term_w - rest)
     display_cwd = fold_path(short_cwd, path_budget)
-    colored_git = (c("purple", fold_branch(branch, b_budget)) + c("fg", ab) + dmg) if branch else ""
+    colored_git = (c("purple", fold_branch(branch, b_budget))
+                   + (c("fg", ab) if ab else "") + dmg) if branch else ""
     line1 = (c("comment", display_cwd)
              + (f" {c('comment', '|')} {colored_git}" if colored_git else "")
              + (f" {c('comment', '|')} {c('comment', herdr_tag)}" if herdr_tag else "")
@@ -568,14 +580,16 @@ def main():
     # （70/90）解耦——图标说「占了几成」，颜色说「风险等级」，█+黄=体积满
     # 但仍在容忍区，两维信息正交；块元素族 U+2580 终端渲染最稳）、TTFT 换
     # ⏱ 前缀。三段图标 EAW=N/A 不触发 iOS emoji；◈/块高按实显 1 格，
-    # ⏱ 按 2 格防御 iOS 表情宽；R/CP 窄档不进段表。
+    # ⏱ 按 2 格防御 iOS 表情宽——dwidth 对 U+23F1（EAW=N）只算 1 格，
+    # 预算串用 ⏱⏱ 双占位补足（CR 实证单格口径双向出错：45 列 keep-error
+    # 身份组被砍、44 列 drop-error 恰好放得下的 ⏱ 被误丢）；R/CP 窄档不进段表。
     if narrow:
         pct_icon = "▂" if pct_val < 25 else ("▄" if pct_val < 50 else ("▆" if pct_val < 75 else "█"))
         ch_s = "◈" + ch[2:] if ch else ch
         ctx_s = f"{pct_icon}{pct_val:.0f}%" if ctx_pct else ""
         ttft_s = "⏱" + ttft[len("TTFT "):] if ttft else ""
-        ttft_budget = "⏱""99m5"  # 上界占位；预算串 47 格超 46 时 51 列会误丢 ⏱，
-        # 按当前真实分布（中位 13.2s）占位取 99m5 已足够，色档余量吸收极端值
+        ttft_budget = "⏱⏱""99m5s"  # 首个 ⏱ 计真实 1 格，第二个补 iOS 表情宽的
+        # 第 2 格；99m5s 是 fmt_ttft 上界（1m05s 形 6 格），显示态按最宽计不再取巧
     else:
         ch_s, ctx_s, ttft_s, ttft_budget = ch, ctx_pct, ttft, TTFT_BUDGET_S
 
