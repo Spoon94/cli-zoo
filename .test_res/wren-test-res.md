@@ -1,5 +1,5 @@
 # wren 测试结果
-执行时间：2026-10-03 19:27:46
+执行时间：2026-10-03 21:20:42
 
 | ID | 状态 | 备注 |
 |----|------|------|
@@ -74,7 +74,7 @@
 | T69 | PASS | pi TTFT from event stream (3 tiers + first-update-only) |
 | T70 | PASS | duration in line1 badge slot, absent from line2 |
 | T71 | PASS | no dangling separator when TTFT absent |
-| T72 | PASS | line1 ladder drops duration first (43 <= 55, badge kept) |
+| T72 | PASS | line1 ladder drops duration first (47 <= 55, badge kept) |
 | T73 | PASS | line2 ladder drop order TTFT -> CH -> CP; core segments never dropped |
 | T74 | PASS | install pi migrates legacy wren.ts -> wren-pi.ts |
 | T75 | PASS | qc TTFT keeps previous turn value during wait; hidden when never paired |
@@ -138,5 +138,9 @@
 | T133 | PASS | oc foldBranch tiers match cc/qc/pi: 8/15 at 24, 30/70 below, …+tail at 4, empty at 0; folds table has 4/0 |
 | T134 | PASS | ab survives cwd-floor sacrifice at 46-52 cols (with_ab hoisted above floor) |
 | T135 | PASS | cache swept to <=200 by mtime; oldest gone, session key + newest survive |
+| T136 | PASS | cc physical-limit colored phantom separator absent (26/30 cols truecolor) |
+| T137 | PASS | pi physical-limit colored phantom separator absent; none/color frames identical |
+| T138 | PASS | pi ab survives cwd-floor sacrifice at 46-52 cols (decision-2 loop order) |
+| T139 | PASS | physical-limit truecolor: no phantom separator slot after git segment cleared |
 
-汇总：Total 135 / Pass 134 / Fail 0 / Skip 1
+汇总：Total 139 / Pass 138 / Fail 0 / Skip 1

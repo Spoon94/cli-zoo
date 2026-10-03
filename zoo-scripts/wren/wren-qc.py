@@ -612,8 +612,11 @@ def main():
         git 段各件全空时返回 0——非 git cwd 不留 3 格幻影宽，目录预算不被偷。"""
         if not (branch or ab or dmg_plain):
             return 0
-        return dwidth(f" | {fold_branch(branch, blen) if branch else ''}"
-                     f"{ab if with_ab else ''}{dmg_plain}")
+        core = (fold_branch(branch, blen) if branch else "") \
+            + (ab if with_ab else "") + dmg_plain
+        if not core:
+            return 0  # 折到 0 档（物理极限区）后核心空，" | " 前缀也不进（终审 9-1 幻影宽）
+        return dwidth(f" | {core}")
 
     # 让位顺序（穷举搜索，循环序表达优先级；决策 2 调序）：时长 → ahead-behind
     # → 分支六档 → cwd 地板。外层是「更晚牺牲」——with_dur 在最外意味着分支/
@@ -657,10 +660,15 @@ def main():
     # 整行超宽、truncate 砍行尾 qc 徽标）
     path_budget = max(cwd_floor, term_w - rest)
     display_cwd = fold_path(short_cwd, path_budget)
-    # detached HEAD：分支名不显示（设计），ab/dmg 照常——dmg 是铁律
+    # detached HEAD：分支名不显示（设计），ab/dmg 照常——dmg 是铁律。
+    # 空判用 strip_ansi(...).strip()（终审 9-1：物理极限区清到 b_budget=0/ab=""/dmg=""
+    # 时 colored_git 是纯 ANSI 包裹的空串，.strip() 剥不掉转义 → 判非空 → 行内
+    # 幻影 " | " 空槽 + git_w 幻影 3 格偷 cwd 预算——NO_COLOR 用例全绿是因
+    # 无色档下 c() 原样返回空串，恰好掩盖）；但赋值必须保留原色串 + lstrip
+    # （剥色赋值会把 dmg 三段色码剥掉，T55 真色档断言直接红——cc 同坑已修）。
     colored_git = ((c("purple", fold_branch(branch, b_budget)) if branch else "")
                    + (c("fg", ab) if ab else "") + dmg)
-    colored_git = colored_git.lstrip() if colored_git.strip() else ""
+    colored_git = colored_git.lstrip() if strip_ansi(colored_git).strip() else ""
     # 悬空尾：预算内按段拼，超预算按段丢而非钝刀切字符。两遍策略：先按自然序
     # （git→herdr→qc→dur）拼；qc 徽标没进来才换 qc 优先序重拼（铁律高于视觉）。
     # 段对 (colored, plain) 同 build2：量宽只看 plain——dwidth 不剥 ANSI。

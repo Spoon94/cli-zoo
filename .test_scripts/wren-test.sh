@@ -3466,6 +3466,32 @@ else
     fail T135 "n=$t135_n fake0=$([[ -e $BOX/cache/fake0.json ]] && echo y || echo n) qckey=$(ls "$BOX/cache" | grep -c '^qc-')"
 fi
 
+# ============================================================
+# T139: 终审 9-1 幻影分隔符（物理极限区 + truecolor）——git 段被清空后
+#       colored_git 是纯 ANSI 包裹空串，.strip() 剥不掉 → 行1 幻影 " | "
+#       空槽/尾悬空（现有用例全 NO_COLOR，无色档恰好掩盖）。26/30 列两档：
+#       断言剥色后无 ' | ' 空槽（连续分隔）、无尾悬空 '| '，qc 徽标在场。
+# ============================================================
+new_box
+t139_env() {  # $1 = COLUMNS
+    printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":1000000,"used_percentage":3}}' \
+        | COLORTERM=truecolor COLUMNS=$1 HERDR_WORKSPACE_ID=wW HERDR_TAB_ID=wW:t1234567890123456 HERDR_PANE_ID=wW:p78 \
+            WREN_CACHE_DIR="$BOX/c139-$1" python3 "$QC_PAYLOAD" 2>/dev/null | head -1
+}
+t139_ok=1
+for w in 26 30; do
+    out="$(t139_env "$w")"
+    plain="$(printf '%s' "$out" | sed $'s/\x1b\\[[0-9;]*m//g')"
+    printf '%s' "$plain" | grep -qF "| qc" || { t139_ok=0; echo "  w=$w badge-missing l1=[$plain]" >&2; }
+    printf '%s' "$plain" | grep -qE '\| *\|' && { t139_ok=0; echo "  w=$w phantom-slot l1=[$plain]" >&2; }
+    printf '%s' "$plain" | grep -qE '\| *$' && { t139_ok=0; echo "  w=$w trailing-sep l1=[$plain]" >&2; }
+done
+if [[ $t139_ok -eq 1 ]]; then
+    pass T139 "physical-limit truecolor: no phantom separator slot after git segment cleared"
+else
+    fail T139 "see stderr"
+fi
+
 # ---------- 汇总 ----------
 printf '\nTotal: %d  Pass: %d  Fail: %d  Skip: %d\n' "$TOTAL" "$PASS_N" "$FAIL_N" "$SKIP_N"
 

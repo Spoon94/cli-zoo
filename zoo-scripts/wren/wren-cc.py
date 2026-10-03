@@ -400,11 +400,11 @@ def scan_transcript(path):
         tmp = cache_file.with_suffix(".tmp")
         tmp.write_text(json.dumps(st))
         tmp.replace(cache_file)
-        # 清扫（决策 3）：缓存只增不删（transcript 被宿主清理后文件永存，
-        # ~30MB/年 + 旧无前缀死文件）。超 200 个按 mtime 删最旧；失败不碍渲染。
+        # 清扫（决策 3，终审 9-2 与 qc 统一为激进语义）：目录是 wren 私有，
+        # 全 *.json 都算（cc-/qc-/纯 hex 旧死文件与未来 pi 缓存都不漏）。
+        # 超 200 个按 mtime 删最旧；失败不碍渲染。
         try:
-            files = [p for p in CACHE_DIR.glob("*.json")
-                     if p.name.startswith(("cc-", "qc-")) or re.fullmatch(r"[0-9a-f]{16}\.json", p.name)]
+            files = list(CACHE_DIR.glob("*.json"))
             if len(files) > 200:
                 for p in sorted(files, key=lambda p: p.stat().st_mtime)[:-200]:
                     p.unlink(missing_ok=True)
