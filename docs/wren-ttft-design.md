@@ -1,5 +1,8 @@
 # wren TTFT 设计（feat/ttft_support）
 
+
+> **勘误（七轮深度审核后实测序）**：行1 让位序现为「时长 → ahead-behind → 分支六档 → cwd 地板」——§4 的「时长首丢」在新穷举实现（决策 2 定稿：with_ab 提到 floor 外）下已成立；§1.1-1 相关段落以 wren-cc.py 当前注释为准。
+
 三宿主 statusline 增加 TTFT 段。本文是定案记录 + 实现规格，CR 用。
 
 ## 1. 定案（不再讨论）

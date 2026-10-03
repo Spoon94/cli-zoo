@@ -1,5 +1,5 @@
 # wren 测试结果
-执行时间：2026-10-03 19:18:19
+执行时间：2026-10-03 19:27:46
 
 | ID | 状态 | 备注 |
 |----|------|------|
@@ -135,8 +135,8 @@
 | T130 | PASS | pi usage sanitized: negative/string -> 0, negative cacheWrite no longer inflates CH |
 | T131 | PASS | wide .2f half-even parity across pi/oc/cc: 0.125% -> 0.12, CH 12.125% -> 12.12 |
 | T132 | PASS | pi narrow quantize chain: 2dp half-even then int; color reads quantized (cc parity) |
-| T133 | FAIL | out=[24\|verylongbranchname-x\|20~12\|verylong…e-x\|12~8\|verylong\|8~4\|very\|4~0\|\|0~cjk\|一二三四…万\|11~short\|feat/x~L1:30:30:~L1:26:25:very~L1:22:21:] |
+| T133 | PASS | oc foldBranch tiers match cc/qc/pi: 8/15 at 24, 30/70 below, …+tail at 4, empty at 0; folds table has 4/0 |
 | T134 | PASS | ab survives cwd-floor sacrifice at 46-52 cols (with_ab hoisted above floor) |
 | T135 | PASS | cache swept to <=200 by mtime; oldest gone, session key + newest survive |
 
-汇总：Total 135 / Pass 133 / Fail 1 / Skip 1
+汇总：Total 135 / Pass 134 / Fail 0 / Skip 1

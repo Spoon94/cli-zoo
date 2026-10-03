@@ -400,6 +400,16 @@ def scan_transcript(path):
         tmp = cache_file.with_suffix(".tmp")
         tmp.write_text(json.dumps(st))
         tmp.replace(cache_file)
+        # 清扫（决策 3）：缓存只增不删（transcript 被宿主清理后文件永存，
+        # ~30MB/年 + 旧无前缀死文件）。超 200 个按 mtime 删最旧；失败不碍渲染。
+        try:
+            files = [p for p in CACHE_DIR.glob("*.json")
+                     if p.name.startswith(("cc-", "qc-")) or re.fullmatch(r"[0-9a-f]{16}\.json", p.name)]
+            if len(files) > 200:
+                for p in sorted(files, key=lambda p: p.stat().st_mtime)[:-200]:
+                    p.unlink(missing_ok=True)
+        except Exception:
+            pass
     except Exception:
         pass
     return st
@@ -574,19 +584,21 @@ def main():
         return dwidth(f" | {fold_branch(branch, blen) if branch else ''}"
                      f"{ab if with_ab else ''}{dmg_plain}")
 
-    # 让位顺序（穷举搜索，靠循环序表达优先级）：时长 → 分支六档 → ab → cwd
-    # 地板 16→8→4。注意循环序的语义：外层是「更晚牺牲」——with_dur 在第二层
-    # 意味着分支六档与 ab 全折完仍不够才丢时长（CR 三轮实测序：ab 先于分支
-    # 压缩消失，时长最后丢；与注释的历史版本相反，此处以实测为准）。
+    # 让位顺序（穷举搜索，靠循环序表达优先级）：时长 → ahead-behind → 分支六档
+    # → cwd 地板 16→8→4（决策 2 定稿：with_ab 在 floor 外层，46-51 列 ab 恒在、
+    # cwd 提前折短——旧序 floor 在外有非单调带：加宽反而丢 ab）。
     # cwd 地板 8/4 = "…/尾段截断"（用户裁定「目录长度压缩」优先于丢铁律段）。
     # ≤31 列极端叠加为物理极限区，交 truncate 兜底。
     keep_duration = bool(duration) and not narrow  # 窄档裁定不渲染时长
     b_budget, drop_ab, cwd_floor = 24, False, 16
     found = False
-    for floor in (16, 8, 4):
-        for with_dur in ([True, False] if keep_duration else [False]):
+    # 层级序即让位序（决策 2）：时长 → ahead-behind → 分支六档 → cwd 地板。
+    # with_ab 提到 floor 外层：46-51 列 ab 恒在、cwd 提前折短——旧序 floor 在外
+    # 产生非单调带（窗口加宽反而丢 ab，拖动闪灭；深度审核视角 1 实测 48 列）。
+    for with_dur in ([True, False] if keep_duration else [False]):
+        for with_ab in ([True, False] if ab else [False]):
             for blen in (24, 20, 16, 12, 8, 4):
-                for with_ab in ([True, False] if ab else [False]):
+                for floor in (16, 8, 4):
                     w = git_w(blen, with_ab) + herdr_w + dwidth(" | cc") \
                         + (dur_w if with_dur else 0) + floor
                     if w <= term_w:
