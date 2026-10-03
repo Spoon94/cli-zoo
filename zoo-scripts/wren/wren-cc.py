@@ -514,7 +514,9 @@ def main():
     # 铁律项全在时 44 格，51 列实绘 46 格内放得下。
     narrow = term_w <= 55
     if narrow:
-        term_w = max(24, term_w - 5)
+        # 地板不再钳 24（Bug 猎杀后续：钳 24 让 COLUMNS<29 的行按 24 格排版/截断，
+        # 实际输出超终端宽 9 格，宿主切行换行炸版）。钳 4 = 段级丢段可工作的最小值。
+        term_w = max(4, term_w - 5)
     # 行1 梯子（宽窄档统一，用户裁定）：永不丢 dmg / herdr 坐标 / cc 徽标；
     # 溢出让位顺序（CR 三轮实测）：ahead-behind → 分支六档折叠
     # （24→20→16→12→8→4，… 省略中段，用户裁定「分支长度压缩」）→ 时长
@@ -581,24 +583,35 @@ def main():
     colored_git = ((c("purple", fold_branch(branch, b_budget)) if branch else "")
                    + (c("fg", ab) if ab else "") + dmg)
     colored_git = colored_git.lstrip() if colored_git.strip() else ""
-    # Bug 猎杀 #1 悬空尾：预算内就按段拼，超预算按「右段优先保留」丢整段而非
-    # 钝刀切字符——尾分隔符永远跟着它的段走，不孤立。
-    # 段对 (colored, plain) 同 build2：量宽只看 plain——dwidth 不剥 ANSI，
-    # 拿带色段量宽会让 truecolor 每段虚记 ~24 格、段全被误丢（T45 实测复犯）。
-    l1_parts = []
+    # Bug 猎杀 #1 悬空尾：预算内就按段拼，超预算按段丢而非钝刀切字符——
+    # 尾分隔符永远跟着它的段走，不孤立。两遍策略：先按自然序（git→herdr→cc→dur，
+    # 徽标收尾的常规视觉）拼；cc 徽标没进来才换 cc 优先序重拼（铁律高于视觉，
+    # 24 列实测自然序下 herdr 在前把 cc 挤出预算）。段对 (colored, plain) 同
+    # build2：量宽只看 plain——dwidth 不剥 ANSI，拿带色段量宽会让 truecolor
+    # 每段虚记 ~24 格、段全被误丢（T45 实测复犯）。
+    def assemble_l1(order):
+        line = c("comment", display_cwd)
+        used = dwidth(display_cwd)
+        for part, part_p in order:
+            if used + dwidth(part_p) <= term_w:
+                line += part
+                used += dwidth(part_p)
+        return line
+
+    natural = []
+    cc_part = (f" {c('comment', '|')} {c('comment', 'cc')}", " | cc")
     if colored_git:
-        l1_parts.append((f" {c('comment', '|')} {colored_git}", f" | {strip_ansi(colored_git)}"))
+        natural.append((f" {c('comment', '|')} {colored_git}", f" | {strip_ansi(colored_git)}"))
     if herdr_tag:
-        l1_parts.append((f" {c('comment', '|')} {c('comment', herdr_tag)}", f" | {herdr_tag}"))
-    l1_parts.append((f" {c('comment', '|')} {c('comment', 'cc')}", " | cc"))
+        natural.append((f" {c('comment', '|')} {c('comment', herdr_tag)}", f" | {herdr_tag}"))
+    natural.append(cc_part)
     if keep_duration:
-        l1_parts.append((dur_s, " · " + duration))
-    line1 = c("comment", display_cwd)
-    used = dwidth(display_cwd)
-    for part, part_p in l1_parts:
-        if used + dwidth(part_p) <= term_w:
-            line1 += part
-            used += dwidth(part_p)
+        natural.append((dur_s, " · " + duration))
+    line1 = assemble_l1(natural)
+    if "cc" not in strip_ansi(line1):
+        # cc 没保住：cc 最优先重拼（herdr/git 争剩余）
+        rescue = [cc_part] + [p for p in natural if p is not cc_part]
+        line1 = assemble_l1(rescue)
 
     # ---- 行2: 账本 | 状态 | 身份 ----
     # 组间 |、组内空格；仅尾部身份组用 ·。状态组 = ctx%/win + TTFT。
