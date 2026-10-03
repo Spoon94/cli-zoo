@@ -84,6 +84,16 @@ export function foldBranch(b: string, maxLen = 24): string {
 
 // 999_500~999_999 走 Math.round(n/1000) 会得到 1000K，必须显示 1.0M
 // （与 wren.py / wren-pi.ts / ccstatusline 同一规则）
+// 半偶舍入 + 2 位量化（第七轮 BUG2）：cc/qc 的 Python :.2f 是半偶（0.125 → 0.12），
+// toFixed(2) 是半上（0.13）——CH 与 ctx% 宽档文本走量化，三侧同口径。
+function roundHalfEven(v: number): number {
+	const fl = Math.floor(v), d = v - fl;
+	return d > 0.5 ? fl + 1 : d < 0.5 ? fl : fl % 2 === 0 ? fl : fl + 1;
+}
+function quantize2(v: number): number {
+	return roundHalfEven(v * 100) / 100;
+}
+
 export function fmtTokens(n: number): string {
 	if (!Number.isFinite(n) || n < 0) return "0"; // NaN/Infinity/-x 兜底（猎杀五轮 B-oc-3）
 	if (n < 1000) return `${n}`;
@@ -281,12 +291,12 @@ export function buildLines(i: OcInput): Segment[][] {
 	const ctxWin = _n(i.ctxWindow);
 	const chText =
 		rcTok > 0 && inTok + rcTok + _n(i.cacheWrite) > 0
-			? `CH${((rcTok / (inTok + rcTok + _n(i.cacheWrite))) * 100).toFixed(2)}%`
+			? `CH${quantize2((rcTok / (inTok + rcTok + _n(i.cacheWrite))) * 100).toFixed(2)}%`
 			: "";
 	const cpText = i.compactions > 0 ? `CP${i.compactions}` : "";
 	// 上下文占用与 TTFT 也是「整段丢」的语义，窄到放不下就整段不显示，
 	// 不能只留 `| 16.24%/1M` 或留个孤零零的 `TTFT`
-	const ctxFull = ctxWin > 0 ? `${ctxPct != null ? `${ctxPct.toFixed(2)}%` : "?"}/${fmtTokens(ctxWin)}` : "";
+	const ctxFull = ctxWin > 0 ? `${ctxPct != null ? `${quantize2(ctxPct).toFixed(2)}%` : "?"}/${fmtTokens(ctxWin)}` : "";
 	const ctxShort = ctxWin > 0 && ctxPct != null ? `${Math.round(ctxPct)}%` : "";
 	const ttftText = i.ttftMs != null ? fmtTtft(i.ttftMs) : "";
 	const ctxBudget = ctxFull ? visibleWidth(`${sep.text}${ctxFull}`) : 0;

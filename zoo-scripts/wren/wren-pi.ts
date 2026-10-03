@@ -116,6 +116,18 @@ function roundHalfEven(v: number): number {
 	return d > 0.5 ? fl + 1 : d < 0.5 ? fl : fl % 2 === 0 ? fl : fl + 1;
 }
 
+// 2 位半偶量化（第七轮 BUG2/BUG3）：与 cc/qc 的 Python :.2f 同口径——
+// 宽档 .2f、窄档整数化/色档阈值都先量化再走（cc 的 pct_val 同源同链）。
+// toFixed(2) 是半上（0.125 → 0.13），Python :.2f 是半偶（0.12），三侧裁定统一半偶。
+function quantize2(v: number): number {
+	return roundHalfEven(v * 100) / 100;
+}
+
+// tok 净化（猎杀四轮 tok() 的 pi 侧等价物，第七轮 BUG4 补）：宿主字段可能是
+// 字符串/负数/NaN/Infinity/undefined——裸 += 会串接（"0500"）、带负号进渲染
+// （↑-50）、NaN 污染（↓NaNM）。非正有限数一律记 0。
+const tok = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
+
 // 分支折叠六档（行1 梯子逐级传 24→20→16→12→8→4），与 wren-cc.py 的 fold_branch 同规则：
 // ≥24 档三侧同构 head8/tail15（CR 轮 9 尾重头轻）；<24 档窄档私有（头≈30% 尾吃剩余）；
 // ≤4 档只剩 …+尾2；0 档 git 段整体让位（物理极限区最后一级）。
@@ -395,10 +407,10 @@ export default function (pi: ExtensionAPI) {
 						if (e.type === "compaction") compactions++;
 						if (e.type === "message" && e.message.role === "assistant") {
 							const m = e.message as AssistantMessage;
-							input += m.usage.input;
-							output += m.usage.output;
-							cacheRead += m.usage.cacheRead ?? 0;
-							cacheWrite += m.usage.cacheWrite ?? 0;
+							input += tok(m.usage.input);
+							output += tok(m.usage.output);
+							cacheRead += tok(m.usage.cacheRead);
+							cacheWrite += tok(m.usage.cacheWrite);
 							last = m;
 						}
 					}
@@ -422,10 +434,14 @@ export default function (pi: ExtensionAPI) {
 					// 旧值一直挂在屏幕上。手算还会漏掉 cacheWrite。
 					const ctxUsage = ctx.getContextUsage();
 					const ctxWindowSize = ctxUsage?.contextWindow ?? model?.contextWindow ?? 0;
-					const ctxPercent = ctxUsage?.percent != null ? `${ctxUsage.percent.toFixed(2)}%` : "?";
+					// pctQ：量化后的占用值（第七轮 BUG2/BUG3）——宽档文本、色档阈值、
+					// 窄档四分位/整数全读它（cc 的 pct_val = float(:.2f 串) 同源同链，
+					// 原始 double 会在 25.499999→25、70.001→yellow 处与 cc 差一档）
+					const pctQ = ctxUsage?.percent != null ? quantize2(ctxUsage.percent) : null;
+					const ctxPercent = pctQ != null ? `${pctQ.toFixed(2)}%` : "?";
 					const ctxPercentText = `${ctxPercent}/${fmt(ctxWindowSize)}`;
-					const ctxColorName = ctxUsage?.percent != null
-						? ctxUsage.percent > 90 ? "red" : ctxUsage.percent > 70 ? "yellow" : "green"
+					const ctxColorName = pctQ != null
+						? pctQ > 90 ? "red" : pctQ > 70 ? "yellow" : "green"
 						: "comment";
 					// 最新缓存命中率：公式与 pi 内置 footer 相同（最后一条 assistant 的
 					// cacheRead/prompt，prompt 不含 output）。位数取两位小数与 Claude Code
@@ -433,11 +449,12 @@ export default function (pi: ExtensionAPI) {
 					let ch = "";
 					if (last) {
 						const u = last.usage;
-						const promptTokens = u.input + (u.cacheRead ?? 0) + (u.cacheWrite ?? 0);
+						const promptTokens = tok(u.input) + tok(u.cacheRead) + tok(u.cacheWrite);
 						// 无缓存会话不显示 CH（与 wren.py 的 ch_cache > 0 条件统一；
-						// CR 轮 7 指出旧的 promptTokens>0 会挂一个恒 0 的 CH0.00%）
-						if (promptTokens > 0 && (u.cacheRead ?? 0) > 0)
-							ch = ` CH${((u.cacheRead / promptTokens) * 100).toFixed(2)}%`;
+						// CR 轮 7 指出旧的 promptTokens>0 会挂一个恒 0 的 CH0.00%）；
+						// 第七轮 BUG4：tok 净化（负 cacheWrite 不再缩分母虚高 CH）
+						if (promptTokens > 0 && tok(u.cacheRead) > 0)
+							ch = ` CH${quantize2((tok(u.cacheRead) / promptTokens) * 100).toFixed(2)}%`;
 					}
 					const cp = compactions > 0 ? ` CP${compactions}` : "";
 					// Dracula: token 白、R 白、CH 青、CP 灰、ctx% 三档（>70 黄、>90 红，pi 语义）
@@ -466,7 +483,9 @@ export default function (pi: ExtensionAPI) {
 					// 四分位=几何体积，与色档 70/90 解耦：图标说占了几成，颜色说风险）；
 					// TTFT 前缀 TTFT→⏱；R/CP 不进段表；紧分隔 |（3 个分隔省 6 格）。
 					// percent=null（压缩后未知）＝cc 的 ctx_pct 为空 → 窄档不渲染 ctx。
-					const pctNum = ctxUsage?.percent ?? null;
+					// 窄档链 = 量化(2位) → 四分位/整数（第七轮 BUG3）：cc 先 :.2f 再 :.0f，
+					// pi 拿原始 double 会差一档（25.499999 → 25 vs cc 26）
+					const pctNum = pctQ;
 					const chS = narrow ? (chText.startsWith("CH") ? "◈" + chText.slice(2) : chText) : chText;
 					const ctxS = narrow
 						? (pctNum == null ? "" : `${pctNum < 25 ? "▂" : pctNum < 50 ? "▄" : pctNum < 75 ? "▆" : "█"}${roundHalfEven(pctNum)}%`)

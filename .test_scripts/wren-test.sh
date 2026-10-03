@@ -3213,6 +3213,129 @@ else
     fail T129 "empty=[$t129a] control=[$t129b]"
 fi
 
+# ============================================================
+# T130: pi transcript usage 净化（第七轮 BUG4）——猎杀四轮 tok() 只盖了
+#       cc/qc，pi 裸 += 会被负值/字符串/NaN 污染：负值带负号进渲染、字符串
+#       += 串接（"0500"）、负 cacheWrite 缩 CH 分母虚高到 100%。三注入形态
+#       全钳 0（typeof number + isFinite + >0）。
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T130 "node with .ts type-stripping not available"
+else
+    t130_run() {  # $1 = BRANCH json
+        env -u HERDR_WORKSPACE_ID -u HERDR_TAB_ID -u HERDR_PANE_ID NO_COLOR=1 WIDTH=90 BRANCH="$1" TTFT_MS=12400 MSG_UPDATES=0 MODEL_NAME=m \
+            WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs" \
+            node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null | tail -1
+    }
+    t130_a="$(t130_run '[{"type":"message","message":{"role":"assistant","usage":{"input":-50,"output":-7,"cacheRead":-100,"cacheWrite":-100}}}]')"
+    t130_b="$(t130_run '[{"type":"message","message":{"role":"assistant","usage":{"input":"500","cacheRead":"300","output":"7"}}}]')"
+    t130_c="$(t130_run '[{"type":"message","message":{"role":"assistant","usage":{"input":100,"cacheRead":50,"cacheWrite":-100}}}]')"
+    t130_ok=1
+    # a/b：负值与字符串全钳 0（无负号、无串接数字、无 NaN）
+    [[ "$t130_a" == "↑0 ↓0 | R0 | ?/200K TTFT 12s | m · high" ]] || t130_ok=0
+    [[ "$t130_b" == "↑0 ↓0 | R0 | ?/200K TTFT 12s | m · high" ]] || t130_ok=0
+    for l in "$t130_a" "$t130_b"; do
+        printf '%s' "$l" | grep -qE '\-|NaN' && t130_ok=0
+    done
+    # c：负 cacheWrite 不再缩 CH 分母（150 分母 → 33.33%，非 100%）
+    printf '%s' "$t130_c" | grep -qF "CH33.33%" || t130_ok=0
+    printf '%s' "$t130_c" | grep -qF "CH100.00%" && t130_ok=0
+    if [[ $t130_ok -eq 1 ]]; then
+        pass T130 "pi usage sanitized: negative/string -> 0, negative cacheWrite no longer inflates CH"
+    else
+        fail T130 "a=[$t130_a] b=[$t130_b] c=[$t130_c]"
+    fi
+fi
+
+# ============================================================
+# T131: 宽档 .2f 半值三侧同偶（第七轮 BUG2）——pi/oc 的 toFixed(2) 是半上，
+#       cc 的 Python :.2f 是半偶。0.125%（250/200000，二进制精确）与
+#       CH 12.125%（485/4000）两个精确半值：三侧统一半偶（pi/oc 改，
+#       cc/qc 现状即半偶不动）。
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T131 "node with .ts type-stripping not available"
+else
+    # pi：ctx percent=0.125 + CH 485/4000
+    t131_pi="$(env -u HERDR_WORKSPACE_ID -u HERDR_TAB_ID -u HERDR_PANE_ID NO_COLOR=1 WIDTH=90 \
+        BRANCH='[{"type":"message","message":{"role":"assistant","usage":{"input":3515,"output":0,"cacheRead":485,"cacheWrite":0}}}]' \
+        TTFT_MS=12400 MSG_UPDATES=0 MODEL_NAME=m CTX_USAGE='{"tokens":250,"contextWindow":200000,"percent":0.125}' \
+        WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs" \
+        node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null | tail -1)"
+    # cc 同值对照（ctx 与 CH 共用一条 native 记录，拆两跑）：
+    #   cc-ctx：input=250 → 250/200000 = 0.125% → 0.12%（CH 无 cache 不显示）
+    #   cc-ch：input=3515 + cache_read=485 → 485/4000 = 12.125% → CH12.12%
+    t131_ccctx="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"effort":{"level":"xhigh"},"context_window":{"current_usage":{"input_tokens":250,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"context_window_size":200000}}' \
+        | NO_COLOR=1 COLUMNS=90 python3 "$CC_PAYLOAD" 2>/dev/null | tail -1)"
+    t131_ccch="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"effort":{"level":"xhigh"},"context_window":{"current_usage":{"input_tokens":3515,"cache_read_input_tokens":485,"cache_creation_input_tokens":0},"context_window_size":200000}}' \
+        | NO_COLOR=1 COLUMNS=90 python3 "$CC_PAYLOAD" 2>/dev/null | tail -1)"
+    # oc：同值 buildLines（纯函数直调）
+    t131_oc="$(OC_CORE="$OC_CORE_TS" node -e '
+import(process.env.OC_CORE).then((m) => {
+  const lines = m.buildLines({width:90, cwd:"/tmp", home:"/h", branch:null, head:"", ab:"",
+    added:0, modified:0, deleted:0, herdr:"", durationMs:60000,
+    inputTokens:3515, outputTokens:0, cacheRead:485, cacheWrite:0, compactions:0,
+    ctxPercent:0.125, ctxWindow:200000, model:"m", thinking:"high", ttftMs:null});
+  const texts = lines.flat().map((s) => s.text).join("|");
+  const ch = /CH[0-9.]+%/.exec(texts);
+  const ctx = /[0-9.]+%\/[^ |]*/.exec(texts);
+  console.log((ch ? ch[0] : "NO-CH") + " " + (ctx ? ctx[0] : "NO-CTX"));
+});' 2>&1)"
+    t131_ok=1
+    printf '%s' "$t131_pi" | grep -qF "CH12.12%" || t131_ok=0
+    printf '%s' "$t131_pi" | grep -qF "0.12%/200K" || t131_ok=0
+    printf '%s' "$t131_ccch" | grep -qF "CH12.12%" || t131_ok=0
+    printf '%s' "$t131_ccctx" | grep -qF "0.12%/200K" || t131_ok=0
+    printf '%s' "$t131_oc" | grep -qF "CH12.12% 0.12%/200K" || t131_ok=0
+    # 半上变体必须不在场（toFixed(2) 会给 12.13/0.13）
+    for l in "$t131_pi" "$t131_ccch" "$t131_ccctx" "$t131_oc"; do
+        printf '%s' "$l" | grep -qE '12\.13|0\.13' && t131_ok=0
+    done
+    if [[ $t131_ok -eq 1 ]]; then
+        pass T131 "wide .2f half-even parity across pi/oc/cc: 0.125% -> 0.12, CH 12.125% -> 12.12"
+    else
+        fail T131 "pi=[$t131_pi] ccctx=[$t131_ccctx] ccch=[$t131_ccch] oc=[$t131_oc]"
+    fi
+fi
+
+# ============================================================
+# T132: pi 窄档量化链（第七轮 BUG3）——cc 先 :.2f 量化再 :.0f；pi 拿原始
+#       double 会差一档（25.499999 → 25 vs cc 26）。裁定：窄档链 = 量化(2位
+#       半偶) → 四分位/整数，色档阈值同读量化值（cc pct_val 同源）。
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T132 "node with .ts type-stripping not available"
+else
+    t132_run() {  # $1 = percent
+        env -u HERDR_WORKSPACE_ID -u HERDR_TAB_ID -u HERDR_PANE_ID NO_COLOR=1 WIDTH=51 \
+            BRANCH='[{"type":"message","message":{"role":"assistant","usage":{"input":743000,"output":117000,"cacheRead":19560000,"cacheWrite":0}}}]' \
+            TTFT_MS=12400 MSG_UPDATES=0 MODEL_NAME=m CTX_USAGE="{\"tokens\":1,\"contextWindow\":1000000,\"percent\":$1}" \
+            WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs" \
+            node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null | tail -1
+    }
+    t132_cc="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"effort":{"level":"xhigh"},"context_window":{"current_usage":{"input_tokens":254960,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"context_window_size":1000000}}' \
+        | NO_COLOR=1 COLUMNS=51 python3 "$CC_PAYLOAD" 2>/dev/null | tail -1)"
+    t132_ok=1
+    # 25.499999 / 25.496：量化到 25.50 → 半偶取整 26（旧行为 25，差一档）
+    printf '%s' "$(t132_run 25.499999)" | grep -qF "▄26%" || t132_ok=0
+    printf '%s' "$(t132_run 25.496)" | grep -qF "▄26%" || t132_ok=0
+    # cc 同带（254960/1M = 25.496% → 量化 25.50 → ▄26%）交叉验证
+    printf '%s' "$t132_cc" | grep -qF "▄26%" || t132_ok=0
+    # 色档同读量化值：70.001 → 量化 70.00 → 三档色 green（旧行为 raw>70 → yellow）
+    t132_col="$(env -u HERDR_WORKSPACE_ID -u HERDR_TAB_ID -u HERDR_PANE_ID NO_COLOR= COLOR_MODE=truecolor WIDTH=90 \
+        BRANCH='[{"type":"message","message":{"role":"assistant","usage":{"input":743000,"output":117000,"cacheRead":19560000,"cacheWrite":0}}}]' \
+        TTFT_MS=12400 MSG_UPDATES=0 MODEL_NAME=m CTX_USAGE='{"tokens":140002,"contextWindow":200000,"percent":70.001}' \
+        WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs" \
+        node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null | tail -1)"
+    printf '%s' "$t132_col" | grep -qF '38;2;80;250;123' || t132_ok=0
+    printf '%s' "$t132_col" | grep -qF '38;2;241;250;140' && t132_ok=0
+    if [[ $t132_ok -eq 1 ]]; then
+        pass T132 "pi narrow quantize chain: 2dp half-even then int; color reads quantized (cc parity)"
+    else
+        fail T132 "p1=[$(t132_run 25.499999)] p2=[$(t132_run 25.496)] cc=[$t132_cc] col=[$(printf '%s' "$t132_col" | LC_ALL=C sed 's/\x1b/ESC/g')]"
+    fi
+fi
+
 # ---------- 汇总 ----------
 printf '\nTotal: %d  Pass: %d  Fail: %d  Skip: %d\n' "$TOTAL" "$PASS_N" "$FAIL_N" "$SKIP_N"
 
