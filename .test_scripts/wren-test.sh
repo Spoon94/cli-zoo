@@ -3336,6 +3336,72 @@ else
     fi
 fi
 
+# ============================================================
+# T134: 决策 2 —— ab 优先于 cwd 地板：行1 让位穷举把 with_ab 提到 floor 外层。
+#       46-52 列四档 ab（↑1↓0）恒在，cwd 提前折短代替闪灭 ab。
+#       fixture：带上游 ahead=1 的干净 repo + 12 格 herdr（48-52 为旧序红带：
+#       旧序 floor 外层会在 [43,47] 实绘带选「floor16+丢 ab」而非「floor8+保 ab」）。
+# ============================================================
+new_box
+T134_REPO="$BOX/r134"
+T134_REMOTE="$BOX/r134_remote"
+mkdir -p "$T134_REPO"
+(
+    cd "$T134_REPO" || exit 1
+    git -c init.defaultBranch=main init -q
+    git config user.email t@example.com
+    git config user.name t
+    printf 'a\n' >a.txt
+    git add -A >/dev/null 2>&1
+    git commit -q -m init >/dev/null 2>&1
+    git init -q --bare "$T134_REMOTE"
+    git remote add origin "$T134_REMOTE"
+    git push -q -u origin main >/dev/null 2>&1
+    printf 'b\n' >>a.txt
+    git add -A >/dev/null 2>&1
+    git commit -q -m second >/dev/null 2>&1
+) >/dev/null 2>&1
+t134_ok=1
+for w in 46 48 50 52; do
+    out="$(printf '{"cwd":"%s","model":{"display_name":"m"},"context_window":{"context_window_size":1000000,"used_percentage":3}}' "$T134_REPO" \
+        | NO_COLOR=1 COLUMNS=$w HERDR_WORKSPACE_ID=wW HERDR_TAB_ID=wW:t1234 HERDR_PANE_ID=wW:p5678 \
+            WREN_CACHE_DIR="$BOX/c134-$w" python3 "$QC_PAYLOAD" 2>/dev/null | head -1)"
+    printf '%s' "$out" | grep -qF "↑1↓0" || { t134_ok=0; echo "  w=$w l1=[$out]" >&2; }
+    printf '%s' "$out" | grep -qF "| qc" || { t134_ok=0; echo "  w=$w badge-missing l1=[$out]" >&2; }
+done
+if [[ $t134_ok -eq 1 ]]; then
+    pass T134 "ab survives cwd-floor sacrifice at 46-52 cols (with_ab hoisted above floor)"
+else
+    fail T134 "see stderr"
+fi
+
+# ============================================================
+# T135: 决策 3 —— 缓存清扫：CACHE_DIR 里 .json 超过 200 个时按 mtime 删最旧
+#       （cc-*/qc-*/无前缀三种都盖，模式就是 *.json）。渲染一次后 ≤200、
+#       最旧的没了、本次会话的 qc-<sha1> 键与较新文件存活。
+# ============================================================
+new_box
+t135_tr="$BOX/t135.jsonl"
+printf '{"type":"user","timestamp":"2026-09-28T10:00:00Z","message":{"content":"a"}}\n{"type":"assistant","timestamp":"2026-09-28T10:00:07.4Z","message":{"usage":{"input_tokens":100,"output_tokens":10,"cache_read_input_tokens":80}}}\n' >"$t135_tr"
+mkdir -p "$BOX/cache"
+i=0
+while [[ $i -lt 205 ]]; do
+    printf '{}' >"$BOX/cache/fake$i.json"
+    touch -t "$(printf '2501010%02d%02d' $((i / 60)) $((i % 60)))" "$BOX/cache/fake$i.json"
+    i=$((i + 1))
+done
+printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$t135_tr" \
+    | NO_COLOR=1 COLUMNS=90 WREN_CACHE_DIR="$BOX/cache" python3 "$QC_PAYLOAD" >/dev/null 2>&1
+t135_n=$(ls "$BOX/cache" | grep -c '\.json$')
+if [[ "$t135_n" -le 200 && "$t135_n" -ge 199 ]] \
+   && [[ ! -e "$BOX/cache/fake0.json" ]] \
+   && ls "$BOX/cache" | grep -q "^qc-" \
+   && [[ -e "$BOX/cache/fake204.json" ]]; then
+    pass T135 "cache swept to <=200 by mtime; oldest gone, session key + newest survive"
+else
+    fail T135 "n=$t135_n fake0=$([[ -e $BOX/cache/fake0.json ]] && echo y || echo n) qckey=$(ls "$BOX/cache" | grep -c '^qc-')"
+fi
+
 # ---------- 汇总 ----------
 printf '\nTotal: %d  Pass: %d  Fail: %d  Skip: %d\n' "$TOTAL" "$PASS_N" "$FAIL_N" "$SKIP_N"
 

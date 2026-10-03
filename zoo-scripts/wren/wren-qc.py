@@ -423,6 +423,13 @@ def scan_transcript(path):
         tmp = cache_file.with_suffix(".tmp")
         tmp.write_text(json.dumps(st))
         tmp.replace(cache_file)
+        # 缓存清扫（决策 3）：目录里 .json 超过 200 个时按 mtime 删最旧的
+        # （cc-*/qc-*/旧无前缀死文件三种都盖——模式就是全部 *.json）。
+        # try 域内失败不影响渲染（本块整体在 except pass 下）。
+        entries = [e for e in CACHE_DIR.iterdir() if e.suffix == ".json"]
+        if len(entries) > 200:
+            for e in sorted(entries, key=lambda x: x.stat().st_mtime)[:len(entries) - 200]:
+                e.unlink(missing_ok=True)
     except Exception:
         pass
     return st
@@ -608,15 +615,19 @@ def main():
         return dwidth(f" | {fold_branch(branch, blen) if branch else ''}"
                      f"{ab if with_ab else ''}{dmg_plain}")
 
-    # 让位顺序（穷举搜索，循环序表达优先级，与 cc 同构）：时长 → 分支六档
-    # → ab → cwd 地板 16→8→4。窄档 keep_duration 恒 False。
+    # 让位顺序（穷举搜索，循环序表达优先级；决策 2 调序）：时长 → ahead-behind
+    # → 分支六档 → cwd 地板。外层是「更晚牺牲」——with_dur 在最外意味着分支/
+    # ab/cwd 全折完仍不够才丢时长；with_ab 提到 floor 外层 = ab 恒在优先于 cwd
+    # 地板（旧序 floor 在外层会在 46-51 列带选「地板 16 + 丢 ab」而非「地板 8 +
+    # 保 ab」，窗口加宽反而丢 ab、拖动时闪灭——非单调带）。cwd 地板 16→8→4
+    # 最先牺牲（提前折短）。窄档 keep_duration 恒 False。
     keep_duration = bool(duration) and not narrow
     b_budget, drop_ab, cwd_floor = 24, False, 16
     found = False
-    for floor in (16, 8, 4):
-        for with_dur in ([True, False] if keep_duration else [False]):
+    for with_dur in ([True, False] if keep_duration else [False]):
+        for with_ab in ([True, False] if ab else [False]):
             for blen in (24, 20, 16, 12, 8, 4):
-                for with_ab in ([True, False] if ab else [False]):
+                for floor in (16, 8, 4):
                     w = git_w(blen, with_ab) + herdr_w + dwidth(" | qc") \
                         + (dur_w if with_dur else 0) + floor
                     if w <= term_w:

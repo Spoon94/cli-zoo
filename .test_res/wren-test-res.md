@@ -1,5 +1,5 @@
 # wren 测试结果
-执行时间：2026-10-03 17:46:54
+执行时间：2026-10-03 19:18:19
 
 | ID | 状态 | 备注 |
 |----|------|------|
@@ -132,8 +132,11 @@
 | T127 | PASS | badge rescue decided by taken-index, not substring (cwd containing qc) |
 | T128 | PASS | cross-host cache keys do not collide (qc after cc keeps qc CH semantics) |
 | T129 | PASS | empty-string user content does not open the TTFT window |
-| T130 | FAIL | a=[↑-50 ↓-7 \| R-100 \| ?/200K TTFT 12s \| m · high] b=[↑0500 ↓07 \| R0300 CH0.01% \| ?/200K TTFT 12s \| m · high] c=[↑100 ↓NaNM \| R50 CH100.00% \| ?/200K TTFT 12s \| m · high] |
-| T131 | FAIL | pi=[↑4K ↓0 \| R485 CH12.13% \| 0.13%/200K TTFT 12s \| m · high] cc=[↑0 ↓0 \| R0 CH12.12% \| 2.00%/200K \| m · xhigh] oc=[CH12.13% 0.13%/200K] |
-| T132 | FAIL | p1=[743K/117K\|◈96.34%\|▄25% ⏱12s\|m · high] p2=[743K/117K\|◈96.34%\|▄25% ⏱12s\|m · high] cc=[0/0\|▄26%\|m · xhigh] col=[ESC[38;2;248;248;242m↑743K ↓117KESC[0m ESC[38;2;98;114;164m\|ESC[0m R19.6M ESC[38;2;139;233;253mCH96.34%ESC[0m ESC[38;2;98;114;164m\|ESC[0m ESC[38;2;241;250;140m70.00%/200KESC[0m ESC[38;2;248;248;242mTTFT 12sESC[0m ESC[38;2;98;114;164m\|ESC[0m ESC[38;2;255;121;198mmESC[0m · ESC[38;2;139;233;253mhighESC[0m] |
+| T130 | PASS | pi usage sanitized: negative/string -> 0, negative cacheWrite no longer inflates CH |
+| T131 | PASS | wide .2f half-even parity across pi/oc/cc: 0.125% -> 0.12, CH 12.125% -> 12.12 |
+| T132 | PASS | pi narrow quantize chain: 2dp half-even then int; color reads quantized (cc parity) |
+| T133 | FAIL | out=[24\|verylongbranchname-x\|20~12\|verylong…e-x\|12~8\|verylong\|8~4\|very\|4~0\|\|0~cjk\|一二三四…万\|11~short\|feat/x~L1:30:30:~L1:26:25:very~L1:22:21:] |
+| T134 | PASS | ab survives cwd-floor sacrifice at 46-52 cols (with_ab hoisted above floor) |
+| T135 | PASS | cache swept to <=200 by mtime; oldest gone, session key + newest survive |
 
-汇总：Total 132 / Pass 128 / Fail 3 / Skip 1
+汇总：Total 135 / Pass 133 / Fail 1 / Skip 1
