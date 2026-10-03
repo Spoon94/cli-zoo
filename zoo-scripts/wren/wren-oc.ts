@@ -78,6 +78,7 @@ export function foldBranch(b: string, maxLen = 24): string {
 // 999_500~999_999 走 Math.round(n/1000) 会得到 1000K，必须显示 1.0M
 // （与 wren.py / wren-pi.ts / ccstatusline 同一规则）
 export function fmtTokens(n: number): string {
+	if (!Number.isFinite(n) || n < 0) return "0"; // NaN/Infinity/-x 兜底（猎杀五轮 B-oc-3）
 	if (n < 1000) return `${n}`;
 	if (n < 1_000_000) {
 		const k = Math.round(n / 1000);
@@ -181,8 +182,13 @@ export function buildLines(i: OcInput): Segment[][] {
 	if (home && (cwd === home || cwd.startsWith(home + "/"))) cwd = "~" + cwd.slice(home.length);
 
 	const durText = i.durationMs != null ? fmtDurationElapsed(Math.max(0, i.durationMs)) : "";
-	const hasBranch = !!i.branch && i.head !== "" && !i.head.startsWith("(");
-	const gitRest = hasBranch ? visibleWidth(` | ${foldBranch(i.branch!)}${i.ab}`) + countsWidth(i) : 0;
+	const hasBranch = !!i.branch && i.head !== "" && i.head !== "(detached)"; // 字面 ( 开头的真分支不误判（猎杀五轮 B-2b）
+	// 探针与渲染同纪律（猎杀五轮 B-oc-1 随修）：detached 时 counts/ab 照渲染，
+	// gitRest 也必须计入——否则预算虚低、整行溢出交硬截断
+	const _gitAny = hasBranch || i.ab !== "" || (i.added + i.deleted + i.modified) > 0;
+	const gitRest = _gitAny
+		? visibleWidth(` | ${hasBranch ? foldBranch(i.branch!) : ""}${i.ab}`) + countsWidth(i)
+		: 0;
 	// herdr 与徽标是固定宽度的段，放不下就整段丢，不能像路径/分支那样截半（底行预算比框内窄，
 	// 窄到 54 格时会出现 "| w11:t1:" 这种半个 id）
 	const badgeRest = visibleWidth(" | oc");
@@ -224,15 +230,15 @@ export function buildLines(i: OcInput): Segment[][] {
 			segs.push(...arr);
 		};
 		if (k.cwd && displayPath) g([{ text: displayPath, tone: "comment" }]);
+		// detached HEAD：分支名不显（设计），ab/counts 照常——counts 是铁律
+		// （猎杀五轮 B-oc-1，与 cc/pi/qc 同步：旧版 hasBranch 门控把整段吞掉）
 		const git: Segment[] = [];
-		if (hasBranch) {
-			git.push({ text: foldBranch(i.branch!, k.fold ?? 24), tone: "purple" });
-			if (k.ab && i.ab) git.push({ text: i.ab, tone: "fg" });
-			if (k.counts) {
-				if (i.added) git.push({ text: " ", tone: "fg" }, { text: `+${i.added}`, tone: "green" });
-				if (i.deleted) git.push({ text: " ", tone: "fg" }, { text: `~${i.deleted}`, tone: "red" });
-				if (i.modified) git.push({ text: " ", tone: "fg" }, { text: `✱${i.modified}`, tone: "yellow" });
-			}
+		if (hasBranch) git.push({ text: foldBranch(i.branch!, k.fold ?? 24), tone: "purple" });
+		if (k.ab && i.ab) git.push({ text: i.ab, tone: "fg" });
+		if (k.counts) {
+			if (i.added) git.push({ text: " ", tone: "fg" }, { text: `+${i.added}`, tone: "green" });
+			if (i.deleted) git.push({ text: " ", tone: "fg" }, { text: `~${i.deleted}`, tone: "red" });
+			if (i.modified) git.push({ text: " ", tone: "fg" }, { text: `✱${i.modified}`, tone: "yellow" });
 		}
 		g(git);
 		// herdr 坐标（面板位置）默认保到最后：级联里排在 cwd 之后丢（不用 keepHerdr 门，级联自己控制）
@@ -260,15 +266,21 @@ export function buildLines(i: OcInput): Segment[][] {
 	const line1: Segment[] = variants.find((v) => visibleWidth(plain(v)) <= width) ?? line1Full;
 
 	// ---------- 行2 ----------
+	// 入口净化（猎杀五轮 B-oc-3）：NaN 是合法 number，token/ctx 混进来渲染
+	// ↑NaNM、NaN%/200K 且色档比较全 false 落 green。非有限一律当 0/未知。
+	const _n = (v: number | null | undefined) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+	const inTok = _n(i.inputTokens), outTok = _n(i.outputTokens), rcTok = _n(i.cacheRead);
+	const ctxPct = typeof i.ctxPercent === "number" && Number.isFinite(i.ctxPercent) ? i.ctxPercent : null;
+	const ctxWin = _n(i.ctxWindow);
 	const chText =
-		i.cacheRead > 0 && i.inputTokens + i.cacheRead + i.cacheWrite > 0
-			? `CH${((i.cacheRead / (i.inputTokens + i.cacheRead + i.cacheWrite)) * 100).toFixed(2)}%`
+		rcTok > 0 && inTok + rcTok + _n(i.cacheWrite) > 0
+			? `CH${((rcTok / (inTok + rcTok + _n(i.cacheWrite))) * 100).toFixed(2)}%`
 			: "";
 	const cpText = i.compactions > 0 ? `CP${i.compactions}` : "";
 	// 上下文占用与 TTFT 也是「整段丢」的语义，窄到放不下就整段不显示，
 	// 不能只留 `| 16.24%/1M` 或留个孤零零的 `TTFT`
-	const ctxFull = i.ctxWindow > 0 ? `${i.ctxPercent != null ? `${i.ctxPercent.toFixed(2)}%` : "?"}/${fmtTokens(i.ctxWindow)}` : "";
-	const ctxShort = i.ctxWindow > 0 && i.ctxPercent != null ? `${Math.round(i.ctxPercent)}%` : "";
+	const ctxFull = ctxWin > 0 ? `${ctxPct != null ? `${ctxPct.toFixed(2)}%` : "?"}/${fmtTokens(ctxWin)}` : "";
+	const ctxShort = ctxWin > 0 && ctxPct != null ? `${Math.round(ctxPct)}%` : "";
 	const ttftText = i.ttftMs != null ? fmtTtft(i.ttftMs) : "";
 	const ctxBudget = ctxFull ? visibleWidth(`${sep.text}${ctxFull}`) : 0;
 	const ttftBudget = ttftText ? 1 + visibleWidth(ttftText) : 0;
@@ -277,11 +289,11 @@ export function buildLines(i: OcInput): Segment[][] {
 
 	type Keep = { ttft: boolean; ch: boolean; cp: boolean; ctx: boolean; ctxShort?: boolean };
 	const assemble = (k: Keep): Segment[] => {
-		const out: Segment[] = [{ text: `↑${fmtTokens(i.inputTokens)} ↓${fmtTokens(i.outputTokens)}`, tone: "fg" }];
-		out.push(sep, { text: `R${fmtTokens(i.cacheRead)}`, tone: "fg" });
+		const out: Segment[] = [{ text: `↑${fmtTokens(inTok)} ↓${fmtTokens(outTok)}`, tone: "fg" }];
+		out.push(sep, { text: `R${fmtTokens(rcTok)}`, tone: "fg" });
 		if (k.ch) out.push({ text: " ", tone: "fg" }, { text: chText, tone: "cyan" });
 		if (k.cp) out.push({ text: " ", tone: "fg" }, { text: cpText, tone: "comment" });
-		if (k.ctx) out.push(sep, { text: k.ctxShort ? ctxShort : ctxFull || ctxShort, tone: ctxTone(i.ctxPercent) });
+		if (k.ctx) out.push(sep, { text: k.ctxShort ? ctxShort : ctxFull || ctxShort, tone: ctxTone(ctxPct) });
 		if (k.ttft) out.push({ text: " ", tone: "fg" }, { text: ttftText, tone: ttftColor(i.ttftMs) });
 		if (identity.length) out.push(sep, ...identity);
 		return out;

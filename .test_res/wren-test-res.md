@@ -1,5 +1,5 @@
 # wren 测试结果
-执行时间：2026-10-03 14:09:50
+执行时间：2026-10-03 14:23:50
 
 | ID | 状态 | 备注 |
 |----|------|------|
@@ -110,6 +110,7 @@
 | T105 | PASS | empty cwd + empty model: no leading/trailing separator, no identity group |
 | T106 | PASS | narrow budget swaps ctx% to short form before dropping CH/TTFT |
 | T107 | PASS | cc narrow tier: ◈/▂▄▆█/⏱ icons, quartile×color orthogonal, TTFT->CH drop |
+| T108 | PASS | pi narrow tier: short-form/◈/▂▄▆█/⏱, CP→TTFT→CH drop, 56 stays wide, quartile matrix |
 | T109 | PASS | qc narrow tier mirrors cc: short in/out, ◈/▂▄▆█/⏱, CP->TTFT->CH order, wide untouched |
 
-汇总：Total 108 / Pass 107 / Fail 0 / Skip 1
+汇总：Total 109 / Pass 108 / Fail 0 / Skip 1

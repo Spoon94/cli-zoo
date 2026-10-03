@@ -72,7 +72,7 @@ function parsePorcelain(out: string): GitState {
 		}
 	}
 	// porcelain 的 branch.head 对 detached HEAD 给 "(detached)"，以 "(" 开头 = 无分支
-	st.branch = st.head === "" || st.head.startsWith("(") ? "" : st.head;
+	st.branch = st.head === "" || st.head === "(detached)" ? "" : st.head; // 猎杀五轮 B-2b
 	return st;
 }
 
@@ -165,18 +165,22 @@ const tui = async (api: any) => {
 		const provider = (api.state.provider ?? []).find((p: any) => p.id === lastOutput?.providerID);
 		const model = lastOutput ? provider?.models?.[lastOutput.modelID] : undefined;
 		const limit = model?.limit?.context ?? 0;
-		// 与宿主 usage() 同口径：四项 token 之和（直接用末条 tokens.total 会在流式时拿到 0）
+		// 与宿主 usage() 同口径：四项 token 之和（直接用末条 tokens.total 会在流式时拿到 0）。
+		// Number.isFinite 双挡（猎杀五轮 B-oc-3）：NaN 是合法 number，typeof 挡不住——
+		// 混进来会渲染 ↑NaNM 且 ctx 色档比较全 false 落 green。
+		const num = (v: any) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 		const ctxTokens = lastOutput
 			? [lastOutput.tokens?.input, lastOutput.tokens?.output, lastOutput.tokens?.reasoning, lastOutput.tokens?.cache?.read, lastOutput.tokens?.cache?.write]
-					.reduce((a: number, b: any) => a + (typeof b === "number" ? b : 0), 0)
+					.reduce((a: number, b: any) => a + num(b), 0)
 			: 0;
 		const parts = last ? api.state.part(last.id) : [];
 		let firstStart = Infinity;
 		for (const part of parts) {
-			if (typeof part?.time?.start === "number" && part.time.start < firstStart) firstStart = part.time.start;
+			if (num(part?.time?.start) > 0 && part.time.start < firstStart) firstStart = part.time.start;
 		}
+		// TTFT 负值钳 0（猎杀五轮低危：宿主时钟错位会渲染 TTFT -2.0s）
 		let ttft: number | null = null;
-		if (last && firstStart !== Infinity) ttft = firstStart - last.time.created;
+		if (last && firstStart !== Infinity) ttft = Math.max(0, firstStart - last.time.created);
 		const key = sessionID ?? "";
 		if (ttftCache.session !== key) ttftCache = { session: key, ms: null };
 		if (ttft != null) ttftCache.ms = ttft;

@@ -423,7 +423,9 @@ def scan_transcript(path):
 
 
 def thinking_level(data, tr_effort, model_id):
-    """思考等级：顶层 reasoningEffort → model.preferences[id].reasoning.effort → transcript。"""
+    """思考等级：顶层 reasoningEffort → model.preferences[id].reasoning.effort → transcript。
+    出口 isinstance(str) 净化（猎杀五轮 B-qc-1：prefs/顶层 reasoning 的 effort
+    非字符串时 join 抛 TypeError 走裸 cwd——transcript 路径已守，stdin 两路漏）。"""
     prefs = ((data.get("model") or {}).get("preferences") or {}).get(model_id) or {}
     r = prefs.get("reasoning") or {}
     if r.get("enabled") is False:
@@ -437,7 +439,8 @@ def thinking_level(data, tr_effort, model_id):
         if isinstance(v, dict):
             e = e or v.get("effort") or v.get("level")
             break
-    return e or tr_effort or ""
+    e = e if isinstance(e, str) else ""
+    return one_line(e or tr_effort or "")
 
 
 def main():
@@ -465,7 +468,10 @@ def main():
     model_name = raw_name.split("/")[-1].replace(" Model", "").strip() or "no-model"
 
     cw = data.get("context_window") or {}
-    win = cw.get("context_window_size") or (1_000_000 if "[1m]" in model_name else 200_000)
+    # 窗口净化（猎杀五轮 B-qc-2）：json.loads 接受非标 NaN/Infinity，
+    # used_percentage 在时 fmt(win) → int(nan) ValueError 走裸 cwd。非法回落默认窗。
+    _win = cw.get("context_window_size")
+    win = _win if (isinstance(_win, int) and _win > 0) else (1_000_000 if "[1m]" in model_name else 200_000)
     # ctx% 数据源：原生 used_percentage 优先；缺失时 total_input_tokens 本身就是
     # 当前上下文占用（qoder 文档注明非累计），可直接当分子
     native_pct = cw.get("used_percentage")

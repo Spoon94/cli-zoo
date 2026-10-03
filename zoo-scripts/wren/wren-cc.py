@@ -422,12 +422,17 @@ def main():
     # /compact 后为 null，正是需要用 compactMetadata.postTokens 兜底的时候）
     cw = data.get("context_window") or {}
     cu = cw.get("current_usage") or {}
-    ctx_window = cw.get("context_window_size") or (1_000_000 if "[1m]" in model_name else 200_000)
+    # 窗口净化（猎杀五轮 B-qc-2 的 cc 同款洞）：NaN/Infinity 会让 fmt 的
+    # int() 炸（native_prompt>0 时触发）。非法回落默认窗。
+    _cw_size = cw.get("context_window_size")
+    ctx_window = _cw_size if (isinstance(_cw_size, int) and _cw_size > 0) else (1_000_000 if "[1m]" in model_name else 200_000)
     native_prompt = native_cache_r = 0
     if cu:
-        native_prompt = (cu.get("input_tokens", 0) + cu.get("cache_read_input_tokens", 0)
-                         + cu.get("cache_creation_input_tokens", 0))
-        native_cache_r = cu.get("cache_read_input_tokens", 0)
+        # 同 tok() 纪律（猎杀五轮）：stdin native usage 的 NaN/Infinity 同炸
+        _nt = lambda k: (lambda v: v if isinstance(v, (int, float)) and not isinstance(v, bool)
+                         and (not isinstance(v, float) or math.isfinite(v)) and v > 0 else 0)(cu.get(k, 0))
+        native_prompt = _nt("input_tokens") + _nt("cache_read_input_tokens") + _nt("cache_creation_input_tokens")
+        native_cache_r = _nt("cache_read_input_tokens")
 
     transcript = data.get("transcript_path", "")
 
