@@ -151,6 +151,9 @@
 | T123 | qc | transcript assistant 记录 content 含 U+2028（ensure_ascii=False 落盘） | 行2 含 `↑52K`/`R47K`（记录完整解析；**split→splitlines 变异存活**：回退后 `↑0` 红） |
 | T124 | qc | `COLUMNS∈{20,10,6}` + 长路径满配 | 恰 2 行、显示宽 ≤COLUMNS；≥20 列时 qc 徽标在场（6 列实绘 4 格为物理极限区只钉结构；**max(4)→max(24) 变异存活**） |
 | T125 | qc | 四分位换档值 25/50/75 双源（原生 `used_percentage` + postTokens 回落） | `▄25%`/`▆50%`/`█75%` 六组合全中（**阈值 off-by-one 变异存活**：`<=25` 注入后 25→▂ 红） |
+| T127 | qc | cwd=`/tmp/xqc`（折叠后含 qc 子串）+ `COLUMNS=24` 带 herdr；51 列 + 38 格 herdr 同款 | 行1 两场景都含 `\| qc` 徽标段（**徽标保住判定用入选索引非子串守门**：删 rescue 分支变异下 24 列丢徽标红，对齐 cc T126） |
+| T128 | qc | 同一 transcript cc 先跑、qc 后跑（同 `WREN_CACHE_DIR`；input=10000/cache_read=8000） | qc 显 `CH80.00%` 不显 `CH44.44%`（**跨宿主缓存键不碰撞守门**：键掺 `qc-` 前缀） |
+| T129 | qc | `message.content=""` 的 user + 5s 后 assistant；对照 `content="a"` | 空 content 不显 TTFT、对照显 `TTFT 5.0s`（**空串不开窗守门**，对齐 cc F2） |
 | T116 | pi | herdr env 注入：harness 注 `HERDR_TAB_ID=$'t1\nEVIL'`、纯 `\n`、`\n`+WS/PANE 三探针（`env -u` 隔离真实 herdr env） | 换行压平进段（行1 `w9:t1EVIL:p1`）且总行数=2；纯 `\n` 且无他段→herdr 段消失；空段被 `filter(Boolean)` 拆掉无 `::`（**pi herdr env 压平守门**；非空转已证：回退旧代码 n=3 红） |
 | T117 | pi | 窄档四分位边界 25/50/75 + 半值 .5 六探针 + cc 交叉（tokens=149000/200000 → 74.5% 精确） | `▄25%`/`▆50%`/`█75%`（边界归上档）；.5 归偶：24.5→▂24、25.5→▄26、49.5→▄50、50.5→▆50、74.5→▆74、75.5→█76；cc 同值 `▆74%`（**pi 半偶舍入守门**；变异已杀：`<50`→`<=50`、roundHalfEven→toFixed(0) 均红） |
 | T118 | pi | 预算地板：`WIDTH∈{20,10,6}`（预算 15/5/4）满配夹具 | 逐格钉形 `743K/117K\|▄28%\|`、`743K/`、`743K`（**max(4,W−5) 守门**；变异已杀：max(4)→max(24) 三档全变形红） |

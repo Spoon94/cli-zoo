@@ -3151,6 +3151,68 @@ else
     fail T126 "24col=[$t126]"
 fi
 
+# ============================================================
+# T127: BUG1 徽标保住判定不能拿子串猜——cwd 折叠后含 "qc"（/tmp/xqc）时
+#       'qc' not in line1 误判已保住、跳过 rescue。判定必须用入选索引
+#       （对齐 cc 7ee3794 的 assemble_l1_report 模式）。
+#       24 列：natural 序 herdr 在/徽标出 → rescue 后徽标必须在场；
+#       51 列 + 38 格 herdr 同款（cwd+herdr 放得下、+徽标放不下）。
+# ============================================================
+new_box
+t127_env() {  # $1 = COLUMNS, $2 = herdr 三段
+    printf '{"cwd":"/tmp/xqc","model":{"display_name":"m"},"context_window":{"context_window_size":1000000,"used_percentage":3}}' \
+        | NO_COLOR=1 COLUMNS=$1 HERDR_WORKSPACE_ID=$2 HERDR_TAB_ID=$3 HERDR_PANE_ID=$4 \
+            WREN_CACHE_DIR="$BOX/c127-$1" python3 "$QC_PAYLOAD" 2>/dev/null | head -1
+}
+t127_a="$(t127_env 24 wW t12 p34)"
+t127_b="$(t127_env 51 wW t1234567890123456789012345678901 p34)"
+if printf '%s' "$t127_a" | grep -qF " | qc" \
+   && printf '%s' "$t127_b" | grep -qF " | qc"; then
+    pass T127 "badge rescue decided by taken-index, not substring (cwd containing qc)"
+else
+    fail T127 "24=[$t127_a] 51=[$t127_b]"
+fi
+
+# ============================================================
+# T128: BUG5 跨宿主缓存键碰撞——cc 与 qc 共用 ~/.cache/wren 且键同为
+#       sha1(path)[:16].json。同一 transcript 两宿主先后读，后读方继承
+#       先写方 last_prompt_tokens 语义（两宿主 CH 口径不同）。
+#       fixture：input=10000, cache_read=8000 →
+#       cc 口径 CH = 8000/(10000+8000) = 44.44%；qc 口径 CH = 8000/10000 = 80.00%。
+#       断言：cc 先跑、qc 后跑（同缓存目录）→ qc 仍显 80.00%（键已掺宿主标识）。
+# ============================================================
+new_box
+t128_tr="$BOX/t128.jsonl"
+printf '{"type":"user","timestamp":"2026-09-28T10:00:00Z","message":{"content":"a"}}\n{"type":"assistant","timestamp":"2026-09-28T10:00:05Z","message":{"usage":{"input_tokens":10000,"output_tokens":10,"cache_read_input_tokens":8000,"cache_creation_input_tokens":0}}}\n' >"$t128_tr"
+printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$t128_tr" \
+    | NO_COLOR=1 COLUMNS=90 WREN_CACHE_DIR="$BOX/shared" python3 "$CC_PAYLOAD" >/dev/null 2>&1
+t128_qc="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$t128_tr" \
+    | NO_COLOR=1 COLUMNS=90 WREN_CACHE_DIR="$BOX/shared" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1)"
+if printf '%s' "$t128_qc" | grep -qF "CH80.00%" && ! printf '%s' "$t128_qc" | grep -qF "CH44.44%"; then
+    pass T128 "cross-host cache keys do not collide (qc after cc keeps qc CH semantics)"
+else
+    fail T128 "qc=[$t128_qc]"
+fi
+
+# ============================================================
+# T129: BUG6 空串 user content 不开 TTFT 窗——message.content='' 的记录
+#       不是轮首（对齐 cc F2 语义：bool(content)）。5s 后 assistant 落盘
+#       不得显示 TTFT；对照：content='a' 的同形 transcript 显示 TTFT 5.0s。
+# ============================================================
+new_box
+printf '{"type":"user","timestamp":"2026-09-28T10:00:00Z","message":{"content":""}}\n{"type":"assistant","timestamp":"2026-09-28T10:00:05Z","message":{"usage":{"input_tokens":100,"output_tokens":10,"cache_read_input_tokens":80}}}\n' >"$BOX/t129a.jsonl"
+printf '{"type":"user","timestamp":"2026-09-28T10:00:00Z","message":{"content":"a"}}\n{"type":"assistant","timestamp":"2026-09-28T10:00:05Z","message":{"usage":{"input_tokens":100,"output_tokens":10,"cache_read_input_tokens":80}}}\n' >"$BOX/t129b.jsonl"
+t129a="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$BOX/t129a.jsonl" \
+    | NO_COLOR=1 COLUMNS=90 WREN_CACHE_DIR="$BOX/c129a" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1)"
+t129b="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$BOX/t129b.jsonl" \
+    | NO_COLOR=1 COLUMNS=90 WREN_CACHE_DIR="$BOX/c129b" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1)"
+if ! printf '%s' "$t129a" | grep -qE "TTFT" \
+   && printf '%s' "$t129b" | grep -qF "TTFT 5.0s"; then
+    pass T129 "empty-string user content does not open the TTFT window"
+else
+    fail T129 "empty=[$t129a] control=[$t129b]"
+fi
+
 # ---------- 汇总 ----------
 printf '\nTotal: %d  Pass: %d  Fail: %d  Skip: %d\n' "$TOTAL" "$PASS_N" "$FAIL_N" "$SKIP_N"
 

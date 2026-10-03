@@ -168,11 +168,13 @@ def _epoch(ts):
 
 
 def _is_prompt_user(d):
-    """真用户提示才算轮首：tool_result 回填也是 type=user，不重开窗口。"""
+    """真用户提示才算轮首：tool_result 回填也是 type=user，不重开窗口。
+    空串 content 不算轮首（猎杀七轮 BUG6，对齐 cc F2：bool(content)）——
+    否则空消息记录 + 5s 后 assistant 会凭空显示一个 TTFT。"""
     m = d.get("message") or {}
     ct = m.get("content")
     if isinstance(ct, str):
-        return True
+        return bool(ct)
     if isinstance(ct, list):
         return any(isinstance(b, dict) and b.get("type") != "tool_result" for b in ct)
     return False
@@ -371,7 +373,11 @@ def scan_transcript(path):
     except OSError:
         return st
 
-    cache_file = CACHE_DIR / f"{hashlib.sha1(str(path).encode()).hexdigest()[:16]}.json"
+    # 缓存键掺宿主标识（猎杀七轮 BUG5）：cc/qc 共用 ~/.cache/wren 且此前键同为
+    # sha1(path)[:16]——同一 transcript 两宿主先后读，后读方继承先写方的
+    # last_prompt_tokens 语义（两宿主 CH 口径不同，实测 80.39%→44.57%）。
+    # 键格式：qc-<sha1(path)[:16]>.json（cc 侧对齐为 cc-<同式>）
+    cache_file = CACHE_DIR / f"qc-{hashlib.sha1(str(path).encode()).hexdigest()[:16]}.json"
     offset = 0
     if cache_file.exists():
         try:
@@ -666,7 +672,22 @@ def main():
     if keep_duration:
         natural.append((dur_s, " · " + duration))
     line1 = assemble_l1(natural)
-    if "qc" not in strip_ansi(line1):
+    # 徽标保住判定不能拿子串 "qc" 猜（猎杀七轮 BUG1：cwd=/tmp/xqc 折叠后
+    # '…qc' 含子串 → 误判已保住、跳过 rescue，24 列实测丢徽标）——
+    # assemble 返回行同时报每个 part 是否入选，直接看徽标本身（对齐 cc 7ee3794）。
+    def assemble_l1_report(order):
+        line = c("comment", display_cwd)
+        used = dwidth(display_cwd)
+        taken = []
+        for idx, (part, part_p) in enumerate(order):
+            if used + dwidth(part_p) <= term_w:
+                line += part
+                used += dwidth(part_p)
+                taken.append(idx)
+        return line, taken
+
+    line1, taken = assemble_l1_report(natural)
+    if natural.index(qc_part) not in taken:
         # qc 没保住：qc 最优先重拼（herdr/git 争剩余）
         rescue = [qc_part] + [p for p in natural if p is not qc_part]
         line1 = assemble_l1(rescue)

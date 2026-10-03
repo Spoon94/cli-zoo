@@ -1,5 +1,5 @@
 # wren 测试结果
-执行时间：2026-10-03 17:06:15
+执行时间：2026-10-03 17:46:54
 
 | ID | 状态 | 备注 |
 |----|------|------|
@@ -129,5 +129,11 @@
 | T124 | PASS | extreme narrow (20/10/6 cols): 2 lines, qc badge, width within COLUMNS |
 | T125 | PASS | quartile boundaries 25/50/75 pinned on both native and postTokens sources |
 | T126 | PASS | cc badge two-pass lock: rescue keeps badge at 24 cols (cwd has cc substring) |
+| T127 | PASS | badge rescue decided by taken-index, not substring (cwd containing qc) |
+| T128 | PASS | cross-host cache keys do not collide (qc after cc keeps qc CH semantics) |
+| T129 | PASS | empty-string user content does not open the TTFT window |
+| T130 | FAIL | a=[↑-50 ↓-7 \| R-100 \| ?/200K TTFT 12s \| m · high] b=[↑0500 ↓07 \| R0300 CH0.01% \| ?/200K TTFT 12s \| m · high] c=[↑100 ↓NaNM \| R50 CH100.00% \| ?/200K TTFT 12s \| m · high] |
+| T131 | FAIL | pi=[↑4K ↓0 \| R485 CH12.13% \| 0.13%/200K TTFT 12s \| m · high] cc=[↑0 ↓0 \| R0 CH12.12% \| 2.00%/200K \| m · xhigh] oc=[CH12.13% 0.13%/200K] |
+| T132 | FAIL | p1=[743K/117K\|◈96.34%\|▄25% ⏱12s\|m · high] p2=[743K/117K\|◈96.34%\|▄25% ⏱12s\|m · high] cc=[0/0\|▄26%\|m · xhigh] col=[ESC[38;2;248;248;242m↑743K ↓117KESC[0m ESC[38;2;98;114;164m\|ESC[0m R19.6M ESC[38;2;139;233;253mCH96.34%ESC[0m ESC[38;2;98;114;164m\|ESC[0m ESC[38;2;241;250;140m70.00%/200KESC[0m ESC[38;2;248;248;242mTTFT 12sESC[0m ESC[38;2;98;114;164m\|ESC[0m ESC[38;2;255;121;198mmESC[0m · ESC[38;2;139;233;253mhighESC[0m] |
 
-汇总：Total 126 / Pass 125 / Fail 0 / Skip 1
+汇总：Total 132 / Pass 128 / Fail 3 / Skip 1
