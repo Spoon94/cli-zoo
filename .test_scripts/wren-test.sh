@@ -1678,10 +1678,9 @@ else
     printf '%s' "$t73_w65" | grep -qF "CH96.34%" && t73_ok=0
     printf '%s' "$t73_w65" | grep -qF "CP1" || t73_ok=0
     # 55：窄档（≤55，与 cc T107 / qc T109 同契约）——短形 + 紧分隔；R/CP 本就
-    # 不进段表；此 fixture 实宽 55 > 实绘 50 → ⏱ 也让位（丢序 CP→TTFT→CH 的一环）
-    printf '%s' "$t73_w55" | grep -qF "743K/117K|◈96.34%|▄28%|claude-opus-5 · xhigh" || t73_ok=0
+    # 不进段表；⏱ 升铁律（丢序 CP→CH），thinking 缩写 xh（十轮裁定后 45 ≤ 50 全在）
+    printf '%s' "$t73_w55" | grep -qF "743K/117K|◈96.34%|▄28% ⏱12s|claude-opus-5 · xh" || t73_ok=0
     printf '%s' "$t73_w55" | grep -qF "CP1" && t73_ok=0
-    printf '%s' "$t73_w55" | grep -qF "⏱" && t73_ok=0
     # 宽档三档（90/75/65）都不剔：账本头、ctx%、模型名；55 窄档同段以短形在场
     for l in "$t73_w90" "$t73_w75" "$t73_w65"; do
         printf '%s' "$l" | grep -qF "↑743K ↓117K" || t73_ok=0
@@ -2558,20 +2557,20 @@ t107_90="$(printf '{"cwd":"/tmp","model":{"display_name":"claude-opus-5"},"effor
 t107_l1="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":1000000},"transcript_path":"%s"}' "$T107_TR" \
     | NO_COLOR=1 COLUMNS=51 HERDR_WORKSPACE_ID=w9 HERDR_TAB_ID=w9:t1 HERDR_PANE_ID=w9:p1 WREN_CACHE_DIR="$BOX/c107-l1" python3 "$CC_PAYLOAD" 2>/dev/null | head -1)"
 t107_q12="$(t107_ctx 12)"; t107_q37="$(t107_ctx 37)"; t107_q62="$(t107_ctx 62)"; t107_q80="$(t107_ctx 80)"; t107_q96="$(t107_ctx 96)"
-# 模型名用短名 m（身份组 21 格的长名会把 ⏱ 提前挤掉，级界随内容浮动属预期）：
-# 51 满配 ◈96.34%+▄28%+⏱12s+身份组；44 列起 ⏱ 让位（42 断言在其后；实测级界 ⏱=44、◈=36，in/out 短形后档界随内容浮动）
-# 90 宽档原样；行1 时长不在、herdr 坐标在
+# 51 满配 ◈96.34%+▄28%+⏱12s+身份组（m · xh 缩写）。⏱ 升铁律（用户裁定）：
+# 42/36 丢 ◈ 保 ⏱；思考等级 xhigh→xh、模型去 [1m]（此 fixture 模型 m 无后缀）。
+# 90 宽档原样（xhigh 不缩写）；行1 时长不在、herdr 坐标在
 if printf '%s' "$t107_51" | grep -qF "◈96.34%" \
    && printf '%s' "$t107_51" | grep -qF "▄28%" \
    && printf '%s' "$t107_51" | grep -qF "⏱12s" \
-   && printf '%s' "$t107_51" | grep -qF "|m · xhigh" \
+   && printf '%s' "$t107_51" | grep -qF "|m · xh" \
    && ! printf '%s' "$t107_51" | grep -qF "R19.6M" \
    && ! printf '%s' "$t107_51" | grep -qF "CP1" \
    && ! printf '%s' "$t107_51" | grep -qF "28.42%" \
-   && printf '%s' "$t107_42" | grep -qF "◈96.34%" \
-   && ! printf '%s' "$t107_42" | grep -qF "⏱" \
-   && ! printf '%s' "$t107_36" | grep -qF "⏱" \
+   && ! printf '%s' "$t107_42" | grep -qF "◈96.34%" \
+   && printf '%s' "$t107_42" | grep -qF "⏱12s" \
    && ! printf '%s' "$t107_36" | grep -qF "◈" \
+   && printf '%s' "$t107_36" | grep -qF "⏱12s" \
    && printf '%s' "$t107_36" | grep -qF "117K|▄28%" \
    && printf '%s' "$t107_90" | grep -qF "R19.6M CH96.34% CP1 | 28.42%/1M TTFT 12s | claude-opus-5" \
    && printf '%s' "$t107_l1" | grep -qF "w9:t1:p1" \
@@ -2603,7 +2602,7 @@ else
             WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs" \
             node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null | tail -1
     }
-    t108_51="$(t108_run 51)"; t108_42="$(t108_run 42)"; t108_36="$(t108_run 36)"
+    t108_51="$(t108_run 51)"; t108_44="$(t108_run 44)"; t108_42="$(t108_run 42)"; t108_36="$(t108_run 36)"
     t108_56="$(t108_run 56)"   # 宽档边界（MODEL=m 时 CH 仍在，与 55 窄档形态对照）
     t108_90="$(t108_run 90 claude-opus-5)"
     t108_q12="$(t108_run 51 m 12)"; t108_q37="$(t108_run 51 m 37)"
@@ -2614,21 +2613,24 @@ else
         WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs" \
         node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null | head -1)"
     t108_ok=1
-    # 51 满配：短形 + ◈ + ▄ + ⏱ + 身份组；R/CP/小数 ctx/↑↓ 都不在
+    # 51 满配：短形 + ◈ + ▄ + ⏱ + 身份组（thinking 缩写 xh）；R/CP/小数 ctx/↑↓ 都不在
     printf '%s' "$t108_51" | grep -qF "◈96.34%" || t108_ok=0
     printf '%s' "$t108_51" | grep -qF "▄28%" || t108_ok=0
     printf '%s' "$t108_51" | grep -qF "⏱12s" || t108_ok=0
-    printf '%s' "$t108_51" | grep -qF "|m · xhigh" || t108_ok=0
+    printf '%s' "$t108_51" | grep -qF "|m · xh" || t108_ok=0
     printf '%s' "$t108_51" | grep -qF "743K/117K" || t108_ok=0
     printf '%s' "$t108_51" | grep -qF "R19.6M" && t108_ok=0
     printf '%s' "$t108_51" | grep -qF "CP1" && t108_ok=0
     printf '%s' "$t108_51" | grep -qF "28.42%" && t108_ok=0
     printf '%s' "$t108_51" | grep -qF "↑743K" && t108_ok=0
-    # 丢序：42 丢 ⏱（◈仍在）；36 再丢 ◈（head|ctx 相邻）
-    printf '%s' "$t108_42" | grep -qF "◈96.34%" || t108_ok=0
-    printf '%s' "$t108_42" | grep -qF "⏱" && t108_ok=0
+    # 丢序（新裁定）：⏱ 升铁律永不丢；44（预算 39）全在；42（37）丢 ◈ 保 ⏱；
+    # 36（31）同 42 形（⏱ 在场、◈ 不在）
+    printf '%s' "$t108_44" | grep -qF "◈96.34%" || t108_ok=0
+    printf '%s' "$t108_44" | grep -qF "⏱12s" || t108_ok=0
+    printf '%s' "$t108_42" | grep -qF "◈" && t108_ok=0
+    printf '%s' "$t108_42" | grep -qF "117K|▄28% ⏱12s" || t108_ok=0
     printf '%s' "$t108_36" | grep -qF "◈" && t108_ok=0
-    printf '%s' "$t108_36" | grep -qF "117K|▄28%" || t108_ok=0
+    printf '%s' "$t108_36" | grep -qF "117K|▄28% ⏱12s" || t108_ok=0
     # 56 = 宽档边界：R/↑↓ 原样、无 ⏱/◈（与 55 窄档形态互斥；MODEL=m 时 56 实宽
     # 68→丢⏱ 57→丢◈ 48，R 在场即宽档形）
     printf '%s' "$t108_56" | grep -qF "R19.6M" || t108_ok=0
@@ -2637,6 +2639,12 @@ else
     printf '%s' "$t108_56" | grep -qF "◈" && t108_ok=0
     # 90 宽档全量（长模型名）
     printf '%s' "$t108_90" | grep -qF "R19.6M CH96.34% CP1 | 28.42%/1M TTFT 12s | claude-opus-5" || t108_ok=0
+    # 身份组缩短：窄档去 '[1m]' 后缀 + thinking 缩写；宽档不缩（原样保留）
+    t108_m1="$(t108_run 51 'forge[1m]')"
+    t108_m2="$(t108_run 90 'forge[1m]')"
+    printf '%s' "$t108_m1" | grep -qF "|forge · xh" || t108_ok=0
+    printf '%s' "$t108_m1" | grep -qF "[1m]" && t108_ok=0
+    printf '%s' "$t108_m2" | grep -qF "forge[1m] · xhigh" || t108_ok=0
     # 行1：herdr 坐标在、时长不在
     printf '%s' "$t108_l1" | grep -qF "w9:t1:p1" || t108_ok=0
     printf '%s' "$t108_l1" | grep -qF "| pi" || t108_ok=0
@@ -2648,9 +2656,9 @@ else
     printf '%s' "$t108_q80" | grep -qF "█80%" || t108_ok=0
     printf '%s' "$t108_q96" | grep -qF "█96%" || t108_ok=0
     if [[ $t108_ok -eq 1 ]]; then
-        pass T108 "pi narrow tier: short-form/◈/▂▄▆█/⏱, CP→TTFT→CH drop, 56 stays wide, quartile matrix"
+        pass T108 "pi narrow tier: short-form/◈/▂▄▆█/⏱ iron law, CP→CH drop, identity shortened, quartile matrix"
     else
-        fail T108 "51=[$t108_51] 42=[$t108_42] 36=[$t108_36] 56=[$t108_56] 90=[$t108_90] l1=[$t108_l1] q12=[$t108_q12] q37=[$t108_q37] q62=[$t108_q62] q80=[$t108_q80] q96=[$t108_q96]"
+        fail T108 "51=[$t108_51] 44=[$t108_44] 42=[$t108_42] 36=[$t108_36] 56=[$t108_56] 90=[$t108_90] l1=[$t108_l1] q12=[$t108_q12] q37=[$t108_q37] q62=[$t108_q62] q80=[$t108_q80] q96=[$t108_q96]"
     fi
 fi
 
@@ -2806,7 +2814,7 @@ else
     t118_20="$(t118_run 20)"; t118_10="$(t118_run 10)"; t118_6="$(t118_run 6)"
     t118_ok=1
     # 逐格钉形：预算 15/5/4（梯子丢空后硬截到预算宽）
-    [[ "$t118_20" == "743K/117K|▄28%|" ]] || t118_ok=0
+    [[ "$t118_20" == "743K/117K|▄28% " ]] || t118_ok=0
     [[ "$t118_10" == "743K/" ]] || t118_ok=0
     [[ "$t118_6" == "743K" ]] || t118_ok=0
     if [[ $t118_ok -eq 1 ]]; then

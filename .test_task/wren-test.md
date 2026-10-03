@@ -138,7 +138,7 @@
 | T105 | oc 渲染 | 空 cwd + 空 model（模型在 oc 侧确实不渲染；空 cwd 是 core 的能力面） | 行1 首段就是 git 组、无悬空分隔符；行2 无尾部 `\| `、无粉色模型段（**去重守门**） |
 | T106 | oc 渲染 | 窄预算（49 格，与宿主 usage/快捷键共行后的真实余量） | 行1 级联丢计数/ab 保 herdr；行2 先把 ctx% 换短形 `16%`（位置不变）保住 CH/TTFT，再不够才走梯子（**窄预算守门**：78 列窗格曾把 TTFT/herdr 全挤掉） |
 | T107 | cc 窄档 | `COLUMNS` 51/42/36/90 + 四分位矩阵（`current_usage` 原生） | 51：`743K/117K\|◈96.34%\|▄28% ⏱12s\|m · xhigh` 且无 R/CP/两位小数 ctx；42 丢 ⏱；36 再丢 ◈（`117K\|▄28%`）；90 宽档零变化；行1 时长不渲染、herdr 在；▂12/▄37/▆62/█80/█96（**cc 窄档守门**） |
-| T108 | pi 窄档 | 同 T107 输入面（harness 驱动：`BRANCH` JSON + `TTFT_MS` + `CTX_USAGE.percent`，新增 `MODEL_NAME` 便于短名探针） | 同 T107 形态断言：51 满配 `743K/117K\|◈96.34%\|▄28% ⏱12s\|m · xhigh`（无 R/CP/小数 ctx/↑↓）；42 丢 ⏱、36 再丢 ◈（`117K\|▄28%`）；**56 宽档边界**（R/↑↓ 原样、无 ⏱/◈，钉「≤55 才切窄」）；90 宽档零变化；行1 herdr 在、`\| pi` 在、无 `· ` 时长；▂▄▆█ 矩阵（**pi 窄档对齐 cc 守门**；非空转已证：narrow 永不触发/丢序反转两类注入均红） |
+| T108 | pi 窄档 | 同 T107 输入面（harness 驱动：`BRANCH` JSON + `TTFT_MS` + `CTX_USAGE.percent` + `MODEL_NAME`）+ 十轮裁定：51/44 满配（`m · xh`）、42/36 丢 ◈ 保 ⏱、`forge[1m]` 窄档去后缀/宽档原样 | 51/44 全在 `743K/117K\|◈96.34%\|▄28% ⏱12s\|m · xh`；42/36 `117K\|▄28% ⏱12s`（⏱ 铁律）；窄档 `\|forge · xh` 无 `[1m]`、宽档 `forge[1m] · xhigh`；56 宽档边界；四分位矩阵（**⏱ 铁律 + 身份组缩短守门**；回退丢序/回退缩写均红） |
 | T109 | qc 窄档 | 同 T107 输入面（ctx 源换 qc 口径：`used_percentage` 原生 + postTokens 回落；effort 走 runtime-config） | 55/51 满配含 `m · xh` 缩写；42/36 丢 ◈ 保 ⏱（**⏱ 铁律后窄档丢序 CP→CH**）、90 宽档零变化（不缩写）、四分位矩阵；行1 `\| qc` 在、无 `· ` 时长（**qc 窄档对齐 cc 守门**） |
 | T140 | qc | pty 造 51 列控制终端（`TIOCSCTTY`）、env 剥掉 `COLUMNS` 后跑 qc | 行2 走窄档短形（`743K/117K\|◈…\|m · xh`）（**宽度探测链守门**：COLUMNS env → ctermid 控制终端 → 兜底 80；qoder 宿主实测不注入 COLUMNS） |
 | T110 | 安装 | 裸相对名 env：`CLAUDE_SETTINGS=settings.json`、`OPENCODE_TUI_CONFIG=tui.json`（CWD 落配置）、`QODER_SETTINGS=$BOX/alt/q.json` | 配置与 payload 同目录：cc 在 CWD 且 `$CLAUDE/wren-cc` 不存在、oc payload 在 `./plugins` 且 `$OC/plugins` 不存在、qc 全落 `alt/`（**B-1 分裂落点守门**） |
@@ -159,7 +159,7 @@
 | T135 | qc | `WREN_CACHE_DIR` 预置 205 个递增 mtime 假缓存 → 渲染一次 | `.json` 数 ≤200、最旧 `fake0` 被删、本次 `qc-<sha1>` 键与最新假件存活（**mtime 清扫守门**） |
 | T116 | pi | herdr env 注入：harness 注 `HERDR_TAB_ID=$'t1\nEVIL'`、纯 `\n`、`\n`+WS/PANE 三探针（`env -u` 隔离真实 herdr env） | 换行压平进段（行1 `w9:t1EVIL:p1`）且总行数=2；纯 `\n` 且无他段→herdr 段消失；空段被 `filter(Boolean)` 拆掉无 `::`（**pi herdr env 压平守门**；非空转已证：回退旧代码 n=3 红） |
 | T117 | pi | 窄档四分位边界 25/50/75 + 半值 .5 六探针 + cc 交叉（tokens=149000/200000 → 74.5% 精确） | `▄25%`/`▆50%`/`█75%`（边界归上档）；.5 归偶：24.5→▂24、25.5→▄26、49.5→▄50、50.5→▆50、74.5→▆74、75.5→█76；cc 同值 `▆74%`（**pi 半偶舍入守门**；变异已杀：`<50`→`<=50`、roundHalfEven→toFixed(0) 均红） |
-| T118 | pi | 预算地板：`WIDTH∈{20,10,6}`（预算 15/5/4）满配夹具 | 逐格钉形 `743K/117K\|▄28%\|`、`743K/`、`743K`（**max(4,W−5) 守门**；变异已杀：max(4)→max(24) 三档全变形红） |
+| T118 | pi | 预算地板：`WIDTH∈{20,10,6}`（预算 15/5/4）满配夹具 | 逐格钉形 `743K/117K\|▄28% `（第 15 格为 ⏱ 前空格，十轮裁定 ⏱ 铁律后的截断形）、`743K/`、`743K`（**max(4,W−5) 守门**；变异已杀：max(4)→max(24) 三档全变形红） |
 | T119 | pi | 徽标让位夹具：39 格长 herdr 标签 + 51 列（物理极限区） | 行1 `…oo \| pi`（徽标前缀位铁律、herdr 让位）、恰 2 行（**两遍锁定守门**；变异已杀：整删重拼后徽标丢失红） |
 | T120 | pi | 模型名/思考注入：`MODEL_NAME=$'evil\nmodel'`+`THINKING=$'high\nx'`、`'anthropic/'`、纯 `\n` 双路 | 压平 `evilmodel · highx` 且 2 行；尾斜杠/压平空→`? · high`，无悬空 `\| ·`；思考压平空→不进段表无尾 ` ·`（**P1/P2 守门**；变异已杀：两处 oneLine 整删、回落整删均红） |
 | T130 | pi | usage 净化三注入：负值四路、字符串三路、负 cacheWrite 缩 CH 分母（第七轮 BUG4） | a/b 全钳 0（`↑0 ↓0 \| R0`，无负号/串接/NaN）；c `CH33.33%` 非 `CH100.00%`（**tok() 守门**；修前红：`↑-50`、`↑0500`、`↓NaNM`、`CH100.00%`） |

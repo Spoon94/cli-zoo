@@ -68,6 +68,10 @@ function ttftColor(ms: number | null | undefined): string {
 const TTFT_BUDGET_S = "TTFT 99m59s";
 const DUR_BUDGET = visibleWidth(" · 99h59m");
 
+// 窄档思考等级缩写（十轮裁定，与 cc 的 _THINK_SHORT 同表）：给 ⏱ 腾格；
+// 未知值原样。宽档不缩。
+const THINK_SHORT: Record<string, string> = { xhigh: "xh", high: "hi", medium: "med", low: "low", max: "max" };
+
 // TTFT 显示分档（设计 §3）：<10s 一位小数 / ≥10s 整数 / ≥60s `TTFT 1m05s` / ≥1h `TTFT 1h40m`。
 // 统一带 `TTFT ` 前缀（用户定稿：裸 T 前缀不直观）。上界 11 格（`TTFT 99m59s`），与
 // TTFT_BUDGET_S 对齐；超 99h 钳到 `TTFT 99h+`（9 格）保住上界。
@@ -476,8 +480,8 @@ export default function (pi: ExtensionAPI) {
 
 					// 行2 梯子（与 cc 同一套段表）：段列表 + 逐段剔，每段 (colored, plain)
 					// 成对收集、量宽只看 plain（预算串全程无色，色档不得影响折叠）。
-					// 宽档丢序 TTFT → CH → CP（新段先丢）；窄档 CP → TTFT → CH（⏱ 最先
-					// 让位给身份组；CP 在窄档本就不进段表，首位丢弃是空操作）。
+					// 宽档丢序 TTFT → CH → CP（新段先丢）；窄档 CP → CH（⏱ 升铁律，
+					// 十轮裁定永不丢；CP 在窄档本就不进段表，首位丢弃是空操作）。
 					// 永不剔除 in/out / ctx% / 模型·思考。
 					// TTFT 预算用上界占位串而非「彩色串宽 + 差额」：宽档 `TTFT 99m59s`=11 格，
 					// 窄档 `⏱⏱99m59s`=8 格（⏱ 计 1 格、iOS 实显 2 格，双占位补足——
@@ -525,16 +529,21 @@ export default function (pi: ExtensionAPI) {
 						if (statC) { segsC.push(statC); segsP.push(statP); }
 						// 身份组窄档也进（契约：模型·思考不可丢），组内仍 · 分隔；
 						// thinkingLevel 压平（交叉审 P1）：注入 \n 顶飞 2 行契约，压平后
-						// 空串不进段表
+						// 空串不进段表。窄档缩短（十轮裁定，与 cc 的 m_name/t_name 同款）：
+						// model 去 '[1m]' 后缀、thinking 按 THINK_SHORT 缩写（未知原样），
+						// 腾格给 ⏱；宽档不缩。
 						const thinking = oneLine(ctx.thinkingLevel) ?? "";
-						const identC = [c("pink", display)].concat(thinking ? [c("cyan", thinking)] : []);
-						const identP = [display].concat(thinking ? [thinking] : []);
+						const mName = narrow ? display.split("[1m]").join("") : display;
+						const tName = narrow ? (THINK_SHORT[thinking] ?? thinking) : thinking;
+						const identC = [c("pink", mName)].concat(tName ? [c("cyan", tName)] : []);
+						const identP = [mName].concat(tName ? [tName] : []);
 						if (identC.length) { segsC.push(identC.join(" · ")); segsP.push(identP.join(" · ")); }
 						return [segsC.join(narrow ? "|" : ` ${sep2} `), segsP.join(narrow ? "|" : " | ")];
 					};
 					let keep2 = { ttft: !!ttftS, ch: !!chS, cp: !!cpText };
 					let [line2c, plain2] = build2(keep2);
-					for (const drop of (narrow ? ["cp", "ttft", "ch"] : ["ttft", "ch", "cp"]) as const) {
+					// 窄档 ⏱ 升铁律（十轮裁定，与 cc 的 order 同款）：丢序 CP→CH，TTFT 永不丢
+					for (const drop of (narrow ? ["cp", "ch"] : ["ttft", "ch", "cp"]) as const) {
 						if (visibleWidth(plain2) <= termW) break;
 						keep2 = { ...keep2, [drop]: false };
 						[line2c, plain2] = build2(keep2);
