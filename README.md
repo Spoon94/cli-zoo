@@ -70,21 +70,7 @@ wren -h                          # 显示帮助
 
 ![wren statusline preview](./docs/wren-preview.svg)
 
-**宽档样例**（终端宽 ≥ 56 列）：
-
-```
-~/Code/cli-zoo | feat/wren-narrow-tier ↑0↓0 | wC:t1:p1 | cc · 1h5m
-↑12K ↓3K | R1.2M CH57.14% CP2 | 8.40%/200K TTFT 6.6s | claude-opus-5 · high
-```
-
-**窄档样例**（终端宽 ≤ 55 列。移动端 herdr 把 pane 拖成 51 列时触发）：
-
-```
-…-zoo | fea…-narrow-tier ↑0↓0 | wC:t1:p1 | cc
-12K/3K|◈57.14%|▂8% ⏱6.6s|claude-opus-5 · hi
-```
-
-上面两组样例来自同一个会话。wren 在 80 列渲染第一组，在 51 列渲染第二组。
+上图的样例由真渲染产出。终端宽 ≥ 56 列时，wren 渲染宽档；终端宽 ≤ 55 列时，cc 与 pi 渲染窄档。
 
 窄档使用 3 类图标：
 
@@ -113,31 +99,16 @@ wren 永不丢弃 3 个段：dmg 计数、herdr 坐标、宿主徽标。
 TTFT 四档：绿 < 5s、白 5–20s、黄 20–60s、红 > 60s。判据是屏幕显示值。
 上下文占用三档：绿 ≤ 70%、黄 70–90%、红 > 90%。
 
-qc 侧同构。qc 侧只有数据源不同。样例来自另一个 workspace 的真会话，所以分支与 pane 编号不同：
+**窄档覆盖 2 个宿主**：cc 与 pi。qc 与 oc 没有窄档。
 
-```
-~/Code/cli-zoo | feat/x ↑0↓0 | wW:t1:p2 | qc · 16m
-↑4.5M ↓65K | R4.2M CH98.21% | 15.00%/1M TTFT 4.2s | Qwen3.8-Max · xhigh
-```
+- qc：qoder 宿主不把终端宽传给 statusline。wren 拿不到宽度，无法判断窄档。
+- oc：opencode v2 将发布，wren 暂不实现窄档。
 
-oc 侧同样两行。wren 把两行渲染在 prompt 框正下方那一行的左半。样例：
-
-```
-~/Code/ai_code/cli-zoo | feat/wre…upport_opencode ↑0↓0 ✱6 | wC:t1:p1 | oc · 5h15m      162.4K  ctrl+p commands
-↑390K ↓12K | R5.5M CH93.41% | 14.08%/1M TTFT 2.0s
-```
-
-oc 侧有 3 点不同：
+**oc 侧的 3 点不同**：
 
 1. oc 侧不渲染模型名与思考等级。宿主 prompt 框内同一行已有 `agent · model · variant`。
 2. oc 侧显示 cwd。wren 行 1 占用宿主原来显示 cwd 的那一格。
-3. cc、pi、qc 三个宿主带 cwd 与模型名。这 3 个宿主没有自带信息可用。
-
-窄档在 4 个宿主上不同：
-
-- cc 与 pi：窄档直接生效。
-- qc：窄档默认关闭。qoder 宿主不给宽度通道。设置 `WREN_QC_NARROW=1` 打开。
-- oc：不做窄档（opencode v2 将发布）。
+3. oc 侧的两行渲染在 prompt 框正下方那一行的左半。
 
 装完在 pi 里用 `/footer` 切换自定义/内置 footer。
 
