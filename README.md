@@ -58,8 +58,16 @@ otter -h                         # 帮助
 
 ### [wren](./zoo-scripts/wren)
 
-wren 是一个安装器。wren 把两行 statusline（Dracula 配色）装到 4 个宿主：Claude Code、pi、Qoder CLI、opencode。
+wren 把两行 statusline（Dracula 配色）装到 4 个宿主：Claude Code、pi、Qoder CLI、opencode。
 wren 复制文件副本到宿主。安装完成后，宿主不再依赖本仓库的位置。
+
+![wren 概览](./docs/wren-card.svg)
+
+![wren statusline 预览（上：宽档；下：窄档）](./docs/wren-preview.svg)
+
+终端宽 ≥ 56 列时，wren 渲染宽档。终端宽 ≤ 55 列时，cc 与 pi 渲染窄档。
+窄档用 3 类图标：`◈` 缓存命中率、`▂▄▆█` 上下文占用四分位、`⏱` 首片延迟。
+窄档覆盖 2 个宿主。qc 拿不到终端宽，oc 暂不实现。
 
 ```bash
 ./cli-zoo-install.sh wren        # 第一步：把 wren 装到 $PREFIX
@@ -68,49 +76,7 @@ wren uninstall [cc|pi|qc|oc|all] # 卸载。默认 all
 wren -h                          # 显示帮助
 ```
 
-![wren statusline preview](./docs/wren-preview.svg)
-
-上图的样例由真渲染产出。终端宽 ≥ 56 列时，wren 渲染宽档；终端宽 ≤ 55 列时，cc 与 pi 渲染窄档。
-
-窄档使用 3 类图标：
-
-| 图标 | 含义 |
-|------|------|
-| `◈` | 缓存命中率（CH）。保留两位小数 |
-| `▂` `▄` `▆` `█` | 上下文占用四分位：< 25%、< 50%、< 75%、≥ 75% |
-| `⏱` | 首片延迟（TTFT）。窄档不丢弃此段 |
-
-窄档的 4 条规则：
-
-1. wren 不显示 R（缓存读取量）与 CP（压缩次数）。
-2. wren 把 in/out 写成短形 `12K/3K`。
-3. wren 去掉模型名的 `[1m]` 后缀。wren 缩写思考等级：xhigh→xh、high→hi、medium→med。
-4. wren 在窄档不显示行 1 的时长。
-
-两行的段序：
-
-- 行 1：cwd、git 状态、herdr 坐标、宿主徽标、会话时长。
-- 行 2：累计 token、缓存读取量、CH、CP、上下文占用、TTFT、模型名、思考等级。
-
-**行 1 放不下时的让位顺序**：时长 → ahead-behind → 分支折叠（6 档：24→20→16→12→8→4）→ cwd 折叠（地板 16→8→4）。
-wren 永不丢弃 3 个段：dmg 计数、herdr 坐标、宿主徽标。
-
-**着色**：上下文占用与 TTFT 用突变色档。
-TTFT 四档：绿 < 5s、白 5–20s、黄 20–60s、红 > 60s。判据是屏幕显示值。
-上下文占用三档：绿 ≤ 70%、黄 70–90%、红 > 90%。
-
-**窄档覆盖 2 个宿主**：cc 与 pi。qc 与 oc 没有窄档。
-
-- qc：qoder 宿主不把终端宽传给 statusline。wren 拿不到宽度，无法判断窄档。
-- oc：opencode v2 将发布，wren 暂不实现窄档。
-
-**oc 侧的 3 点不同**：
-
-1. oc 侧不渲染模型名与思考等级。宿主 prompt 框内同一行已有 `agent · model · variant`。
-2. oc 侧显示 cwd。wren 行 1 占用宿主原来显示 cwd 的那一格。
-3. oc 侧的两行渲染在 prompt 框正下方那一行的左半。
-
-装完在 pi 里用 `/footer` 切换自定义/内置 footer。
+四个宿主的差异、安装器细节、完整参数，见 [zoo-scripts/wren/README.md](./zoo-scripts/wren/README.md)；测试见 [docs/testing.md](./docs/testing.md)。
 
 ## 安装与卸载
 
