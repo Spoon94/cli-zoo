@@ -14,7 +14,7 @@
 | TTFT（首片延迟） | transcript 配对：真 user → 首条 assistant（排除 tool_result 回填） | 事件流：`turn_start` → 首个 `message_update`（内存态，扩展重载后下一轮才有值） | 推导：`min(part.time.start) − assistant.time.created`，轮中未落片时读上一轮存量 |
 | ctx% | 按 `input + cache_read + cache_creation` 自算（与 CC 官方 `used_percentage` 同式） | 取 `ctx.getContextUsage()`（pi 的定义含 output，压缩后显示 `?`） | 最近一条 assistant 的 `tokens.total` ÷ provider 的 `limit.context` |
 | CH 数据源 | `current_usage` 优先，回退 transcript 末条 assistant | `sessionManager` 末条 assistant | session 聚合 tokens + 末条 assistant（公式与 cc/pi 同） |
-| 宽度来源 | `COLUMNS` 有则用、无则 80 兜底；≤55 列进窄档（预算按实绘宽 `COLUMNS−5` 收；行2 图标短形 `31.2M/643K`/`◈99.9%`/`▂24%`/`⏱7.1s`、R/CP 不进段表、模型·思考保留、紧分隔 \|，丢序 CP → TTFT → CH） | `render(宽度)` 由宿主传入；同款窄档（图标短形 + 丢序同构） | `api.renderer.width`（且逐段自截，宿主 `truncate` 仅兜底）；无窄档（opencode v2 将出，裁定不做） |
+| 宽度来源 | `COLUMNS` 有则用、无则探测控制终端、兜底 80；窄档默认关（qoder 不给宽度通道，探针实锤）——`WREN_QC_NARROW=1` 显式开后同款窄档（图标短形、丢序同构） | `render(宽度)` 由宿主传入；同款窄档（图标短形 + 丢序同构） | `api.renderer.width`（且逐段自截，宿主 `truncate` 仅兜底）；无窄档（opencode v2 将出，裁定不做） |
 
 CH 公式 cc/pi 两侧一致，都是 `cacheRead / (input + cacheRead + cacheWrite)`，两位小数，压缩后显示旧值
 不消失，这点跟 pi 内置 footer 一样。`ccstatusline` 用的是另一个口径

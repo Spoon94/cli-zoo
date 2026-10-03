@@ -2680,19 +2680,19 @@ cat >"$T109_TR" <<'EOF2'
 EOF2
 t109_at() {
     printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":1000000},"transcript_path":"%s"}' "$T109_TR" \
-        | NO_COLOR=1 COLUMNS=$1 WREN_CACHE_DIR="$BOX/c109-$1" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1
+        | NO_COLOR=1 WREN_QC_NARROW=1 COLUMNS=$1 WREN_CACHE_DIR="$BOX/c109-$1" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1
 }
 # 四分位矩阵：原生 used_percentage（qc 的首选 ctx 源），钉 ▂▄▆█ 与色档正交
 t109_ctx() {
     printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":1000000,"used_percentage":%d},"transcript_path":"%s"}' \
         "$1" "$T109_TR" \
-        | NO_COLOR=1 COLUMNS=51 WREN_CACHE_DIR="$BOX/c109x-$1" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1
+        | NO_COLOR=1 WREN_QC_NARROW=1 COLUMNS=51 WREN_CACHE_DIR="$BOX/c109x-$1" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1
 }
 t109_55="$(t109_at 55)"; t109_51="$(t109_at 51)"; t109_42="$(t109_at 42)"; t109_36="$(t109_at 36)"
 t109_90="$(printf '{"cwd":"/tmp","model":{"display_name":"claude-opus-5"},"context_window":{"context_window_size":1000000},"transcript_path":"%s"}' "$T109_TR" \
     | NO_COLOR=1 COLUMNS=90 WREN_CACHE_DIR="$BOX/c109-90" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1)"
 t109_l1="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":1000000},"transcript_path":"%s"}' "$T109_TR" \
-    | NO_COLOR=1 COLUMNS=51 HERDR_WORKSPACE_ID=w9 HERDR_TAB_ID=w9:t1 HERDR_PANE_ID=w9:p1 WREN_CACHE_DIR="$BOX/c109-l1" python3 "$QC_PAYLOAD" 2>/dev/null | head -1)"
+    | NO_COLOR=1 WREN_QC_NARROW=1 COLUMNS=51 HERDR_WORKSPACE_ID=w9 HERDR_TAB_ID=w9:t1 HERDR_PANE_ID=w9:p1 WREN_CACHE_DIR="$BOX/c109-l1" python3 "$QC_PAYLOAD" 2>/dev/null | head -1)"
 t109_q12="$(t109_ctx 12)"; t109_q37="$(t109_ctx 37)"; t109_q62="$(t109_ctx 62)"; t109_q80="$(t109_ctx 80)"; t109_q96="$(t109_ctx 96)"
 if printf '%s' "$t109_55" | grep -qF "743K/117K|◈96.34%|▄28% ⏱12s|m · xh" \
    && printf '%s' "$t109_51" | grep -qF "743K/117K|◈96.34%|▄28% ⏱12s|m · xh" \
@@ -3128,7 +3128,7 @@ t125_ok=1
 for pct in 25 50 75; do
     case $pct in 25) icon="▄" ;; 50) icon="▆" ;; 75) icon="█" ;; esac
     a="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":1000000,"used_percentage":%d},"transcript_path":"%s"}' "$pct" "$t125_tr" \
-        | NO_COLOR=1 COLUMNS=51 WREN_CACHE_DIR="$BOX/c120n-$pct" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1)"
+        | NO_COLOR=1 WREN_QC_NARROW=1 COLUMNS=51 WREN_CACHE_DIR="$BOX/c120n-$pct" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1)"
     printf '%s' "$a" | grep -qF "${icon}${pct}%" || { t125_ok=0; echo "  native $pct=[$a]" >&2; }
 done
 for pct in 25 50 75; do
@@ -3136,7 +3136,7 @@ for pct in 25 50 75; do
     tr2="$BOX/t125_$post.jsonl"
     printf '{"type":"user","timestamp":"2026-09-28T10:00:00Z","message":{"content":"a"}}\n{"type":"assistant","timestamp":"2026-09-28T10:00:07.4Z","message":{"usage":{"input_tokens":100,"output_tokens":10,"cache_read_input_tokens":80}}}\n{"type":"system","subtype":"compact_boundary","isSidechain":false,"compactMetadata":{"trigger":"manual","postTokens":%d}}\n' "$post" >"$tr2"
     b="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":1000000},"transcript_path":"%s"}' "$tr2" \
-        | NO_COLOR=1 COLUMNS=51 WREN_CACHE_DIR="$BOX/c120f-$post" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1)"
+        | NO_COLOR=1 WREN_QC_NARROW=1 COLUMNS=51 WREN_CACHE_DIR="$BOX/c120f-$post" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1)"
     printf '%s' "$b" | grep -qF "${icon}${pct}%" || { t125_ok=0; echo "  fallback $pct=[$b]" >&2; }
 done
 if [[ $t125_ok -eq 1 ]]; then
@@ -3610,8 +3610,9 @@ fi
 # ============================================================
 # T140: 宽度探测链（终审十轮·任务 3）——qoder 宿主不给 COLUMNS（payload 无
 #       宽度字段、spawn env 原样继承），stdout 又是管道。链：COLUMNS env →
-#       控制终端（ctermid）→ 兜底 80。本用例用 pty 造 51 列控制终端、
-#       显式剥掉 COLUMNS 再跑 qc：应走窄档（短形 + xh 缩写），不是 80 宽档。
+#       控制终端（ctermid）→ 兜底 80。窄档默认关（WREN_QC_NARROW 开关，真身
+#       进程探测不可达——探针实锤 /dev/tty ENXIO），本用例显式开 + pty 造
+#       51 列控制终端、剥 COLUMNS：探测链应命中窄档（短形 + xh 缩写）。
 # ============================================================
 new_box
 t140_tr="$BOX/t140.jsonl"
@@ -3623,7 +3624,7 @@ payload = '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context
 m, s = pty.openpty()
 fcntl.ioctl(s, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 51, 0, 0))
 env = {k: v for k, v in os.environ.items() if k != "COLUMNS"}
-env.update({"NO_COLOR": "1", "WREN_CACHE_DIR": sys.argv[3]})
+env.update({"NO_COLOR": "1", "WREN_QC_NARROW": "1", "WREN_CACHE_DIR": sys.argv[3]})
 
 def preexec():
     os.setsid()

@@ -614,11 +614,12 @@ def main():
                 pass
     except ValueError:
         pass
-    # 窄档（≤55 列，与 cc 同触发；移动端 herdr 会把 pane PTY 拖成 51 列）：
-    # 宿主实绘宽 ≈ COLUMNS−5（左缩进 2 + 尾部留白/省略号），预算按实绘宽收，
-    # 否则满宽输出被宿主钝刀切尾、先丢的总是行尾徽标与身份组。窄档行1 不渲染
-    # 时长（用户裁定，与 cc 一致）；行2 短形见 build2。
-    narrow = term_w <= 55
+    # 窄档默认关闭（用户裁定：qoder 宿主拉起 statusline 时不给任何宽度通道——
+    # COLUMNS 不传、控制终端不继承、fd 全管道，探针实测 /dev/tty ENXIO——
+    # 探测链永远兜底 80，窄档在真身进程不可达）。代码与测试保留（T109/T140
+    # 显式设 COLUMNS 驱动），等 qoder 官方给 statusline payload 加宽度字段后
+    # 删掉本开关即恢复。显式开关：WREN_QC_NARROW=1 强制按 COLUMNS 判档。
+    narrow = (os.environ.get("WREN_QC_NARROW") == "1") and term_w <= 55
     if narrow:
         # 地板不钳 24（对齐 cc：钳 24 会让 COLUMNS<29 的行按 24 格排版、实际
         # 超终端宽。钳 4 = 段级丢段可工作的最小值）
