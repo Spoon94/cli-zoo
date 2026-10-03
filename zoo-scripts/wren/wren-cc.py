@@ -575,14 +575,13 @@ def main():
     pct_name = "green" if pct_val <= 70 else ("yellow" if pct_val <= 90 else "red")
     sep = c("comment", "|")
     cp_s = f"CP{compactions}" if compactions else ""
-    # 窄档短形（用户裁定）：CH 前缀 CH→◈、ctx% 整数 + 四分位块高图标
-    # （▂0-25 ▄25-50 ▆50-75 █75-100，等宽四分位=几何体积，与三档色阈值
-    # （70/90）解耦——图标说「占了几成」，颜色说「风险等级」，█+黄=体积满
-    # 但仍在容忍区，两维信息正交；块元素族 U+2580 终端渲染最稳）、TTFT 换
-    # ⏱ 前缀。三段图标 EAW=N/A 不触发 iOS emoji；◈/块高按实显 1 格，
+    # 窄档短形（用户裁定）：↑in↓out 去 ↑/↓ 前缀与空格（31.2M/643K）、CH 前缀
+    # CH→◈、ctx% 整数 + 四分位块高图标（▂0-25 ▄25-50 ▆50-75 █75-100，等宽
+    # 四分位=几何体积，与三档色阈值（70/90）解耦——图标说「占了几成」，颜色说
+    # 「风险等级」，两维信息正交；块元素族 U+2580 终端渲染最稳）、TTFT 换 ⏱
+    # 前缀。三段图标 EAW=N/A 不触发 iOS emoji；◈/块高按实显 1 格，
     # ⏱ 按 2 格防御 iOS 表情宽——dwidth 对 U+23F1（EAW=N）只算 1 格，
-    # 预算串用 ⏱⏱ 双占位补足（CR 实证单格口径双向出错：45 列 keep-error
-    # 身份组被砍、44 列 drop-error 恰好放得下的 ⏱ 被误丢）；R/CP 窄档不进段表。
+    # 预算串用 ⏱⏱ 双占位补足（CR 实证单格口径双向出错）；R/CP 窄档不进段表。
     if narrow:
         pct_icon = "▂" if pct_val < 25 else ("▄" if pct_val < 50 else ("▆" if pct_val < 75 else "█"))
         ch_s = "◈" + ch[2:] if ch else ch
@@ -598,10 +597,15 @@ def main():
         预算串必须全程无色——dwidth 按 char 记宽，混入 ANSI 会让 truecolor
         档预算虚高 ~23 格/段，梯子把不超宽的 TTFT 误丢（色档不得影响折叠）。"""
         # 段列表（colored, plain）成对收集，出口统一 join——窄/宽档只差分隔符
-        # 与成员（窄档 R/CP 不进、紧排 |），不再各写一套拼接分支。
+        # 与成员（窄档 R/CP 不进、账本短形、紧排 |），不再各写一套拼接分支。
+        # 窄档账本短形（用户裁定「in out 可简化」）：去 ↑/↓ 前缀与中间空格，
+        # 31.2M/643K 用 / 分向（12 格 → 10 格），方向靠位置约定：/ 前 in 后 out。
+        if narrow:
+            head_s, head_p = f"{fmt(input_t)}/{fmt(output_t)}", f"{fmt(input_t)}/{fmt(output_t)}"
+        else:
+            head_s = head_p = f"↑{fmt(input_t)} ↓{fmt(output_t)}"
         segs = []
-        segs.append((c("fg", f"↑{fmt(input_t)} ↓{fmt(output_t)}"),
-                     f"↑{fmt(input_t)} ↓{fmt(output_t)}"))
+        segs.append((c("fg", head_s), head_p))
         ledger = "" if narrow else f"R{fmt(cache_r)}"
         ledger_p = ledger
         if use_ch and ch_s:
