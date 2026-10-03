@@ -1,5 +1,5 @@
 # wren 测试结果
-执行时间：2026-10-01 16:56:19
+执行时间：2026-10-03 23:33:56
 
 | ID | 状态 | 备注 |
 |----|------|------|
@@ -34,7 +34,7 @@
 | T29 | PASS | pi ctx% from getContextUsage; null -> ? |
 | T30 | PASS | pi cwd collapses $HOME (not hardcoded /Users) |
 | T32 | PASS | git segment identical on both sides (main ↑1↓0 +1 ~1 ✱1) |
-| T38 | PASS | detached/rename/conflict: sides agree (det=[\|] ren=[main ✱2] conf=[main ✱1]) |
+| T38 | PASS | detached/rename/conflict: sides agree (det=[✱1\|✱1] ren=[main ✱2] conf=[main ✱1]) |
 | T31 | PASS | pi CH uses 2 decimals |
 | T33 | PASS | install cc only touches CC side |
 | T34 | PASS | install pi only touches pi side |
@@ -61,7 +61,7 @@
 | T56 | PASS | qc invalid JSON -> degrade to 2 lines, exit 0 |
 | T57 | PASS | qc WREN_DEBUG_DUMP captures raw stdin bytes |
 | T58 | PASS | qc ctx fallback chain: postTokens after compact_boundary; CP counted |
-| T59 | PASS | qc line1 identical to wren-cc.py after badge strip (/var/…/box43/r59 \| main +1 ✱1) |
+| T59 | PASS | qc line1 identical to cc after badge strip, short+long branch (/var/…/box43/r59 \| main +1 ✱1 / /var/…/box43/r59 \| feat/ver…-folding-parity +1 ✱1) |
 | T60 | PASS | install qc copies payload + writes absolute statusLine |
 | T61 | PASS | install qc only touches qc side |
 | T62 | PASS | qc install preserves keys/order and backs up original bytes |
@@ -74,7 +74,7 @@
 | T69 | PASS | pi TTFT from event stream (3 tiers + first-update-only) |
 | T70 | PASS | duration in line1 badge slot, absent from line2 |
 | T71 | PASS | no dangling separator when TTFT absent |
-| T72 | PASS | line1 ladder drops duration first (55 <= 55, badge kept) |
+| T72 | PASS | line1 ladder drops duration first (47 <= 55, badge kept) |
 | T73 | PASS | line2 ladder drop order TTFT -> CH -> CP; core segments never dropped |
 | T74 | PASS | install pi migrates legacy wren.ts -> wren-pi.ts |
 | T75 | PASS | qc TTFT keeps previous turn value during wait; hidden when never paired |
@@ -82,7 +82,7 @@
 | T77 | PASS | inflight turn keeps last completed TTFT (no flash / no early value) |
 | T78 | PASS | first chunk atomically replaces TTFT (TTFT 12s, old value gone) |
 | T79 | PASS | qc line2 ladder color-agnostic; TTFT survives truecolor at width 80 |
-| T80 | PASS | 3-host line2 ladder identical & ordered (w90/81/80/70/65/55: TCP TCP -CP -CP --P ---) |
+| T80 | PASS | 3-host line2 ladder identical & ordered (w90/81/80/70/65/60: TCP TCP -CP -CP --P --P) |
 | T81 | PASS | install cc migrates legacy $PREFIX/wren-cc, writes absolute command |
 | T82 | PASS | foreign $PREFIX/wren-cc left alone |
 | T83 | PASS | cc/qc TTFT 4-tier colour: 18 probes (raw-ms + rounded boundaries), text+code identical |
@@ -103,11 +103,45 @@
 | T98 | PASS | oc line2 ladder: TTFT(68) -> CH(64) -> CP(55); cores never dropped |
 | T99 | PASS | oc CJK extreme: line1=71 line2=58 both <= 80 |
 | T100 | PASS | oc TTFT tiers: display-synced 4-tier colour, +/-1ms bands same tier |
-| T101 | PASS | real opencode TUI renders wren two lines below the prompt box |
+| T101 | SKIP | opencode or tmux not available |
 | T102 | PASS | CRLF tui.json survives install+uninstall byte-for-byte (6 CR kept) |
 | T103 | PASS | non-array plugin value -> exit 1 before payload install, file untouched |
 | T104 | PASS | install oc migrates legacy wren-oc-core.ts -> wren-oc.ts |
 | T105 | PASS | empty cwd + empty model: no leading/trailing separator, no identity group |
 | T106 | PASS | narrow budget swaps ctx% to short form before dropping CH/TTFT |
+| T107 | PASS | cc narrow tier: ◈/▂▄▆█/⏱ icons, quartile×color orthogonal, TTFT->CH drop |
+| T108 | PASS | pi narrow tier: short-form/◈/▂▄▆█/⏱ iron law, CP→CH drop, identity shortened, quartile matrix |
+| T109 | PASS | qc narrow tier mirrors cc: short in/out, ◈/▂▄▆█/⏱, CP->TTFT->CH order, wide untouched |
+| T116 | PASS | pi herdr env flattened: newline-injection stays 2 lines, empty segment dropped |
+| T117 | PASS | pi narrow quartile boundaries 25/50/75 + banker's rounding (.5->even), cc parity at 74.5% |
+| T118 | PASS | pi narrow budget floor max(4,W-5): W=20/10/6 -> exact truncated forms |
+| T119 | PASS | pi badge two-pass lock: long herdr yields, badge keeps prefix slot at floor width |
+| T120 | PASS | pi model/thinking flattened; trailing-slash and empty-after-flatten fall back to '?' |
+| T110 | PASS | bare-relative config env keeps payload next to config (cc/oc/qc) |
+| T111 | PASS | plugin-array scan matches top-level strings only; uninstall leaves object intact |
+| T112 | PASS | symlinked configs resolved, links preserved (incl. dangling) |
+| T113 | PASS | uninstall strips only wren-written keys; user subkeys survive |
+| T114 | PASS | oc oneLine flattens herdr envs; charset matches cc one_line |
+| T115 | PASS | session_prompt fallback passes through props (whitelist + ref) |
+| T121 | PASS | native stdin fields sanitized: NaN/str/Infinity fall back, negative pct not rendered |
+| T122 | PASS | newline injection in display_name/effort flattened; exactly 2 lines |
+| T123 | PASS | U+2028 inside record string does not lose the record (split by \n only) |
+| T124 | PASS | extreme narrow (20/10/6 cols): 2 lines, qc badge, width within COLUMNS |
+| T125 | PASS | quartile boundaries 25/50/75 pinned on both native and postTokens sources |
+| T126 | PASS | cc badge two-pass lock: rescue keeps badge at 24 cols (cwd has cc substring) |
+| T127 | PASS | badge rescue decided by taken-index, not substring (cwd containing qc) |
+| T128 | PASS | cross-host cache keys do not collide (qc after cc keeps qc CH semantics) |
+| T129 | PASS | empty-string user content does not open the TTFT window |
+| T130 | PASS | pi usage sanitized: negative/string -> 0, negative cacheWrite no longer inflates CH |
+| T131 | PASS | wide .2f half-even parity across pi/oc/cc: 0.125% -> 0.12, CH 12.125% -> 12.12 |
+| T132 | PASS | pi narrow quantize chain: 2dp half-even then int; color reads quantized (cc parity) |
+| T133 | PASS | oc foldBranch tiers match cc/qc/pi: 8/15 at 24, 30/70 below, …+tail at 4, empty at 0; folds table has 4/0 |
+| T134 | PASS | ab survives cwd-floor sacrifice at 46-52 cols (with_ab hoisted above floor) |
+| T135 | PASS | cache swept to <=200 by mtime; oldest gone, session key + newest survive |
+| T136 | PASS | cc physical-limit colored phantom separator absent (26/30 cols truecolor) |
+| T137 | PASS | pi physical-limit colored phantom separator absent; none/color frames identical |
+| T138 | PASS | pi ab survives cwd-floor sacrifice at 46-52 cols (decision-2 loop order) |
+| T139 | PASS | physical-limit truecolor: no phantom separator slot after git segment cleared |
+| T140 | PASS | width probe chain: no COLUMNS + 51-col controlling tty triggers narrow tier |
 
-汇总：Total 106 / Pass 106 / Fail 0 / Skip 0
+汇总：Total 140 / Pass 139 / Fail 0 / Skip 1

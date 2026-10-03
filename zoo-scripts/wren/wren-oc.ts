@@ -27,6 +27,13 @@ export function visibleWidth(s: string): number {
 	return w;
 }
 
+// 压平换行（B-2，与 cc 侧 one_line 同字符集）：\n \r \v \f \x1c \x1d \x1e \x85 \u2028 \u2029。
+// 宿主按行渲染 statusline，herdr env 含行界会把 2 行契约顶破；tsx 的 herdr 三段用它。
+const LINE_BREAKS = /[\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029]/g;
+export function oneLine(s: string | undefined | null): string {
+	return String(s ?? "").replace(LINE_BREAKS, "");
+}
+
 // 按显示格取头/尾片段（不按码点切：13 个汉字的分支是 26 格，按码点切会切出两倍预算）
 export function sliceCells(s: string, maxW: number, fromEnd: boolean): string {
 	const chars = Array.from(s);
@@ -65,19 +72,39 @@ export function truncateSegments(segs: Segment[], width: number): Segment[] {
 	return out;
 }
 
-// 分支折叠：尾重头轻（头 8 / 尾 15），与 wren.py 的 fold_branch 同规则
+// 分支折叠：maxLen 驱动（行1 梯子逐级传 24→20→16→12→8→4→0），与
+// cc/qc/pi 的 fold_branch 逐字同构：24 档三侧同构 head8/…/tail15（CR 轮 9
+// 尾重头轻）；<24 档头尾三七开（头≈30%、尾吃剩余，互踩时尾让位）；≤4 档
+// 只剩 …+尾段；0 档 git 段整体让位。触发与切片都按显示格（CJK 分支 26 格/
+// 13 码点按格折）。
+// 旧单公式 head8+…+tail(maxLen−9) 在 <24 档违反预算（12 档折出 14 格、
+// 8 档丢 … 省略标记，靠行1 出口硬截遮住）——决策落地：移植 cc 档位结构。
 export function foldBranch(b: string, maxLen = 24): string {
 	const w = visibleWidth(b);
 	if (w <= maxLen) return b;
-	// 折成 head8 + … + tail（maxLen−9）；maxLen 太小时只留头
-	const keep = maxLen - 9;
-	if (keep >= 1) return sliceCells(b, 8, false) + "…" + sliceCells(b, keep, true);
-	return sliceCells(b, maxLen, false);
+	if (maxLen >= 24) return sliceCells(b, 8, false) + "…" + sliceCells(b, 15, true);
+	if (maxLen <= 0) return "";
+	if (maxLen <= 4) return "…" + sliceCells(b, Math.max(2, maxLen - 1), true);
+	const head = Math.max(3, Math.floor((maxLen * 3) / 10) - 1);
+	let tail = Math.max(4, maxLen - head - 1);
+	if (head + 1 + tail > maxLen) tail = Math.max(2, maxLen - head - 1);
+	return sliceCells(b, head, false) + "…" + sliceCells(b, tail, true);
 }
 
 // 999_500~999_999 走 Math.round(n/1000) 会得到 1000K，必须显示 1.0M
 // （与 wren.py / wren-pi.ts / ccstatusline 同一规则）
+// 半偶舍入 + 2 位量化（第七轮 BUG2）：cc/qc 的 Python :.2f 是半偶（0.125 → 0.12），
+// toFixed(2) 是半上（0.13）——CH 与 ctx% 宽档文本走量化，三侧同口径。
+function roundHalfEven(v: number): number {
+	const fl = Math.floor(v), d = v - fl;
+	return d > 0.5 ? fl + 1 : d < 0.5 ? fl : fl % 2 === 0 ? fl : fl + 1;
+}
+function quantize2(v: number): number {
+	return roundHalfEven(v * 100) / 100;
+}
+
 export function fmtTokens(n: number): string {
+	if (!Number.isFinite(n) || n < 0) return "0"; // NaN/Infinity/-x 兜底（猎杀五轮 B-oc-3）
 	if (n < 1000) return `${n}`;
 	if (n < 1_000_000) {
 		const k = Math.round(n / 1000);
@@ -181,8 +208,13 @@ export function buildLines(i: OcInput): Segment[][] {
 	if (home && (cwd === home || cwd.startsWith(home + "/"))) cwd = "~" + cwd.slice(home.length);
 
 	const durText = i.durationMs != null ? fmtDurationElapsed(Math.max(0, i.durationMs)) : "";
-	const hasBranch = !!i.branch && i.head !== "" && !i.head.startsWith("(");
-	const gitRest = hasBranch ? visibleWidth(` | ${foldBranch(i.branch!)}${i.ab}`) + countsWidth(i) : 0;
+	const hasBranch = !!i.branch && i.head !== "" && i.head !== "(detached)"; // 字面 ( 开头的真分支不误判（猎杀五轮 B-2b）
+	// 探针与渲染同纪律（猎杀五轮 B-oc-1 随修）：detached 时 counts/ab 照渲染，
+	// gitRest 也必须计入——否则预算虚低、整行溢出交硬截断
+	const _gitAny = hasBranch || i.ab !== "" || (i.added + i.deleted + i.modified) > 0;
+	const gitRest = _gitAny
+		? visibleWidth(` | ${hasBranch ? foldBranch(i.branch!) : ""}${i.ab}`) + countsWidth(i)
+		: 0;
 	// herdr 与徽标是固定宽度的段，放不下就整段丢，不能像路径/分支那样截半（底行预算比框内窄，
 	// 窄到 54 格时会出现 "| w11:t1:" 这种半个 id）
 	const badgeRest = visibleWidth(" | oc");
@@ -224,15 +256,15 @@ export function buildLines(i: OcInput): Segment[][] {
 			segs.push(...arr);
 		};
 		if (k.cwd && displayPath) g([{ text: displayPath, tone: "comment" }]);
+		// detached HEAD：分支名不显（设计），ab/counts 照常——counts 是铁律
+		// （猎杀五轮 B-oc-1，与 cc/pi/qc 同步：旧版 hasBranch 门控把整段吞掉）
 		const git: Segment[] = [];
-		if (hasBranch) {
-			git.push({ text: foldBranch(i.branch!, k.fold ?? 24), tone: "purple" });
-			if (k.ab && i.ab) git.push({ text: i.ab, tone: "fg" });
-			if (k.counts) {
-				if (i.added) git.push({ text: " ", tone: "fg" }, { text: `+${i.added}`, tone: "green" });
-				if (i.deleted) git.push({ text: " ", tone: "fg" }, { text: `~${i.deleted}`, tone: "red" });
-				if (i.modified) git.push({ text: " ", tone: "fg" }, { text: `✱${i.modified}`, tone: "yellow" });
-			}
+		if (hasBranch) git.push({ text: foldBranch(i.branch!, k.fold ?? 24), tone: "purple" });
+		if (k.ab && i.ab) git.push({ text: i.ab, tone: "fg" });
+		if (k.counts) {
+			if (i.added) git.push({ text: " ", tone: "fg" }, { text: `+${i.added}`, tone: "green" });
+			if (i.deleted) git.push({ text: " ", tone: "fg" }, { text: `~${i.deleted}`, tone: "red" });
+			if (i.modified) git.push({ text: " ", tone: "fg" }, { text: `✱${i.modified}`, tone: "yellow" });
 		}
 		g(git);
 		// herdr 坐标（面板位置）默认保到最后：级联里排在 cwd 之后丢（不用 keepHerdr 门，级联自己控制）
@@ -245,8 +277,9 @@ export function buildLines(i: OcInput): Segment[][] {
 	const line1Full = line1With({ counts: true, ab: true, cwd: true });
 	// 级联优先级：段 > 分支长度 > cwd > 时长 > 计数 > ab > herdr。
 	// 时长（`· 24h37m`）与 herdr 是面板身份信息，比 cwd 更后丢；
-	// 分支按折叠档 24→20→16→12→8 从宽到窄试。全放不下才硬截断。
-	const folds = [24, 20, 16, 12, 8] as const;
+	// 分支按折叠档 24→20→16→12→8→4→0 从宽到窄试（4/0 档与 cc/qc/pi
+	// 的六级梯子对齐）。全放不下才硬截断。
+	const folds = [24, 20, 16, 12, 8, 4, 0] as const;
 	const variants: Segment[][] = [];
 	const pushVariants = (counts: boolean, ab: boolean, cwd: boolean, dur: boolean, herdr = true) => {
 		for (const f of folds) variants.push(line1With({ counts, ab, cwd, dur, herdr, fold: f }));
@@ -260,15 +293,21 @@ export function buildLines(i: OcInput): Segment[][] {
 	const line1: Segment[] = variants.find((v) => visibleWidth(plain(v)) <= width) ?? line1Full;
 
 	// ---------- 行2 ----------
+	// 入口净化（猎杀五轮 B-oc-3）：NaN 是合法 number，token/ctx 混进来渲染
+	// ↑NaNM、NaN%/200K 且色档比较全 false 落 green。非有限一律当 0/未知。
+	const _n = (v: number | null | undefined) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+	const inTok = _n(i.inputTokens), outTok = _n(i.outputTokens), rcTok = _n(i.cacheRead);
+	const ctxPct = typeof i.ctxPercent === "number" && Number.isFinite(i.ctxPercent) ? i.ctxPercent : null;
+	const ctxWin = _n(i.ctxWindow);
 	const chText =
-		i.cacheRead > 0 && i.inputTokens + i.cacheRead + i.cacheWrite > 0
-			? `CH${((i.cacheRead / (i.inputTokens + i.cacheRead + i.cacheWrite)) * 100).toFixed(2)}%`
+		rcTok > 0 && inTok + rcTok + _n(i.cacheWrite) > 0
+			? `CH${quantize2((rcTok / (inTok + rcTok + _n(i.cacheWrite))) * 100).toFixed(2)}%`
 			: "";
 	const cpText = i.compactions > 0 ? `CP${i.compactions}` : "";
 	// 上下文占用与 TTFT 也是「整段丢」的语义，窄到放不下就整段不显示，
 	// 不能只留 `| 16.24%/1M` 或留个孤零零的 `TTFT`
-	const ctxFull = i.ctxWindow > 0 ? `${i.ctxPercent != null ? `${i.ctxPercent.toFixed(2)}%` : "?"}/${fmtTokens(i.ctxWindow)}` : "";
-	const ctxShort = i.ctxWindow > 0 && i.ctxPercent != null ? `${Math.round(i.ctxPercent)}%` : "";
+	const ctxFull = ctxWin > 0 ? `${ctxPct != null ? `${quantize2(ctxPct).toFixed(2)}%` : "?"}/${fmtTokens(ctxWin)}` : "";
+	const ctxShort = ctxWin > 0 && ctxPct != null ? `${Math.round(ctxPct)}%` : "";
 	const ttftText = i.ttftMs != null ? fmtTtft(i.ttftMs) : "";
 	const ctxBudget = ctxFull ? visibleWidth(`${sep.text}${ctxFull}`) : 0;
 	const ttftBudget = ttftText ? 1 + visibleWidth(ttftText) : 0;
@@ -277,11 +316,11 @@ export function buildLines(i: OcInput): Segment[][] {
 
 	type Keep = { ttft: boolean; ch: boolean; cp: boolean; ctx: boolean; ctxShort?: boolean };
 	const assemble = (k: Keep): Segment[] => {
-		const out: Segment[] = [{ text: `↑${fmtTokens(i.inputTokens)} ↓${fmtTokens(i.outputTokens)}`, tone: "fg" }];
-		out.push(sep, { text: `R${fmtTokens(i.cacheRead)}`, tone: "fg" });
+		const out: Segment[] = [{ text: `↑${fmtTokens(inTok)} ↓${fmtTokens(outTok)}`, tone: "fg" }];
+		out.push(sep, { text: `R${fmtTokens(rcTok)}`, tone: "fg" });
 		if (k.ch) out.push({ text: " ", tone: "fg" }, { text: chText, tone: "cyan" });
 		if (k.cp) out.push({ text: " ", tone: "fg" }, { text: cpText, tone: "comment" });
-		if (k.ctx) out.push(sep, { text: k.ctxShort ? ctxShort : ctxFull || ctxShort, tone: ctxTone(i.ctxPercent) });
+		if (k.ctx) out.push(sep, { text: k.ctxShort ? ctxShort : ctxFull || ctxShort, tone: ctxTone(ctxPct) });
 		if (k.ttft) out.push({ text: " ", tone: "fg" }, { text: ttftText, tone: ttftColor(i.ttftMs) });
 		if (identity.length) out.push(sep, ...identity);
 		return out;

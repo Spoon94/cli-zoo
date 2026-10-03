@@ -5,14 +5,14 @@
 | 工具 | 用例数 | 运行 |
 |------|--------|------|
 | `otter` | 25 | `bash .test_scripts/otter-test.sh` |
-| `wren` | 106 | `bash .test_scripts/wren-test.sh` |
+| `wren` | 135 | `bash .test_scripts/wren-test.sh` |
 
 输出格式：
 
 ```
 PASS T01 ...
 ...
-Total: 106  Pass: 106  Fail: 0  Skip: 0
+Total: 135  Pass: 134  Fail: 0  Skip: 1（T101 需 opencode/tmux 真机）
 ```
 
 任一 FAIL → 退出码 1，结果文件 `.test_res/<tool>-test-res.md` 会被覆盖写。

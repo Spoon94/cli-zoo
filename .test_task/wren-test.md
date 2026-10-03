@@ -137,6 +137,37 @@
 | T104 | oc 安装 | 预置旧名 `plugins/wren-oc-core.ts`（wren 系副本）后 `install oc` | 旧文件被删、新目标 `plugins/wren-oc.ts` 与 payload 逐字节相同、stdout 含 `migrated`（**改名迁移守门**） |
 | T105 | oc 渲染 | 空 cwd + 空 model（模型在 oc 侧确实不渲染；空 cwd 是 core 的能力面） | 行1 首段就是 git 组、无悬空分隔符；行2 无尾部 `\| `、无粉色模型段（**去重守门**） |
 | T106 | oc 渲染 | 窄预算（49 格，与宿主 usage/快捷键共行后的真实余量） | 行1 级联丢计数/ab 保 herdr；行2 先把 ctx% 换短形 `16%`（位置不变）保住 CH/TTFT，再不够才走梯子（**窄预算守门**：78 列窗格曾把 TTFT/herdr 全挤掉） |
+| T107 | cc 窄档 | `COLUMNS` 51/42/36/90 + 四分位矩阵（`current_usage` 原生） | 51：`743K/117K\|◈96.34%\|▄28% ⏱12s\|m · xhigh` 且无 R/CP/两位小数 ctx；42 丢 ⏱；36 再丢 ◈（`117K\|▄28%`）；90 宽档零变化；行1 时长不渲染、herdr 在；▂12/▄37/▆62/█80/█96（**cc 窄档守门**） |
+| T108 | pi 窄档 | 同 T107 输入面（harness 驱动：`BRANCH` JSON + `TTFT_MS` + `CTX_USAGE.percent` + `MODEL_NAME`）+ 十轮裁定：51/44 满配（`m · xh`）、42/36 丢 ◈ 保 ⏱、`forge[1m]` 窄档去后缀/宽档原样 | 51/44 全在 `743K/117K\|◈96.34%\|▄28% ⏱12s\|m · xh`；42/36 `117K\|▄28% ⏱12s`（⏱ 铁律）；窄档 `\|forge · xh` 无 `[1m]`、宽档 `forge[1m] · xhigh`；56 宽档边界；四分位矩阵（**⏱ 铁律 + 身份组缩短守门**；回退丢序/回退缩写均红） |
+| T109 | qc 窄档 | 同 T107 输入面（ctx 源换 qc 口径：`used_percentage` 原生 + postTokens 回落；effort 走 runtime-config） | 55/51 满配含 `m · xh` 缩写；42/36 丢 ◈ 保 ⏱（**⏱ 铁律后窄档丢序 CP→CH**）、90 宽档零变化（不缩写）、四分位矩阵；行1 `\| qc` 在、无 `· ` 时长（**qc 窄档对齐 cc 守门**） |
+| T140 | qc | pty 造 51 列控制终端（`TIOCSCTTY`）、env 剥掉 `COLUMNS` 后跑 qc | 行2 走窄档短形（`743K/117K\|◈…\|m · xh`）（**宽度探测链守门**：COLUMNS env → ctermid 控制终端 → 兜底 80；qoder 宿主实测不注入 COLUMNS） |
+| T110 | 安装 | 裸相对名 env：`CLAUDE_SETTINGS=settings.json`、`OPENCODE_TUI_CONFIG=tui.json`（CWD 落配置）、`QODER_SETTINGS=$BOX/alt/q.json` | 配置与 payload 同目录：cc 在 CWD 且 `$CLAUDE/wren-cc` 不存在、oc payload 在 `./plugins` 且 `$OC/plugins` 不存在、qc 全落 `alt/`（**B-1 分裂落点守门**） |
+| T111 | 安装 | tui.json 的 plugin 数组含对象条目 `{"src": "./plugins/wren-oc.tsx"}` | install 仍追加顶层字符串（数组 = `['./plugins/wren-oc.tsx', {…}]`）；uninstall 只删顶层串、对象原样、文件仍合法（**B-4 嵌套误命中守门**） |
+| T112 | 安装 | settings/tui.json/qc-settings 皆为 symlink（含悬空）后 `install all` | 三链接仍为 `-L`；真实目标内容已写入 statusLine/plugin（**B-5 symlink 顶掉守门**） |
+| T113 | 卸载 | 预置 `statusLine: {type, command, padding: 5}` → install → uninstall | `statusLine` 存活且恰为 `{'padding': 5}`、键序 `model\|statusLine`（**B-6 只摘自家键守门**） |
+| T114 | oc | `oneLine`（cc one_line 同字符集）六组样例 ts/py 交叉 + tsx herdr 三段使用 | ts 输出与 python 逐字相同；tsx 三段 grep 到 `oneLine(...)`（**B-2 herdr 压平守门**） |
+| T115 | oc | 结构钉：`session_prompt` 兜底分支的裸 Prompt | 白名单 + ref 全透传（**B-3 兜底丢 props 守门**；行为面由 T101 真机 e2e 兜） |
+| T121 | qc | 原生 stdin 字段污染四连：`used_percentage:NaN`、`used_percentage:-5`、`current_usage.input_tokens:Infinity`、`total_input_tokens:"500"`（字符串） | NaN/负值/字符串走回落链（a 落 `3.00%/1M`）、Infinity 后 CH 走净化口径 `CH100.00%`（与 cc `_nt` 同构）、无 nan/inf/`-5` 字样、恰好 2 行（**交叉审 Q1/Q2 净化守门**） |
+| T122 | qc | `display_name:"Evil\nModel"` + runtime-config `reasoningEffort:"max\nhigh"` 注入 | 输出恰 2 行、`EvilModel`/`maxhigh` 压平在场（**one_line 整删变异存活**：整删后 n=4 红） |
+| T123 | qc | transcript assistant 记录 content 含 U+2028（ensure_ascii=False 落盘） | 行2 含 `↑52K`/`R47K`（记录完整解析；**split→splitlines 变异存活**：回退后 `↑0` 红） |
+| T124 | qc | `COLUMNS∈{20,10,6}` + 长路径满配 | 恰 2 行、显示宽 ≤COLUMNS；≥20 列时 qc 徽标在场（6 列实绘 4 格为物理极限区只钉结构；**max(4)→max(24) 变异存活**） |
+| T125 | qc | 四分位换档值 25/50/75 双源（原生 `used_percentage` + postTokens 回落） | `▄25%`/`▆50%`/`█75%` 六组合全中（**阈值 off-by-one 变异存活**：`<=25` 注入后 25→▂ 红） |
+| T127 | qc | cwd=`/tmp/xqc`（折叠后含 qc 子串）+ `COLUMNS=24` 带 herdr；51 列 + 38 格 herdr 同款 | 行1 两场景都含 `\| qc` 徽标段（**徽标保住判定用入选索引非子串守门**：删 rescue 分支变异下 24 列丢徽标红，对齐 cc T126） |
+| T128 | qc | 同一 transcript cc 先跑、qc 后跑（同 `WREN_CACHE_DIR`；input=10000/cache_read=8000） | qc 显 `CH80.00%` 不显 `CH44.44%`（**跨宿主缓存键不碰撞守门**：键掺 `qc-` 前缀） |
+| T129 | qc | `message.content=""` 的 user + 5s 后 assistant；对照 `content="a"` | 空 content 不显 TTFT、对照显 `TTFT 5.0s`（**空串不开窗守门**，对齐 cc F2） |
+| T134 | qc | 带上游 ahead=1 的干净 repo + 12 格 herdr，`COLUMNS∈{46,48,50,52}` | 行1 四档 `↑1↓0` 恒在且 `\| qc` 在场（**ab 优先于 cwd 地板守门**：旧序 floor 外层在 46-51 带非单调丢 ab） |
+| T135 | qc | `WREN_CACHE_DIR` 预置 205 个递增 mtime 假缓存 → 渲染一次 | `.json` 数 ≤200、最旧 `fake0` 被删、本次 `qc-<sha1>` 键与最新假件存活（**mtime 清扫守门**） |
+| T116 | pi | herdr env 注入：harness 注 `HERDR_TAB_ID=$'t1\nEVIL'`、纯 `\n`、`\n`+WS/PANE 三探针（`env -u` 隔离真实 herdr env） | 换行压平进段（行1 `w9:t1EVIL:p1`）且总行数=2；纯 `\n` 且无他段→herdr 段消失；空段被 `filter(Boolean)` 拆掉无 `::`（**pi herdr env 压平守门**；非空转已证：回退旧代码 n=3 红） |
+| T117 | pi | 窄档四分位边界 25/50/75 + 半值 .5 六探针 + cc 交叉（tokens=149000/200000 → 74.5% 精确） | `▄25%`/`▆50%`/`█75%`（边界归上档）；.5 归偶：24.5→▂24、25.5→▄26、49.5→▄50、50.5→▆50、74.5→▆74、75.5→█76；cc 同值 `▆74%`（**pi 半偶舍入守门**；变异已杀：`<50`→`<=50`、roundHalfEven→toFixed(0) 均红） |
+| T118 | pi | 预算地板：`WIDTH∈{20,10,6}`（预算 15/5/4）满配夹具 | 逐格钉形 `743K/117K\|▄28% `（第 15 格为 ⏱ 前空格，十轮裁定 ⏱ 铁律后的截断形）、`743K/`、`743K`（**max(4,W−5) 守门**；变异已杀：max(4)→max(24) 三档全变形红） |
+| T119 | pi | 徽标让位夹具：39 格长 herdr 标签 + 51 列（物理极限区） | 行1 `…oo \| pi`（徽标前缀位铁律、herdr 让位）、恰 2 行（**两遍锁定守门**；变异已杀：整删重拼后徽标丢失红） |
+| T120 | pi | 模型名/思考注入：`MODEL_NAME=$'evil\nmodel'`+`THINKING=$'high\nx'`、`'anthropic/'`、纯 `\n` 双路 | 压平 `evilmodel · highx` 且 2 行；尾斜杠/压平空→`? · high`，无悬空 `\| ·`；思考压平空→不进段表无尾 ` ·`（**P1/P2 守门**；变异已杀：两处 oneLine 整删、回落整删均红） |
+| T130 | pi | usage 净化三注入：负值四路、字符串三路、负 cacheWrite 缩 CH 分母（第七轮 BUG4） | a/b 全钳 0（`↑0 ↓0 \| R0`，无负号/串接/NaN）；c `CH33.33%` 非 `CH100.00%`（**tok() 守门**；修前红：`↑-50`、`↑0500`、`↓NaNM`、`CH100.00%`） |
+| T131 | pi/oc/cc | 宽档 .2f 半值：ctx 0.125%（250/200000 精确）+ CH 12.125%（485/4000）；cc 拆两跑（ctx/CH 共用 native 记录）、oc 走 buildLines 直调 | 三侧 `0.12`/`CH12.12`，半上变体（`0.13`/`12.13`）全不在场（**第七轮 BUG2 三侧同偶守门**；修前 pi/oc 全 13） |
+| T132 | pi/cc | 窄档量化链：25.499999、25.496（→量化 25.50→半偶 26）+ cc 同带 254960/1M 交叉 + 色档 70.001→量化 70.00→green | `▄26%` 三路一致；色码 green 在场 yellow 不在场（**第七轮 BUG3 同链守门**；修前 pi ▄25%、70.001 yellow） |
+| T133 | oc | foldBranch 档位契约：直调 24/12/8/4/0 档 + CJK 13 码点 26 格 + 短名不折 + 行1 级联 30/26/22 | 24 档整名直过；12 档 `ver…chname-x` 恰 12 格（旧公式 14 格）；8 档带 `…`（旧丢标记）；4 档 `…e-x`（三侧公式 max(2,·−1)）；0 档空串；级联 26 列命中新 4 档 `…e-x`、三档宽度全在预算内（**决策落地守门**；回退旧单公式红；T106 期望随 folds 补档更新：级联按优先级保 cwd 折分支到 4 档） |
+| T137 | pi | 幻影分隔符：真 repo + 40 格分支（BRANCHNAME+porcelain 真 head）W=30 truecolor/none 双帧 + W=37 路径展开探针 | 剥色无空槽/无尾悬空 `\| `、herdr+徽标在场、双帧剥色逐字相同；W=37 路径展开到 `…hostrepo`（修前 3 格幻影宽偷预算缩成 `…trepo`）（**终审九轮 #1 守门**；truthy 空判回退→尾悬空 `\| ` 红、gitW 回退→`…trepo` 红） |
+| T138 | pi | 决策 2：真 repo + bare remote ahead=1，WIDTH 46/48/50/52 | `↑1↓0` 与 `\| pi` 四档恒在（**穷举序翻转守门**；旧序 floor 最外→46-50 丢 ab 红） |
 
 ## 条件用例（不满足条件时 SKIP，不算 FAIL）
 
@@ -145,7 +176,7 @@
 | T24 | 以 root 运行时文件权限不生效（`chmod 555` 仍可写） |
 | T68 | 同上（依赖 chmod 555 生效） |
 | T92 | 同上（oc 侧只读配置目录探针） |
-| T27-T32、T38、T40、T43、T46、T69-T73、T77-T78、T80、T96-T100 | 无 `node`，或 `node` 不支持直接执行 `.ts`（Node 22.6+ 的 type stripping） |
+| T27-T32、T38、T40、T43、T46、T69-T73、T77-T78、T80、T96-T100、T108、T116-T120、T130-T133、T137-T138 | 无 `node`，或 `node` 不支持直接执行 `.ts`（Node 22.6+ 的 type stripping） |
 | T101 | 无 `opencode` 或无 `tmux`（真机 e2e） |
 
 其余用例只依赖 bash / python3 / coreutils，且全程在用户态临时目录作业。

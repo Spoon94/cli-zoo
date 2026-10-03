@@ -29,7 +29,7 @@ import type { TuiPluginModule } from "@opencode-ai/plugin/tui"
 import { execFile } from "node:child_process"
 import { homedir } from "node:os"
 import { createSignal } from "solid-js"
-import { buildLines, visibleWidth, type OcInput, type Segment, type Tone } from "./wren-oc.ts"
+import { buildLines, oneLine, visibleWidth, type OcInput, type Segment, type Tone } from "./wren-oc.ts"
 
 // Dracula 色板（与 cc/pi/qc 同表）；opencode 侧直接给 RGB 十六进制，由宿主决定降档
 const DRACULA: Record<Tone, string> = {
@@ -72,7 +72,7 @@ function parsePorcelain(out: string): GitState {
 		}
 	}
 	// porcelain 的 branch.head 对 detached HEAD 给 "(detached)"，以 "(" 开头 = 无分支
-	st.branch = st.head === "" || st.head.startsWith("(") ? "" : st.head;
+	st.branch = st.head === "" || st.head === "(detached)" ? "" : st.head; // 猎杀五轮 B-2b
 	return st;
 }
 
@@ -165,27 +165,33 @@ const tui = async (api: any) => {
 		const provider = (api.state.provider ?? []).find((p: any) => p.id === lastOutput?.providerID);
 		const model = lastOutput ? provider?.models?.[lastOutput.modelID] : undefined;
 		const limit = model?.limit?.context ?? 0;
-		// 与宿主 usage() 同口径：四项 token 之和（直接用末条 tokens.total 会在流式时拿到 0）
+		// 与宿主 usage() 同口径：四项 token 之和（直接用末条 tokens.total 会在流式时拿到 0）。
+		// Number.isFinite 双挡（猎杀五轮 B-oc-3）：NaN 是合法 number，typeof 挡不住——
+		// 混进来会渲染 ↑NaNM 且 ctx 色档比较全 false 落 green。
+		const num = (v: any) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 		const ctxTokens = lastOutput
 			? [lastOutput.tokens?.input, lastOutput.tokens?.output, lastOutput.tokens?.reasoning, lastOutput.tokens?.cache?.read, lastOutput.tokens?.cache?.write]
-					.reduce((a: number, b: any) => a + (typeof b === "number" ? b : 0), 0)
+					.reduce((a: number, b: any) => a + num(b), 0)
 			: 0;
 		const parts = last ? api.state.part(last.id) : [];
 		let firstStart = Infinity;
 		for (const part of parts) {
-			if (typeof part?.time?.start === "number" && part.time.start < firstStart) firstStart = part.time.start;
+			if (num(part?.time?.start) > 0 && part.time.start < firstStart) firstStart = part.time.start;
 		}
+		// TTFT 负值钳 0（猎杀五轮低危：宿主时钟错位会渲染 TTFT -2.0s）
 		let ttft: number | null = null;
-		if (last && firstStart !== Infinity) ttft = firstStart - last.time.created;
+		if (last && firstStart !== Infinity) ttft = Math.max(0, firstStart - last.time.created);
 		const key = sessionID ?? "";
 		if (ttftCache.session !== key) ttftCache = { session: key, ms: null };
 		if (ttft != null) ttftCache.ms = ttft;
 
 		const g = git();
+		// herdr env 压平（B-2，cc one_line 同字符集）：行界会把行1 顶破 2 行契约，
+		// 纯 '\n' 的段也不能当 truthy 留着——三段各自压平再 filter
 		const herdr = [
-			process.env.HERDR_WORKSPACE_ID,
-			process.env.HERDR_TAB_ID?.split(":").pop(),
-			process.env.HERDR_PANE_ID?.split(":").pop(),
+			oneLine(process.env.HERDR_WORKSPACE_ID),
+			oneLine(process.env.HERDR_TAB_ID?.split(":").pop()),
+			oneLine(process.env.HERDR_PANE_ID?.split(":").pop()),
 		]
 			.filter(Boolean)
 			.join(":");
@@ -286,9 +292,13 @@ const tui = async (api: any) => {
 	api.slots.register({
 		slots: {
 			// 顶掉宿主 prompt 框下方那一行的左半（原本是 cwd），wren 两行落在这里。
-			// 契约意外变化时退回裸 Prompt（不给 hint），输入框仍在，只是没有 wren。
+			// 契约意外变化（session_id 缺失）时退回不带 hint 的 Prompt——但 props
+			// 必须全量透传（B-3）：白名单映射 + ref 一个不丢，否则 sessionID/
+			// visible/disabled/onSubmit 全断、输入框假死。行为面由 T101 真机 e2e 兜。
 			session_prompt: (_host: any, props: any) =>
-				props?.session_id ? <HostPrompt {...props} /> : <api.ui.Prompt />,
+				props?.session_id ? <HostPrompt {...props} /> : (
+					<api.ui.Prompt sessionID={props?.session_id} visible={props?.visible} disabled={props?.disabled} onSubmit={props?.on_submit} ref={props?.ref} />
+				),
 			home_prompt: (_host: any, props: any) => <HostPrompt {...props} />,
 		},
 	});

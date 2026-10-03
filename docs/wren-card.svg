@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="882" viewBox="0 0 920 882">
+  <!-- wren 概览信息卡（v2：终端条 + 表格宿主 + 不等宽三栏 + 全宽让位序） -->
+  <rect width="920" height="882" fill="#F5F7FA"/>
+  <rect x="0" y="0" width="920" height="1" rx="8" fill="#F5F7FA"/>
+  <text x="48" y="52" fill="#7C8AA0" font-size="11" font-weight="700" text-anchor="start" letter-spacing="0.16em" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'>CLI ZOO · WREN</text>
+  <text x="48" y="94" fill="#1F2A37" font-size="32" font-weight="800" text-anchor="start" letter-spacing="-0.02em" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'>两行 statusline，装在 4 个宿主</text>
+  <text x="48" y="126" fill="#46536B" font-size="14.5" font-weight="400" text-anchor="start" letter-spacing="0" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'>一条命令装完。宽终端显示全量指标；窄终端换成图标语言，关键指标不丢。</text>
+  <line x1="48" y1="148" x2="872" y2="148" stroke="#3D5A80" stroke-width="4"/>
+  <rect x="48" y="168" width="824" height="148" rx="10" fill="#282A36"/>
+  <circle cx="68" cy="190" r="5" fill="#ff5555" opacity="0.85"/>
+  <circle cx="84" cy="190" r="5" fill="#f1fa8c" opacity="0.85"/>
+  <circle cx="100" cy="190" r="5" fill="#50fa7b" opacity="0.85"/>
+  <text x="112" y="195" fill="#6272A4" font-size="11" font-weight="600" text-anchor="start" letter-spacing="0.1em" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'>装完即用</text>
+  <text x="72" y="226" font-size="13" xml:space="preserve" font-family='"SF Mono", Menlo, Monaco, Consolas, "Apple Symbols", "Segoe UI Symbol", monospace'><tspan fill="#50FA7B">$ </tspan><tspan fill="#F8F8F2">./cli-zoo-install.sh wren</tspan><tspan fill="#6272A4">   先把 wren 本体装到 $PREFIX</tspan></text>
+  <text x="72" y="258" font-size="13" xml:space="preserve" font-family='"SF Mono", Menlo, Monaco, Consolas, "Apple Symbols", "Segoe UI Symbol", monospace'><tspan fill="#50FA7B">$ </tspan><tspan fill="#F8F8F2">wren install</tspan><tspan fill="#6272A4">   装到 4 个宿主（默认全部）</tspan></text>
+  <text x="72" y="290" font-size="13" xml:space="preserve" font-family='"SF Mono", Menlo, Monaco, Consolas, "Apple Symbols", "Segoe UI Symbol", monospace'><tspan fill="#50FA7B">$ </tspan><tspan fill="#F8F8F2">wren uninstall</tspan><tspan fill="#6272A4">   卸载（默认全部）</tspan></text>
+  <rect x="48" y="340" width="824" height="196" rx="10" fill="#FFFFFF" stroke="#E0E5EE" stroke-width="1"/>
+  <text x="72" y="372" fill="#3D5A80" font-size="12" font-weight="700" text-anchor="start" letter-spacing="0.12em" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'>宿主覆盖</text>
+  <text x="848" y="372" fill="#3D5A80" font-size="12" font-weight="700" text-anchor="end" letter-spacing="0.12em" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'>窄档</text>
+  <text x="72" y="402" fill="#1F2A37" font-size="14" font-weight="600" text-anchor="start" letter-spacing="0" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'>Claude Code</text>
+  <text x="250" y="402" fill="#7C8AA0" font-size="12" font-weight="400" text-anchor="start" letter-spacing="0" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'>statusline 命令（stdin JSON）</text>
+  <circle cx="832" cy="398" r="4" fill="#50FA7B"/>
+  <text x="848" y="402" fill="#3D5A80" font-size="12" font-weight="700" text-anchor="end" letter-spacing="0" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'>启用</text>
+  <line x1="72" y1="418" x2="848" y2="418" stroke="#E0E5EE"/>
+  <text x="72" y="436" fill="#1F2A37" font-size="14" font-weight="600" text-anchor="start" letter-spacing="0" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'>pi</text>
+  <text x="250" y="436" fill="#7C8AA0" font-size="12" font-weight="400" text-anchor="start" letter-spacing="0" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'>进程内 TS 扩展 footer</text>
+  <circle cx="832" cy="432" r="4" fill="#50FA7B"/>
+  <text x="848" y="436" fill="#3D5A80" font-size="12" font-weight="700" text-anchor="end" letter-spacing="0" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'>启用</text>
+  <line x1="72" y1="452" x2="848" y2="452" stroke="#E0E5EE"/>
+  <text x="72" y="470" fill="#1F2A37" font-size="14" font-weight="600" text-anchor="start" letter-spacing="0" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'>Qoder CLI</text>
+  <text x="250" y="470" fill="#7C8AA0" font-size="12" font-weight="400" text-anchor="start" letter-spacing="0" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'>statusline 命令（stdin JSON）</text>
+  <text x="848" y="470" fill="#7C8AA0" font-size="12" font-weight="500" text-anchor="end" letter-spacing="0" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'>✕  宿主不给终端宽</text>
+  <line x1="72" y1="486" x2="848" y2="486" stroke="#E0E5EE"/>
+  <text x="72" y="504" fill="#1F2A37" font-size="14" font-weight="600" text-anchor="start" letter-spacing="0" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'>opencode</text>
+  <text x="250" y="504" fill="#7C8AA0" font-size="12" font-weight="400" text-anchor="start" letter-spacing="0" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'>进程内 TUI 插件（prompt 框下方）</text>
+  <text x="848" y="504" fill="#7C8AA0" font-size="12" font-weight="500" text-anchor="end" letter-spacing="0" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'>✕  v2 将发布</text>
+  <rect x="48" y="560" width="376" height="150" rx="10" fill="#FFFFFF" stroke="#E0E5EE" stroke-width="1"/>
+  <text x="72" y="592" fill="#3D5A80" font-size="12" font-weight="700" text-anchor="start" letter-spacing="0.12em" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'>窄档图标</text>
+  <text x="72" y="622" fill="#8BE9FD" font-size="14" font-weight="700" text-anchor="start" letter-spacing="0" font-family='"SF Mono", Menlo, Monaco, Consolas, "Apple Symbols", "Segoe UI Symbol", monospace'>◈</text>
+  <text x="100" y="622" fill="#46536B" font-size="12.5" font-weight="400" text-anchor="start" letter-spacing="0" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'>缓存命中率 CH，两位小数</text>
+  <text x="72" y="650" fill="#50FA7B" font-size="14" font-weight="700" text-anchor="start" letter-spacing="0" font-family='"SF Mono", Menlo, Monaco, Consolas, "Apple Symbols", "Segoe UI Symbol", monospace'>▂▄▆█</text>
+  <text x="122" y="650" fill="#46536B" font-size="12.5" font-weight="400" text-anchor="start" letter-spacing="0" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'>上下文占用四分位 &lt;25 / &lt;50 / &lt;75 / ≥75%</text>
+  <text x="72" y="678" fill="#8BE9FD" font-size="14" font-weight="700" text-anchor="start" letter-spacing="0" font-family='"SF Mono", Menlo, Monaco, Consolas, "Apple Symbols", "Segoe UI Symbol", monospace'>⏱</text>
+  <text x="100" y="678" fill="#46536B" font-size="12.5" font-weight="400" text-anchor="start" letter-spacing="0" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'>首片延迟 TTFT，不丢弃</text>
+  <rect x="440" y="560" width="236" height="150" rx="10" fill="#FFFFFF" stroke="#E0E5EE" stroke-width="1"/>
+  <text x="464" y="592" fill="#3D5A80" font-size="12" font-weight="700" text-anchor="start" letter-spacing="0.12em" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'>窄档省掉的段</text>
+  <text x="464" y="622" fill="#1F2A37" font-size="14" font-weight="700" text-anchor="start" letter-spacing="0" font-family='"SF Mono", Menlo, Monaco, Consolas, "Apple Symbols", "Segoe UI Symbol", monospace'>R</text>
+  <text x="492" y="622" fill="#46536B" font-size="12.5" font-weight="400" text-anchor="start" letter-spacing="0" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'>缓存读取量</text>
+  <text x="464" y="650" fill="#1F2A37" font-size="14" font-weight="700" text-anchor="start" letter-spacing="0" font-family='"SF Mono", Menlo, Monaco, Consolas, "Apple Symbols", "Segoe UI Symbol", monospace'>CP</text>
+  <text x="492" y="650" fill="#46536B" font-size="12.5" font-weight="400" text-anchor="start" letter-spacing="0" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'>压缩次数</text>
+  <text x="464" y="678" fill="#1F2A37" font-size="14" font-weight="700" text-anchor="start" letter-spacing="0" font-family='"SF Mono", Menlo, Monaco, Consolas, "Apple Symbols", "Segoe UI Symbol", monospace'>· 时长</text>
+  <text x="514" y="678" fill="#46536B" font-size="12.5" font-weight="400" text-anchor="start" letter-spacing="0" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'>行 1 不显示</text>
+  <rect x="692" y="560" width="176" height="150" rx="10" fill="#FFFFFF" stroke="#E0E5EE" stroke-width="1"/>
+  <text x="716" y="592" fill="#3D5A80" font-size="12" font-weight="700" text-anchor="start" letter-spacing="0.12em" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'>缩写</text>
+  <text x="716" y="622" fill="#1F2A37" font-size="13" font-weight="600" font-family='"SF Mono", Menlo, Monaco, Consolas, "Apple Symbols", "Segoe UI Symbol", monospace'>xhigh → xh</text>
+  <text x="716" y="650" fill="#1F2A37" font-size="13" font-weight="600" font-family='"SF Mono", Menlo, Monaco, Consolas, "Apple Symbols", "Segoe UI Symbol", monospace'>medium → med</text>
+  <text x="716" y="678" fill="#1F2A37" font-size="13" font-weight="600" font-family='"SF Mono", Menlo, Monaco, Consolas, "Apple Symbols", "Segoe UI Symbol", monospace'>去 [1m] 后缀</text>
+  <rect x="48" y="734" width="824" height="92" rx="10" fill="#EEF2F8"/>
+  <text x="72" y="764" fill="#3D5A80" font-size="12" font-weight="700" text-anchor="start" letter-spacing="0.12em" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'>行 1 放不下时的让位顺序</text>
+  <text x="72" y="792" fill="#46536B" font-size="13" font-weight="400" text-anchor="start" letter-spacing="0" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'>时长  →  ahead-behind  →  分支六档折叠（24→20→16→12→8→4）  →  cwd 折叠（地板 16→8→4）</text>
+  <text x="72" y="816" fill="#3D5A80" font-size="13" font-weight="600" text-anchor="start" letter-spacing="0" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'>永不丢弃：dmg 计数 · herdr 坐标 · 宿主徽标（徽标两遍锁定）</text>
+  <text x="48" y="862" fill="#7C8AA0" font-size="11.5" font-weight="400" text-anchor="start" letter-spacing="0" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'>细节：zoo-scripts/wren/README.md  ·  测试：140 用例  ·  配色：Dracula</text>
+</svg>

@@ -58,44 +58,25 @@ otter -h                         # 帮助
 
 ### [wren](./zoo-scripts/wren)
 
-把两行 statusline（Dracula 配色）装到 Claude Code、pi、Qoder CLI 与 opencode 四个宿主上的安装器。装的是文件副本，装完不依赖本仓库还在原处。
+wren 把两行 statusline（Dracula 配色）装到 4 个宿主：Claude Code、pi、Qoder CLI、opencode。
+wren 复制文件副本到宿主。安装完成后，宿主不再依赖本仓库的位置。
+
+![wren 概览](./docs/wren-card.svg)
+
+![wren statusline 预览（上：宽档；下：窄档）](./docs/wren-preview.svg)
+
+终端宽 ≥ 56 列时，wren 渲染宽档。终端宽 ≤ 55 列时，cc 与 pi 渲染窄档。
+窄档用 3 类图标：`◈` 缓存命中率、`▂▄▆█` 上下文占用四分位、`⏱` 首片延迟。
+窄档覆盖 2 个宿主。qc 拿不到终端宽，oc 暂不实现。
 
 ```bash
-./cli-zoo-install.sh wren        # 先把 wren 装到 $PREFIX
-wren install [cc|pi|qc|oc|all]   # 装到宿主（默认 all；幂等；别名：claude / qoder / opencode）
-wren uninstall [cc|pi|qc|oc|all] # 卸载（默认 all）
-wren -h                          # 帮助
+./cli-zoo-install.sh wren        # 第一步：把 wren 装到 $PREFIX
+wren install [cc|pi|qc|oc|all]   # 装到宿主。默认 all。幂等。别名：claude、qoder、opencode
+wren uninstall [cc|pi|qc|oc|all] # 卸载。默认 all
+wren -h                          # 显示帮助
 ```
 
-![wren statusline preview](./docs/wren-preview.svg)
-
-```
-~/Code/cli-zoo | main ↑0↓0 +4 ✱2 | wC:t1:p1 | cc · 1h5m
-↑12K ↓3K | R1.2M CH57.14% CP2 | 8.40%/200K TTFT 6.6s | claude-opus-5 · high
-```
-
-qc 侧同构，仅数据源不同（另一 workspace 的真会话实测样例，故分支与 pane 编号不同）：
-
-```
-~/Code/cli-zoo | feat/x ↑0↓0 | wW:t1:p2 | qc · 16m
-↑4.5M ↓65K | R4.2M CH98.21% | 15.00%/1M TTFT 4.2s | Qwen3.8-Max · xhigh
-```
-
-opencode 侧同样两行，渲染在 prompt 框正下方那一行的左半（顶掉宿主原本的 cwd；右半是宿主的 `162.4K (16%)  ctrl+p commands`，真会话实测样例）：
-
-```
-~/Code/ai_code/cli-zoo | feat/wre…upport_opencode ↑0↓0 ✱6 | wC:t1:p1 | oc · 5h15m      162.4K  ctrl+p commands
-↑390K ↓12K | R5.5M CH93.41% | 14.08%/1M TTFT 2.0s
-```
-
-oc 侧不渲染模型 · 思考（宿主 prompt 框内左侧同一行已有 `agent · model · variant`）；
-cwd 恢复显示——wren 行1 正好占宿主原来显示 cwd 的那一格。其余三宿主（cc/pi/qc）都带 cwd 与模型，
-因为那里没有宿主自带信息可依赖。窄窗格行1 先折分支（24→20→16→12→8 五档），再依次丢 cwd、时长、
-git 计数、ahead-behind，herdr 坐标最后丢；行2 超宽时先把 ctx% 换短形 `16%`（保 CH/TTFT），仍不够再按梯子丢（TTFT → CH → CP → ctx%）。
-
-行 1 = cwd + git + herdr 位置 + 宿主徽标 · 会话时长；行 2 = 累计 token + 缓存（读取量 / `CH` 命中率 / `CP` 压缩次数）+ 上下文占用 + 首片延迟（`TTFT`）+ 模型 · 思考（oc 侧模型 · 思考跟宿主重复不渲染）。长路径长分支自动折叠不溢出，窄终端行2 先换短形 ctx%（`16%`）再按梯子丢弃次要段（TTFT → CH → CP → ctx%）。`ctx%` 与 `TTFT` 三档/四档突变着色（TTFT：绿 <5s、白 5–20s、黄 20–60s、红 >60s，判据为屏幕显示值）。装完在 pi 里用 `/footer` 切换。
-
-四宿主差异（cc / pi / qc / oc）、安装器细节、`wren-pi.ts` 相对 pi 上游的有意修改、Dracula 色板，见 [zoo-scripts/wren/README.md](./zoo-scripts/wren/README.md)；测试见 [docs/testing.md](./docs/testing.md)。
+四个宿主的差异、安装器细节、完整参数，见 [zoo-scripts/wren/README.md](./zoo-scripts/wren/README.md)；测试见 [docs/testing.md](./docs/testing.md)。
 
 ## 安装与卸载
 

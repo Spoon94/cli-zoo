@@ -104,6 +104,7 @@ write_statusline() {
 import json, os, shutil, sys
 
 path = os.environ["CLAUDE_SETTINGS"]
+path = os.path.realpath(path)  # B-5：settings 是 symlink（chezmoi/stow）时解引用写真实目标，保住链接（悬空同样成立）
 cmd = os.environ["WREN_CC_CMD"]
 mode = os.environ["WREN_MODE"]
 parent = os.path.dirname(path) or "."
@@ -190,6 +191,7 @@ clear_statusline() {
 import json, os, sys
 
 path = os.environ["CLAUDE_SETTINGS"]
+path = os.path.realpath(path)  # B-5：symlink 配置解引用再改，卸载不顶掉链接
 cmd = os.environ["WREN_CC_CMD"]
 try:
     with open(path, "r", encoding="utf-8") as fh:
@@ -208,7 +210,12 @@ sl = data.get("statusLine")
 if not isinstance(sl, dict) or sl.get("command") != cmd:
     print("leftalone")
     sys.exit(0)
-del data["statusLine"]
+# B-6：只摘 wren 写入的 type/command；用户原生子键（如 padding）还原保留，
+# 摘完成空壳（本就是 wren 创建的）才整键删
+sl.pop("type", None)
+sl.pop("command", None)
+if not sl:
+    del data["statusLine"]
 try:
     tmp = path + ".wren-tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
@@ -229,6 +236,7 @@ oc_plugin_config() {
 import os, shutil, sys
 
 path = os.environ["WREN_OC_CONFIG"]
+path = os.path.realpath(path)  # B-5：tui.json(c) 是 symlink 时解引用写真实目标，保住链接（悬空同样成立）
 spec = os.environ["WREN_OC_SPEC"]
 mode = os.environ["WREN_MODE"]
 quoted = '"%s"' % spec
@@ -361,19 +369,38 @@ def normalize_array_seg(seg):
 
 
 def find_string(s, start, end, value):
-    """在 [start, end) 里找字符串字面量 value；返回 (起, 止) 或 None。"""
+    """在数组元素区间 [start, end) 里找**顶层**字符串字面量 value；返回 (起, 止) 或 None。
+    只认数组顶层的字符串元素（B-4）：嵌套对象/数组里的同值字符串（如
+    {"src": "./plugins/wren-oc.tsx"}）不算——旧版钻进去会让 install 判「已存在」
+    静默 no-op、uninstall 删嵌套 token 产出非法 JSON。嵌套容器整只跳过。"""
     i = start
+    n = len(s)
     while i < end:
         i = skip_ws_comments(s, i)
         if i >= end:
             break
-        if s[i] == '"':
+        ch = s[i]
+        if ch == '"':
             e = skip_string(s, i)
             if s[i + 1:e - 1] == value:
                 return (i, e)
             i = e
             continue
-        i += 1
+        if ch in "{[":
+            e = close_of(s, i, ch, "]" if ch == "[" else "}")
+            if e < 0:
+                return None
+            i = e + 1
+            continue
+        # 其它字面量（true/false/null/数字）：吃到逗号或区间尾，逗号本身也要跨过
+        # （否则外层停在 ',' 上不再前进，多元素数组死循环）
+        while i < end and s[i] != ",":
+            if s[i] == '"':
+                i = skip_string(s, i)
+                continue
+            i += 1
+        if i < end:
+            i += 1
     return None
 
 
@@ -802,13 +829,23 @@ main() {
     # qoder 同理：QODER_CONFIG_DIR 是 qoder 官方的重定向变量；statusLine.command 写绝对路径
     local qoder_cfg="${QODER_CONFIG_DIR:-$HOME/.qoder}"
     QODER_SETTINGS="${QODER_SETTINGS:-$qoder_cfg/settings.json}"
-    QC_CMD="$qoder_cfg/wren-qc.py"
-    # payload 与 settings 同目录：CLAUDE_SETTINGS 是唯一开关，重定向它就
-    # 完全沙箱化（此前从 CLAUDE_CONFIG_DIR 派生，只改 SETTINGS 时会漏到真实 ~/.claude）
+    # payload 与配置同目录（B-1）：裸相对名（无斜杠）时 dirname 取 "."，相对斜杠路径
+    # 也一样跟着配置走；command 必须绝对路径（宿主按自身 cwd 解析），统一绝对化。
+    # qc 同规则：QC_CMD 跟 QODER_SETTINGS 的目录（旧版只跟 QODER_CONFIG_DIR，
+    # 覆盖 QODER_SETTINGS 时 payload 与 settings 分裂落点）
+    local cc_dir qc_dir
     case "$CLAUDE_SETTINGS" in
-        */*) CC_CMD="${CLAUDE_SETTINGS%/*}/wren-cc" ;;
-        *)   CC_CMD="$claude_cfg/wren-cc" ;;
+        */*) cc_dir="${CLAUDE_SETTINGS%/*}" ;;
+        *)   cc_dir="" ;;   # 裸文件名：配置落 CWD，payload 同去
     esac
+    [[ -n "$cc_dir" && "$cc_dir" == /* ]] || cc_dir="$PWD${cc_dir:+/$cc_dir}"
+    CC_CMD="$cc_dir/wren-cc"
+    case "$QODER_SETTINGS" in
+        */*) qc_dir="${QODER_SETTINGS%/*}" ;;
+        *)   qc_dir="" ;;
+    esac
+    [[ -n "$qc_dir" && "$qc_dir" == /* ]] || qc_dir="$PWD${qc_dir:+/$qc_dir}"
+    QC_CMD="$qc_dir/wren-qc.py"
     # opencode 侧：OPENCODE_CONFIG_DIR 是官方重定向变量；TUI 配置是 tui.json(c)（两个文件
     # 都会被宿主读并合并）。payload 放配置文件旁的 plugins/，spec 写相对路径（宿主按声明它的
     # 配置文件解析相对路径）。已存在的 tui.jsonc 优先接管——那是用户手写的那个，
@@ -823,7 +860,7 @@ main() {
     fi
     case "$OC_TUI_CONFIG" in
         */*) OC_DIR="${OC_TUI_CONFIG%/*}" ;;
-        *)   OC_DIR="$oc_cfg" ;;
+        *)   OC_DIR="." ;;   # B-1：裸相对名跟配置走（落 CWD），不再回退 $oc_cfg
     esac
     OC_SPEC="./plugins/wren-oc.tsx"
     OC_CMD="$OC_DIR/plugins/wren-oc.tsx"

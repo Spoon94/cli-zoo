@@ -562,7 +562,7 @@ mod.default(pi);
 
 const ctx = {
   sessionManager: { getBranch: () => JSON.parse(process.env.BRANCH || "[]") },
-  model: { name: "anthropic/claude-opus-5", contextWindow: Number(process.env.CTX_WINDOW || 200000) },
+  model: { name: process.env.MODEL_NAME || "anthropic/claude-opus-5", contextWindow: Number(process.env.CTX_WINDOW || 200000) },
   thinkingLevel: process.env.THINKING || "high",
   // pi 的权威上下文用量（percent 为 null 表示压缩后暂不可知）
   getContextUsage: () => JSON.parse(process.env.CTX_USAGE || "null"),
@@ -819,9 +819,10 @@ else
     got_det="$(seg_both "$R38/det" detached)"
     got_ren="$(seg_both "$R38/ren" main)"
     got_conf="$(seg_both "$R38/conf" main)"
-    # detached：两侧都应没有 git 段（seg 为空）
+    # detached：分支名不显，dmg 照常（Bug 猎杀 #2 后两侧同构：seg=脏计数，无分支名）
     det_ok=0
-    [[ -z "${got_det%%|*}" && -z "${got_det#*|}" ]] \
+    [[ "${got_det%%|*}" != *"main"* && "${got_det#*|}" != *"main"* \
+       && "${got_det%%|*}" == "${got_det#*|}" && -n "${got_det%%|*}" ]] \
         && [[ "${got_det_pos%%|*}" == *"main"* && "${got_det_pos#*|}" == *"main"* ]] && det_ok=1
     # rename：git mv a→c（staged rename 记 ✱）+ b.txt 被改（也记 ✱）→ ✱2；
     # 关键是不出现 +1（staged rename 的 XY 是 R.，不是 A）
@@ -843,7 +844,7 @@ else
     if [[ $det_ok -eq 1 && $ren_ok -eq 1 && $conf_ok -eq 1 ]]; then
         pass T38 "detached/rename/conflict: sides agree (det=[$got_det] ren=[$ren_seg] conf=[$conf_seg])"
     else
-        fail T38 "det_ok=$det_ok ren_ok=$ren_ok conf_ok=$conf_ok conf_pre=$conf_pre det=[$got_det] ren=[$got_ren] conf=[$got_conf]"
+        fail T38 "det_ok=$det_ok ren_ok=$ren_ok conf_ok=$conf_ok conf_pre=$conf_pre pos=[$got_det_pos] det=[$got_det] ren=[$got_ren] conf=[$got_conf]"
     fi
 
     # ========================================================
@@ -1379,10 +1380,19 @@ cc59=$(printf '{"cwd":"%s","model":{"display_name":"m"}}' "$R59" \
 qc59=$(printf '{"cwd":"%s","model":{"display_name":"m"}}' "$R59" \
     | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q59" python3 "$QC_PAYLOAD" 2>/dev/null | head -1)
 cc59s="$(strip_tag "$cc59")"; qc59s="$(strip_tag "$qc59")"
-if [[ -n "$cc59s" && "$cc59s" == "$qc59s" ]] && printf '%s' "$cc59s" | grep -qF "main"; then
-    pass T59 "qc line1 identical to wren-cc.py after badge strip ($cc59s)"
+# 长分支夹具（>24 格触发折叠）：cc 的 24 档必须与 qc 同构（head 8 / tail 15）。
+# CR 三轮发现 d0dca44 曾把 cc 默认档改三七开致跨实现分叉——短分支夹具测不出。
+(cd "$R59" && git checkout -q -b feat/very-long-branch-name-testing-cross-host-folding-parity) >/dev/null 2>&1
+cc59l=$(printf '{"cwd":"%s","model":{"display_name":"m"}}' "$R59" \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/c59l" python3 "$CC_PAYLOAD" 2>/dev/null | head -1)
+qc59l=$(printf '{"cwd":"%s","model":{"display_name":"m"}}' "$R59" \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q59l" python3 "$QC_PAYLOAD" 2>/dev/null | head -1)
+cc59ls="$(strip_tag "$cc59l")"; qc59ls="$(strip_tag "$qc59l")"
+if [[ -n "$cc59s" && "$cc59s" == "$qc59s" ]] && printf '%s' "$cc59s" | grep -qF "main" \
+   && [[ "$cc59ls" == "$qc59ls" ]] && printf '%s' "$cc59ls" | grep -qF "feat/ver"; then
+    pass T59 "qc line1 identical to cc after badge strip, short+long branch ($cc59s / $cc59ls)"
 else
-    fail T59 "cc=[$cc59s] qc=[$qc59s]"
+    fail T59 "cc=[$cc59s] qc=[$qc59s] long: cc=[$cc59ls] qc=[$qc59ls]"
 fi
 
 # ============================================================
@@ -1667,10 +1677,12 @@ else
     # 65：再丢 CH
     printf '%s' "$t73_w65" | grep -qF "CH96.34%" && t73_ok=0
     printf '%s' "$t73_w65" | grep -qF "CP1" || t73_ok=0
-    # 55：再丢 CP
+    # 55：窄档（≤55，与 cc T107 / qc T109 同契约）——短形 + 紧分隔；R/CP 本就
+    # 不进段表；⏱ 升铁律（丢序 CP→CH），thinking 缩写 xh（十轮裁定后 45 ≤ 50 全在）
+    printf '%s' "$t73_w55" | grep -qF "743K/117K|◈96.34%|▄28% ⏱12s|claude-opus-5 · xh" || t73_ok=0
     printf '%s' "$t73_w55" | grep -qF "CP1" && t73_ok=0
-    # 四档都不剔：账本头、ctx%、模型名
-    for l in "$t73_w90" "$t73_w75" "$t73_w65" "$t73_w55"; do
+    # 宽档三档（90/75/65）都不剔：账本头、ctx%、模型名；55 窄档同段以短形在场
+    for l in "$t73_w90" "$t73_w75" "$t73_w65"; do
         printf '%s' "$l" | grep -qF "↑743K ↓117K" || t73_ok=0
         printf '%s' "$l" | grep -qF "28.42%/1M" || t73_ok=0
         printf '%s' "$l" | grep -qF "claude-opus-5" || t73_ok=0
@@ -1826,7 +1838,7 @@ EOF2
         printf '%s' "$s"
     }
     t80_ok=1; t80_seen=""; t80_err=""
-    for w in 90 81 80 70 65 55; do
+    for w in 90 81 80 70 65 60; do
         cc80=$(printf '{"cwd":"/tmp","model":{"display_name":"claude-opus-5"},"effort":{"level":"xhigh"},"context_window":{"context_window_size":1000000},"transcript_path":"%s"}' "$T80_TR" \
             | NO_COLOR=1 COLUMNS=$w WREN_CACHE_DIR="$BOX/c80-$w" python3 "$CC_PAYLOAD" 2>/dev/null | tail -1)
         qc80=$(printf '{"cwd":"/tmp","model":{"display_name":"claude-opus-5"},"effort":"xhigh","context_window":{"context_window_size":1000000},"transcript_path":"%s"}' "$T80_TR" \
@@ -1839,10 +1851,12 @@ EOF2
         [[ "$t80_a" == "$t80_b" && "$t80_b" == "$t80_c" ]] || { t80_ok=0; t80_err="$t80_err[W=$w cc=$t80_a qc=$t80_b pi=$t80_c]"; }
         t80_seen="$t80_seen $t80_a"
     done
-    # 三侧同签名之外，再钉住丢序与阀值：90/81→TCP 80/70→-CP 65→--P 55→---
-    # （81 是「全在」的临界点：预算常量差 1 格就会在这一档暴露）
-    if [[ $t80_ok -eq 1 && "$t80_seen" == " TCP TCP -CP -CP --P ---" ]]; then
-        pass T80 "3-host line2 ladder identical & ordered (w90/81/80/70/65/55:$t80_seen)"
+    # 三侧同签名之外，再钉住丢序与阀值：90/81→TCP 80/70→-CP 65/60→--P
+    # （81 是「全在」的临界点：预算常量差 1 格就会在这一档暴露。
+    #  ≤55 是 cc 独有的窄档短形层——CC 宿主实绘宽 ≈ COLUMNS−5 且输入框已带模型，
+    #  同构断言只覆盖宽档，窄档由 T107 单钉）
+    if [[ $t80_ok -eq 1 && "$t80_seen" == " TCP TCP -CP -CP --P --P" ]]; then
+        pass T80 "3-host line2 ladder identical & ordered (w90/81/80/70/65/60:$t80_seen)"
     else
         fail T80 "seen:[$t80_seen] mismatch:$t80_err"
     fi
@@ -2500,12 +2514,1149 @@ else
     # 行2 在 49 格内：ctx% 先换短形 `16%`（保窗口位置：CH 之后、TTFT 之前），CH/TTFT 都保住
     OC_DUAL='{"width":49,"cwd":"/home/u/Code/proj","home":"/home/u","branch":"feat/wren_support_opencode","head":"feat/wren_support_opencode","ab":" ↑0↓0","added":0,"modified":11,"deleted":0,"herdr":"w1:t2:p3","durationMs":82900000,"inputTokens":898000,"outputTokens":14000,"cacheRead":7200000,"cacheWrite":0,"compactions":0,"ctxPercent":16.29,"ctxWindow":1000000,"model":"","thinking":"","ttftMs":3700}'
     t106="$(oc_render "$OC_DUAL")"
+    # T133 后期望更新：folds 表补 4/0 档，级联按优先级（段 > 分支长度 > cwd）
+    # 在 fold-4 处提前命中——cwd 存活（…/proj）、分支让位到 4 档（…ode），
+    # 总宽 47 ≤ 49；旧行为是丢 cwd 保 16 档分支（旧表无 4/0 档可选）
     if printf '%s' "$t106" | grep -qF "L2=↑898K ↓14K | R7.2M CH88.91% | 16% TTFT 3.7s" \
-       && printf '%s' "$t106" | grep -qxF "L1=feat/wre…pencode ↑0↓0 ✱11 | w1:t2:p3 | oc · 23h1m"; then
+       && printf '%s' "$t106" | grep -qxF "L1=…/proj | …ode ↑0↓0 ✱11 | w1:t2:p3 | oc · 23h1m"; then
         pass T106 "narrow budget swaps ctx% to short form before dropping CH/TTFT"
     else
         fail T106 "out=[$(printf '%s' "$t106" | tr '\n' '~')]"
     fi
+fi
+
+# ============================================================
+# T107: cc 窄档（≤55 列，移动端 herdr 会把 pane PTY 拖成 51 列）——
+#       预算按实绘宽 COLUMNS−5 收（宿主左缩进 2 + 尾部留白/省略号）；
+#       用户裁定取舍：R/CP 窄档不进段表、CH 两位小数原样但前缀换 ◈、
+#       ctx% 整数 + 四分位块高图标（▂<25 ▄<50 ▆<75 █≥75，与色档 70/90
+#       正交：图标=体积，颜色=风险）、TTFT 换 ⏱ 前缀（计宽按 2 格防御
+#       iOS 表情宽）、模型·思考保留、行1 时长不渲染、紧分隔 |。
+#       兜底丢序（比 51 列更窄）：⏱ → ◈；↑in↓out 与 ◐ctx% 永不整段丢。
+# ============================================================
+new_box
+T107_TR="$BOX/tr107.jsonl"
+cat >"$T107_TR" <<'EOF2'
+{"type":"user","timestamp":"2026-09-19T04:18:46.065Z","message":{"content":"hi"}}
+{"type":"assistant","timestamp":"2026-09-19T04:18:58.465Z","message":{"usage":{"input_tokens":743000,"output_tokens":117000,"cache_read_input_tokens":19560000,"cache_creation_input_tokens":0}}}
+{"type":"system","subtype":"compact_boundary","isSidechain":false,"compactMetadata":{"trigger":"manual","postTokens":284200}}
+EOF2
+t107_at() {
+    printf '{"cwd":"/tmp","model":{"display_name":"m"},"effort":{"level":"xhigh"},"context_window":{"context_window_size":1000000},"transcript_path":"%s"}' "$T107_TR" \
+        | NO_COLOR=1 COLUMNS=$1 WREN_CACHE_DIR="$BOX/c107-$1" python3 "$CC_PAYLOAD" 2>/dev/null | tail -1
+}
+# 四分位图标矩阵：同 fixture 换 ctx 值，钉 ▂▄▆█ 四档与色档正交（80%=█但黄）
+t107_ctx() {
+    printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":1000000,"current_usage":{"input_tokens":%d,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}},"transcript_path":"%s"}' \
+        "$((1000000 * $1 / 100))" "$T107_TR" \
+        | NO_COLOR=1 COLUMNS=51 WREN_CACHE_DIR="$BOX/c107x-$1" python3 "$CC_PAYLOAD" 2>/dev/null | tail -1
+}
+t107_51="$(t107_at 51)"; t107_42="$(t107_at 42)"; t107_36="$(t107_at 36)"
+t107_90="$(printf '{"cwd":"/tmp","model":{"display_name":"claude-opus-5"},"effort":{"level":"xhigh"},"context_window":{"context_window_size":1000000},"transcript_path":"%s"}' "$T107_TR" \
+    | NO_COLOR=1 COLUMNS=90 WREN_CACHE_DIR="$BOX/c107-90" python3 "$CC_PAYLOAD" 2>/dev/null | tail -1)"
+t107_l1="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":1000000},"transcript_path":"%s"}' "$T107_TR" \
+    | NO_COLOR=1 COLUMNS=51 HERDR_WORKSPACE_ID=w9 HERDR_TAB_ID=w9:t1 HERDR_PANE_ID=w9:p1 WREN_CACHE_DIR="$BOX/c107-l1" python3 "$CC_PAYLOAD" 2>/dev/null | head -1)"
+t107_q12="$(t107_ctx 12)"; t107_q37="$(t107_ctx 37)"; t107_q62="$(t107_ctx 62)"; t107_q80="$(t107_ctx 80)"; t107_q96="$(t107_ctx 96)"
+# 51 满配 ◈96.34%+▄28%+⏱12s+身份组（m · xh 缩写）。⏱ 升铁律（用户裁定）：
+# 42/36 丢 ◈ 保 ⏱；思考等级 xhigh→xh、模型去 [1m]（此 fixture 模型 m 无后缀）。
+# 90 宽档原样（xhigh 不缩写）；行1 时长不在、herdr 坐标在
+if printf '%s' "$t107_51" | grep -qF "◈96.34%" \
+   && printf '%s' "$t107_51" | grep -qF "▄28%" \
+   && printf '%s' "$t107_51" | grep -qF "⏱12s" \
+   && printf '%s' "$t107_51" | grep -qF "|m · xh" \
+   && ! printf '%s' "$t107_51" | grep -qF "R19.6M" \
+   && ! printf '%s' "$t107_51" | grep -qF "CP1" \
+   && ! printf '%s' "$t107_51" | grep -qF "28.42%" \
+   && ! printf '%s' "$t107_42" | grep -qF "◈96.34%" \
+   && printf '%s' "$t107_42" | grep -qF "⏱12s" \
+   && ! printf '%s' "$t107_36" | grep -qF "◈" \
+   && printf '%s' "$t107_36" | grep -qF "⏱12s" \
+   && printf '%s' "$t107_36" | grep -qF "117K|▄28%" \
+   && printf '%s' "$t107_90" | grep -qF "R19.6M CH96.34% CP1 | 28.42%/1M TTFT 12s | claude-opus-5" \
+   && printf '%s' "$t107_l1" | grep -qF "w9:t1:p1" \
+   && ! printf '%s' "$t107_l1" | grep -qE "· [0-9]+[hm]" \
+   && printf '%s' "$t107_q12" | grep -qF "▂12%" \
+   && printf '%s' "$t107_q37" | grep -qF "▄37%" \
+   && printf '%s' "$t107_q62" | grep -qF "▆62%" \
+   && printf '%s' "$t107_q80" | grep -qF "█80%" \
+   && printf '%s' "$t107_q96" | grep -qF "█96%"; then
+    pass T107 "cc narrow tier: ◈/▂▄▆█/⏱ icons, quartile×color orthogonal, TTFT->CH drop"
+else
+    fail T107 "51=[$t107_51] 42=[$t107_42] 36=[$t107_36] 90=[$t107_90] l1=[$t107_l1] q12=[$t107_q12] q37=[$t107_q37] q62=[$t107_q62] q80=[$t107_q80] q96=[$t107_q96]"
+fi
+
+# ============================================================
+# T108: pi 窄档（≤55 列，与 cc T107 / qc T109 同一款）：预算 WIDTH−5 地板 4、
+#       in/out 短形（去 ↑/↓ 与空格，/ 分向）、◈CH、▂▄▆█ ctx（整数 + 四分位
+#       块高，与色档 70/90 正交）、⏱TTFT（预算 ⏱⏱99m59s 8 格防 iOS 表情宽）、
+#       R/CP 不进段表、紧分隔 |、丢序 CP→TTFT→CH、行1 时长不渲染、徽标锁定。
+#       宽档边界 56 仍走宽档形态（R/CH 原样），钉「≤55 才切窄」。
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T108 "node with .ts type-stripping not available"
+else
+    T108_BR='[{"type":"compaction"},{"type":"message","message":{"role":"assistant","usage":{"input":743000,"output":117000,"cacheRead":19560000,"cacheWrite":0}}}]'
+    t108_run() {  # $1=WIDTH $2=MODEL_NAME($3=percent)
+        env NO_COLOR=1 WIDTH="$1" BRANCH="$T108_BR" TTFT_MS=12400 MSG_UPDATES=0 THINKING=xhigh \
+            MODEL_NAME="${2:-m}" CTX_USAGE="{\"tokens\":284200,\"contextWindow\":1000000,\"percent\":${3:-28.42}}" \
+            WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs" \
+            node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null | tail -1
+    }
+    t108_51="$(t108_run 51)"; t108_44="$(t108_run 44)"; t108_42="$(t108_run 42)"; t108_36="$(t108_run 36)"
+    t108_56="$(t108_run 56)"   # 宽档边界（MODEL=m 时 CH 仍在，与 55 窄档形态对照）
+    t108_90="$(t108_run 90 claude-opus-5)"
+    t108_q12="$(t108_run 51 m 12)"; t108_q37="$(t108_run 51 m 37)"
+    t108_q62="$(t108_run 51 m 62)"; t108_q80="$(t108_run 51 m 80)"; t108_q96="$(t108_run 51 m 96)"
+    t108_l1="$(env NO_COLOR=1 WIDTH=51 BRANCH="$T108_BR" TTFT_MS=12400 MSG_UPDATES=0 THINKING=xhigh \
+        HERDR_WORKSPACE_ID=w9 HERDR_TAB_ID=w9:t1 HERDR_PANE_ID=w9:p1 \
+        CTX_USAGE='{"tokens":284200,"contextWindow":1000000,"percent":28.42}' \
+        WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs" \
+        node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null | head -1)"
+    t108_ok=1
+    # 51 满配：短形 + ◈ + ▄ + ⏱ + 身份组（thinking 缩写 xh）；R/CP/小数 ctx/↑↓ 都不在
+    printf '%s' "$t108_51" | grep -qF "◈96.34%" || t108_ok=0
+    printf '%s' "$t108_51" | grep -qF "▄28%" || t108_ok=0
+    printf '%s' "$t108_51" | grep -qF "⏱12s" || t108_ok=0
+    printf '%s' "$t108_51" | grep -qF "|m · xh" || t108_ok=0
+    printf '%s' "$t108_51" | grep -qF "743K/117K" || t108_ok=0
+    printf '%s' "$t108_51" | grep -qF "R19.6M" && t108_ok=0
+    printf '%s' "$t108_51" | grep -qF "CP1" && t108_ok=0
+    printf '%s' "$t108_51" | grep -qF "28.42%" && t108_ok=0
+    printf '%s' "$t108_51" | grep -qF "↑743K" && t108_ok=0
+    # 丢序（新裁定）：⏱ 升铁律永不丢；44（预算 39）全在；42（37）丢 ◈ 保 ⏱；
+    # 36（31）同 42 形（⏱ 在场、◈ 不在）
+    printf '%s' "$t108_44" | grep -qF "◈96.34%" || t108_ok=0
+    printf '%s' "$t108_44" | grep -qF "⏱12s" || t108_ok=0
+    printf '%s' "$t108_42" | grep -qF "◈" && t108_ok=0
+    printf '%s' "$t108_42" | grep -qF "117K|▄28% ⏱12s" || t108_ok=0
+    printf '%s' "$t108_36" | grep -qF "◈" && t108_ok=0
+    printf '%s' "$t108_36" | grep -qF "117K|▄28% ⏱12s" || t108_ok=0
+    # 56 = 宽档边界：R/↑↓ 原样、无 ⏱/◈（与 55 窄档形态互斥；MODEL=m 时 56 实宽
+    # 68→丢⏱ 57→丢◈ 48，R 在场即宽档形）
+    printf '%s' "$t108_56" | grep -qF "R19.6M" || t108_ok=0
+    printf '%s' "$t108_56" | grep -qF "↑743K ↓117K" || t108_ok=0
+    printf '%s' "$t108_56" | grep -qF "⏱" && t108_ok=0
+    printf '%s' "$t108_56" | grep -qF "◈" && t108_ok=0
+    # 90 宽档全量（长模型名）
+    printf '%s' "$t108_90" | grep -qF "R19.6M CH96.34% CP1 | 28.42%/1M TTFT 12s | claude-opus-5" || t108_ok=0
+    # 身份组缩短：窄档去 '[1m]' 后缀 + thinking 缩写；宽档不缩（原样保留）
+    t108_m1="$(t108_run 51 'forge[1m]')"
+    t108_m2="$(t108_run 90 'forge[1m]')"
+    printf '%s' "$t108_m1" | grep -qF "|forge · xh" || t108_ok=0
+    printf '%s' "$t108_m1" | grep -qF "[1m]" && t108_ok=0
+    printf '%s' "$t108_m2" | grep -qF "forge[1m] · xhigh" || t108_ok=0
+    # 行1：herdr 坐标在、时长不在
+    printf '%s' "$t108_l1" | grep -qF "w9:t1:p1" || t108_ok=0
+    printf '%s' "$t108_l1" | grep -qF "| pi" || t108_ok=0
+    printf '%s' "$t108_l1" | grep -qE "· [0-9]+[hm]" && t108_ok=0
+    # 四分位矩阵：▂<25 ▄<50 ▆<75 █≥75（与色档 70/90 正交：80%=█但黄）
+    printf '%s' "$t108_q12" | grep -qF "▂12%" || t108_ok=0
+    printf '%s' "$t108_q37" | grep -qF "▄37%" || t108_ok=0
+    printf '%s' "$t108_q62" | grep -qF "▆62%" || t108_ok=0
+    printf '%s' "$t108_q80" | grep -qF "█80%" || t108_ok=0
+    printf '%s' "$t108_q96" | grep -qF "█96%" || t108_ok=0
+    if [[ $t108_ok -eq 1 ]]; then
+        pass T108 "pi narrow tier: short-form/◈/▂▄▆█/⏱ iron law, CP→CH drop, identity shortened, quartile matrix"
+    else
+        fail T108 "51=[$t108_51] 44=[$t108_44] 42=[$t108_42] 36=[$t108_36] 56=[$t108_56] 90=[$t108_90] l1=[$t108_l1] q12=[$t108_q12] q37=[$t108_q37] q62=[$t108_q62] q80=[$t108_q80] q96=[$t108_q96]"
+    fi
+fi
+
+# ============================================================
+# T109: qc 窄档（≤55 列，与 cc T107 同一款）：预算 COLUMNS−5 地板 4、
+#       in/out 短形 743K/117K、◈CH、四分位 ▂▄▆█ + 整数%、⏱ 前缀、
+#       R/CP 不进段表、紧分隔 |、丢序 CP→TTFT→CH（⏱ 先于 ◈ 丢）、
+#       行1 时长不渲染 + herdr/qc 徽标保留；宽档（90）零变化。
+#       ctx 数据源走 qc 口径：原生 used_percentage（四分位矩阵）与
+#       postTokens 回落（51 满配 ▄28%）两条都盖到；effort 走 runtime-config。
+# ============================================================
+new_box
+T109_TR="$BOX/tr109.jsonl"
+cat >"$T109_TR" <<'EOF2'
+{"type":"user","timestamp":"2026-09-19T04:18:46.065Z","message":{"content":"hi"}}
+{"type":"assistant","timestamp":"2026-09-19T04:18:58.465Z","message":{"usage":{"input_tokens":743000,"output_tokens":117000,"cache_read_input_tokens":19560000,"cache_creation_input_tokens":0}}}
+{"type":"system","subtype":"compact_boundary","isSidechain":false,"compactMetadata":{"trigger":"manual","postTokens":284200}}
+{"type":"runtime-config","reasoningEffort":"xhigh"}
+EOF2
+t109_at() {
+    printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":1000000},"transcript_path":"%s"}' "$T109_TR" \
+        | NO_COLOR=1 WREN_QC_NARROW=1 COLUMNS=$1 WREN_CACHE_DIR="$BOX/c109-$1" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1
+}
+# 四分位矩阵：原生 used_percentage（qc 的首选 ctx 源），钉 ▂▄▆█ 与色档正交
+t109_ctx() {
+    printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":1000000,"used_percentage":%d},"transcript_path":"%s"}' \
+        "$1" "$T109_TR" \
+        | NO_COLOR=1 WREN_QC_NARROW=1 COLUMNS=51 WREN_CACHE_DIR="$BOX/c109x-$1" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1
+}
+t109_55="$(t109_at 55)"; t109_51="$(t109_at 51)"; t109_42="$(t109_at 42)"; t109_36="$(t109_at 36)"
+t109_90="$(printf '{"cwd":"/tmp","model":{"display_name":"claude-opus-5"},"context_window":{"context_window_size":1000000},"transcript_path":"%s"}' "$T109_TR" \
+    | NO_COLOR=1 COLUMNS=90 WREN_CACHE_DIR="$BOX/c109-90" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1)"
+t109_l1="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":1000000},"transcript_path":"%s"}' "$T109_TR" \
+    | NO_COLOR=1 WREN_QC_NARROW=1 COLUMNS=51 HERDR_WORKSPACE_ID=w9 HERDR_TAB_ID=w9:t1 HERDR_PANE_ID=w9:p1 WREN_CACHE_DIR="$BOX/c109-l1" python3 "$QC_PAYLOAD" 2>/dev/null | head -1)"
+t109_q12="$(t109_ctx 12)"; t109_q37="$(t109_ctx 37)"; t109_q62="$(t109_ctx 62)"; t109_q80="$(t109_ctx 80)"; t109_q96="$(t109_ctx 96)"
+if printf '%s' "$t109_55" | grep -qF "743K/117K|◈96.34%|▄28% ⏱12s|m · xh" \
+   && printf '%s' "$t109_51" | grep -qF "743K/117K|◈96.34%|▄28% ⏱12s|m · xh" \
+   && ! printf '%s' "$t109_51" | grep -qF "R19.6M" \
+   && ! printf '%s' "$t109_51" | grep -qF "CP1" \
+   && ! printf '%s' "$t109_51" | grep -qF "28.42%" \
+   && printf '%s' "$t109_42" | grep -qF "743K/117K|▄28% ⏱12s|m · xh" \
+   && ! printf '%s' "$t109_42" | grep -qF "◈" \
+   && printf '%s' "$t109_36" | grep -qF "743K/117K|▄28% ⏱12s|m · xh" \
+   && ! printf '%s' "$t109_36" | grep -qF "◈" \
+   && printf '%s' "$t109_90" | grep -qF "R19.6M CH96.34% CP1 | 28.42%/1M TTFT 12s | claude-opus-5 · xhigh" \
+   && printf '%s' "$t109_l1" | grep -qF "w9:t1:p1" \
+   && printf '%s' "$t109_l1" | grep -qF "| qc" \
+   && ! printf '%s' "$t109_l1" | grep -qF "· " \
+   && printf '%s' "$t109_q12" | grep -qF "▂12%" \
+   && printf '%s' "$t109_q37" | grep -qF "▄37%" \
+   && printf '%s' "$t109_q62" | grep -qF "▆62%" \
+   && printf '%s' "$t109_q80" | grep -qF "█80%" \
+   && printf '%s' "$t109_q96" | grep -qF "█96%"; then
+    pass T109 "qc narrow tier mirrors cc: short in/out, ◈/▂▄▆█/⏱, CP->TTFT->CH order, wide untouched"
+else
+    fail T109 "55=[$t109_55] 51=[$t109_51] 42=[$t109_42] 36=[$t109_36] 90=[$t109_90] l1=[$t109_l1] q12=[$t109_q12] q37=[$t109_q37] q62=[$t109_q62] q80=[$t109_q80] q96=[$t109_q96]"
+fi
+
+# ============================================================
+# T116: pi herdr env 换行注入——herdrId 三段各自压平（与 cc one_line 同款）
+#       后拼接；\n 类字符不得进渲染文本（2 行契约），压平后为空的段被
+#       filter(Boolean) 拆掉（无 :: 残留）。CR 六轮补洞（cc 侧猎杀四轮 #4
+#       的 pi 侧遗漏）；oc 侧同款见 T114（B-2）。
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T116 "node with .ts type-stripping not available"
+else
+    t116_run() {  # $@ = 额外 env（HERDR_*）
+        env -u HERDR_WORKSPACE_ID -u HERDR_TAB_ID -u HERDR_PANE_ID \
+            NO_COLOR=1 WIDTH=80 TTFT_MS=12400 MSG_UPDATES=0 "$@" \
+            WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs" \
+            node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null
+    }
+    # A：TAB 含换行——压平进段，总行数仍 2，行1 无 EVIL 后续行残留
+    t116_a="$(t116_run HERDR_WORKSPACE_ID=w9 HERDR_TAB_ID=$'t1\nEVIL' HERDR_PANE_ID=w9:p1)"
+    # B：TAB 纯换行且无其它段——herdr 段整体消失
+    t116_b="$(t116_run HERDR_TAB_ID=$'\n')"
+    # C：TAB 纯换行但 WS/PANE 在——空段被拆，无 ::
+    t116_c="$(t116_run HERDR_WORKSPACE_ID=w9 HERDR_TAB_ID=$'\n' HERDR_PANE_ID=w9:p1)"
+    t116_a_l1="$(printf '%s' "$t116_a" | head -1)"
+    t116_a_n="$(printf '%s\n' "$t116_a" | wc -l | tr -d ' ')"
+    t116_b_l1="$(printf '%s' "$t116_b" | head -1)"
+    t116_c_l1="$(printf '%s' "$t116_c" | head -1)"
+    t116_ok=1
+    # A：行1 压平为 w9:t1EVIL:p1；总行数 = 2（注入前 bug 会顶成 3）
+    printf '%s' "$t116_a_l1" | grep -qF "w9:t1EVIL:p1" || t116_ok=0
+    [[ $t116_a_n -eq 2 ]] || t116_ok=0
+    # B：无 herdr 段（无 w9/:，只剩路径 + 徽标）
+    printf '%s' "$t116_b_l1" | grep -qF "| pi" || t116_ok=0
+    printf '%s' "$t116_b_l1" | grep -qE 'w9|:p' && t116_ok=0
+    # C：空段被拆——w9:p1 紧凑拼接，无 :: 残留
+    printf '%s' "$t116_c_l1" | grep -qF "w9:p1 | pi" || t116_ok=0
+    printf '%s' "$t116_c_l1" | grep -qF "::" && t116_ok=0
+    if [[ $t116_ok -eq 1 ]]; then
+        pass T116 "pi herdr env flattened: newline-injection stays 2 lines, empty segment dropped"
+    else
+        fail T116 "A(n=$t116_a_n)=[$t116_a_l1] B=[$t116_b_l1] C=[$t116_c_l1]"
+    fi
+fi
+
+# ============================================================
+# T117: pi 窄档四分位边界 + 半偶舍入（交叉审 P3 变异补测）——
+#       25/50/75 三边界没测过（矩阵只有 12/37/62/80/96）；半值 .5 处
+#       Python :.0f（银行家）与 JS toFixed(0)/Math.round（半上）分叉，
+#       pi 手写 roundHalfEven 对齐 cc/qc。附 cc 同值 74.5% 交叉验证。
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T117 "node with .ts type-stripping not available"
+else
+    T117_BR='[{"type":"compaction"},{"type":"message","message":{"role":"assistant","usage":{"input":743000,"output":117000,"cacheRead":19560000,"cacheWrite":0}}}]'
+    t117_ctx() {  # $1 = percent
+        env -u HERDR_WORKSPACE_ID -u HERDR_TAB_ID -u HERDR_PANE_ID NO_COLOR=1 WIDTH=51 BRANCH="$T117_BR" TTFT_MS=12400 MSG_UPDATES=0 \
+            MODEL_NAME=m CTX_USAGE="{\"tokens\":284200,\"contextWindow\":1000000,\"percent\":$1}" \
+            WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs" \
+            node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null | tail -1
+    }
+    t117_ok=1
+    # 整数边界：▂<25 ▄<50 ▆<75 █≥75（边界值归上档）
+    [[ "$(t117_ctx 25)"  == *"▄25%"*  ]] || t117_ok=0
+    [[ "$(t117_ctx 50)"  == *"▆50%"*  ]] || t117_ok=0
+    [[ "$(t117_ctx 75)"  == *"█75%"*  ]] || t117_ok=0
+    # 半偶舍入：.5 归偶（toFixed(0)/Math.round 会给 25/51/75，全红）
+    [[ "$(t117_ctx 24.5)" == *"▂24%"* ]] || t117_ok=0
+    [[ "$(t117_ctx 25.5)" == *"▄26%"* ]] || t117_ok=0
+    [[ "$(t117_ctx 49.5)" == *"▄50%"* ]] || t117_ok=0
+    [[ "$(t117_ctx 50.5)" == *"▆50%"* ]] || t117_ok=0
+    [[ "$(t117_ctx 74.5)" == *"▆74%"* ]] || t117_ok=0
+    [[ "$(t117_ctx 75.5)" == *"█76%"* ]] || t117_ok=0
+    # cc 交叉验证：tokens=149000/200000 → 74.5% 精确 → cc :.0f=74
+    printf '{"cwd":"/tmp","model":{"display_name":"m"},"effort":{"level":"xhigh"},"context_window":{"current_usage":{"input_tokens":149000,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"context_window_size":200000}}' \
+        | NO_COLOR=1 COLUMNS=51 python3 "$CC_PAYLOAD" 2>/dev/null | tail -1 | grep -qF "▆74%" || t117_ok=0
+    if [[ $t117_ok -eq 1 ]]; then
+        pass T117 "pi narrow quartile boundaries 25/50/75 + banker's rounding (.5->even), cc parity at 74.5%"
+    else
+        fail T117 "25=[$(t117_ctx 25)] 50=[$(t117_ctx 50)] 75=[$(t117_ctx 75)] 24.5=[$(t117_ctx 24.5)] 50.5=[$(t117_ctx 50.5)] 74.5=[$(t117_ctx 74.5)] 75.5=[$(t117_ctx 75.5)]"
+    fi
+fi
+
+# ============================================================
+# T118: pi 预算地板（变异补测）——max(4, width-5) 变异成 max(24,·)
+#       时现有用例全绿；钉 COLUMNS 20/10/6 三档：有内容、逐格不超宽。
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T118 "node with .ts type-stripping not available"
+else
+    T118_BR='[{"type":"compaction"},{"type":"message","message":{"role":"assistant","usage":{"input":743000,"output":117000,"cacheRead":19560000,"cacheWrite":0}}}]'
+    t118_run() {  # $1 = WIDTH
+        env -u HERDR_WORKSPACE_ID -u HERDR_TAB_ID -u HERDR_PANE_ID NO_COLOR=1 WIDTH="$1" BRANCH="$T118_BR" TTFT_MS=12400 MSG_UPDATES=0 \
+            MODEL_NAME=m CTX_USAGE='{"tokens":284200,"contextWindow":1000000,"percent":28.42}' \
+            WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs" \
+            node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null | tail -1
+    }
+    t118_20="$(t118_run 20)"; t118_10="$(t118_run 10)"; t118_6="$(t118_run 6)"
+    t118_ok=1
+    # 逐格钉形：预算 15/5/4（梯子丢空后硬截到预算宽）
+    [[ "$t118_20" == "743K/117K|▄28% " ]] || t118_ok=0
+    [[ "$t118_10" == "743K/" ]] || t118_ok=0
+    [[ "$t118_6" == "743K" ]] || t118_ok=0
+    if [[ $t118_ok -eq 1 ]]; then
+        pass T118 "pi narrow budget floor max(4,W-5): W=20/10/6 -> exact truncated forms"
+    else
+        fail T118 "20=[$t118_20] 10=[$t118_10] 6=[$t118_6]"
+    fi
+fi
+
+# ============================================================
+# T119: pi 徽标两遍锁定（变异补测）——整删两遍重拼后现有用例全绿；
+#       39 格长 herdr 标签 + 51 列把徽标挤出自然序，第二遍（徽标优先）
+#       必须保住前缀位，herdr 让位。
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T119 "node with .ts type-stripping not available"
+else
+    T119_X="$(printf 'x%.0s' {1..33})"
+    T119_OUT="$(env -u HERDR_WORKSPACE_ID -u HERDR_TAB_ID -u HERDR_PANE_ID NO_COLOR=1 WIDTH=51 TTFT_MS=12400 MSG_UPDATES=0 \
+        HERDR_WORKSPACE_ID=w9 HERDR_TAB_ID="w9:$T119_X" HERDR_PANE_ID=w9:p1 \
+        WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs" \
+        node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null)"
+    T119_L1="$(printf '%s' "$T119_OUT" | head -1)"
+    T119_N="$(printf '%s\n' "$T119_OUT" | wc -l | tr -d ' ')"
+    t119_ok=1
+    # 物理极限区：徽标铁律保住（前缀位），长 herdr 让位，2 行契约不破。
+    # 断言 cwd 无关（任意 checkout 下尾缀 | pi 成立），长标签逐字不在场
+    [[ "$T119_L1" == *" | pi" ]] || t119_ok=0
+    printf '%s' "$T119_L1" | grep -qF "w9:$T119_X" && t119_ok=0
+    [[ $T119_N -eq 2 ]] || t119_ok=0
+    if [[ $t119_ok -eq 1 ]]; then
+        pass T119 "pi badge two-pass lock: long herdr yields, badge keeps prefix slot at floor width"
+    else
+        fail T119 "l1=[$T119_L1] n=$T119_N"
+    fi
+fi
+
+# ============================================================
+# T120: pi 模型名/思考等级压平 + 尾斜杠空段回落（交叉审 P1/P2）——
+#       与 cc one_line(raw).split("/")[-1] or "?" 同口径；注入 \n
+#       不得顶飞 2 行契约，"prefix/" 不得留悬空 "| ·" 尾。
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T120 "node with .ts type-stripping not available"
+else
+    T120_BR='[{"type":"compaction"},{"type":"message","message":{"role":"assistant","usage":{"input":743000,"output":117000,"cacheRead":19560000,"cacheWrite":0}}}]'
+    t120_run() {  # $@ = 额外 env；W=90 宽档（身份组形态与窄档共用解析）
+        env -u HERDR_WORKSPACE_ID -u HERDR_TAB_ID -u HERDR_PANE_ID NO_COLOR=1 WIDTH=90 BRANCH="$T120_BR" TTFT_MS=12400 MSG_UPDATES=0 "$@" \
+            WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs" \
+            node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null
+    }
+    t120_a="$(t120_run MODEL_NAME=$'evil\nmodel' THINKING=$'high\nx')"
+    t120_b="$(t120_run MODEL_NAME='anthropic/' | tail -1)"
+    t120_c="$(t120_run MODEL_NAME=$'\n' | tail -1)"
+    t120_d="$(t120_run THINKING=$'\n' | tail -1)"
+    t120_a_n="$(printf '%s\n' "$t120_a" | wc -l | tr -d ' ')"
+    t120_ok=1
+    # P1：换行压平进段，2 行契约不破
+    printf '%s' "$t120_a" | grep -qF "evilmodel · highx" || t120_ok=0
+    [[ $t120_a_n -eq 2 ]] || t120_ok=0
+    # P2：尾斜杠空段回落 "?"，无悬空 "| ·"
+    printf '%s' "$t120_b" | grep -qF "| ? · high" || t120_ok=0
+    printf '%s' "$t120_b" | grep -qF "| ·" && t120_ok=0
+    # 纯换行模型名压平后为空 → 同样回落 "?"
+    printf '%s' "$t120_c" | grep -qF "| ? · high" || t120_ok=0
+    # 思考等级压平后为空 → 不进段表（无尾随 " · "）
+    printf '%s' "$t120_d" | grep -qE '\| claude-opus-5$' || t120_ok=0
+    printf '%s' "$t120_d" | grep -qF " · $" && t120_ok=0
+    if [[ $t120_ok -eq 1 ]]; then
+        pass T120 "pi model/thinking flattened; trailing-slash and empty-after-flatten fall back to '?'"
+    else
+        fail T120 "a(n=$t120_a_n)=[$(printf '%s' "$t120_a" | tr '\n' '~')] b=[$t120_b] c=[$t120_c] d=[$t120_d]"
+    fi
+fi
+
+# ============================================================
+#       CLAUDE_SETTINGS/OPENCODE_TUI_CONFIG 给裸文件名（无斜杠）时配置落 CWD，
+#       payload 旧版落 $CLAUDE_CONFIG_DIR / $OPENCODE_CONFIG_DIR（分裂）；
+#       QODER_SETTINGS 覆盖到别处时 qc payload 旧版仍钉死 $QODER_CONFIG_DIR。
+#       修法：payload 落点跟随配置文件所在目录（cc/qc 绝对化，host 要绝对 command）。
+# ============================================================
+new_box
+(cd "$BOX" && env NO_COLOR=1 PREFIX="$BIN" CLAUDE_CONFIG_DIR="$CLAUDE" CLAUDE_SETTINGS="settings.json" \
+    "$WREN" install cc) >"$BOX/o110a.txt" 2>&1; t110a=$?
+(cd "$BOX" && env NO_COLOR=1 PREFIX="$BIN" OPENCODE_CONFIG_DIR="$OC" OPENCODE_TUI_CONFIG="tui.json" \
+    "$WREN" install oc) >"$BOX/o110b.txt" 2>&1; t110b=$?
+(cd "$BOX" && env NO_COLOR=1 PREFIX="$BIN" QODER_CONFIG_DIR="$QODER" QODER_SETTINGS="$BOX/alt/q.json" \
+    "$WREN" install qc) >"$BOX/o110c.txt" 2>&1; t110c=$?
+if [[ $t110a -eq 0 && -f "$BOX/settings.json" && -f "$BOX/wren-cc" && ! -e "$CLAUDE/wren-cc" ]] \
+   && [[ "$(json_field "$BOX/settings.json" 'd.get("statusLine",{}).get("command")')" == "$BOX/wren-cc" ]] \
+   && [[ $t110b -eq 0 && -f "$BOX/tui.json" && -f "$BOX/plugins/wren-oc.tsx" && ! -e "$OC/plugins/wren-oc.tsx" ]] \
+   && [[ "$(json_field "$BOX/tui.json" "d['plugin']")" == "['./plugins/wren-oc.tsx']" ]] \
+   && [[ $t110c -eq 0 && -f "$BOX/alt/wren-qc.py" && ! -e "$QODER/wren-qc.py" ]] \
+   && [[ "$(json_field "$BOX/alt/q.json" 'd.get("statusLine",{}).get("command")')" == "$BOX/alt/wren-qc.py" ]]; then
+    pass T110 "bare-relative config env keeps payload next to config (cc/oc/qc)"
+else
+    fail T110 "a=$t110a[$(ls "$BOX" | tr '\n' ' ')] b=$t110b[$(ls "$BOX/plugins" 2>/dev/null | tr '\n' ' ')] c=$t110c[$(ls "$BOX/alt" 2>/dev/null | tr '\n' ' ')]"
+fi
+
+# ============================================================
+# T111: B-4 plugin 数组嵌套对象误命中——find 只认数组顶层的字符串元素。
+#       旧版 install 判「已存在」静默 no-op；uninstall 删嵌套 token 产出非法 JSON。
+# ============================================================
+new_box
+printf '{\n  "plugin": [\n    { "src": "./plugins/wren-oc.tsx", "on": "session_start" }\n  ]\n}\n' >"$OCCONF"
+run_wren install oc
+t111_after="$(json_field "$OCCONF" "[repr(x) for x in d['plugin']]")"
+run_wren uninstall oc
+t111_valid="$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(repr(d['plugin']))" "$OCCONF" 2>&1)"
+if [[ "$t111_after" == "[\"'./plugins/wren-oc.tsx'\", \"{'src': './plugins/wren-oc.tsx', 'on': 'session_start'}\"]" ]] \
+   && [[ "$t111_valid" == "[{'src': './plugins/wren-oc.tsx', 'on': 'session_start'}]" ]] \
+   && grep -qF '"src": "./plugins/wren-oc.tsx"' "$OCCONF"; then
+    pass T111 "plugin-array scan matches top-level strings only; uninstall leaves object intact"
+else
+    fail T111 "after=[$t111_after] uninstalled=[$t111_valid] raw=[$(cat "$OCCONF" | tr '\n' '~')]"
+fi
+
+# ============================================================
+# T112: B-5 配置是符号链接时不顶掉链接（chezmoi/stow 常态）——解引用写真实目标。
+#       覆盖有效链接（cc settings + oc tui.json）与悬空链接（qc settings）。
+# ============================================================
+new_box
+mkdir -p "$BOX/real"
+printf '{"model":"m"}\n' >"$BOX/real/cc.json"
+printf '{\n  "plugin": []\n}\n' >"$BOX/real/tui.json"
+ln -s "$BOX/real/cc.json" "$SETTINGS"
+ln -s "$BOX/real/tui.json" "$OCCONF"
+ln -s "$BOX/nope/qc.json" "$QODER_SETTINGS"
+t112_cc="$CLAUDE/wren-cc"; t112_qc="$QODER/wren-qc.py"
+run_wren install all
+if [[ "$WREN_EXIT" == "0" && -L "$SETTINGS" && -L "$OCCONF" && -L "$QODER_SETTINGS" ]] \
+   && [[ "$(json_field "$SETTINGS" 'd.get("statusLine",{}).get("command")')" == "$t112_cc" ]] \
+   && [[ "$(json_field "$OCCONF" "d['plugin']")" == "['./plugins/wren-oc.tsx']" ]] \
+   && [[ -f "$BOX/nope/qc.json" ]] \
+   && [[ "$(json_field "$BOX/nope/qc.json" 'd.get("statusLine",{}).get("command")')" == "$t112_qc" ]]; then
+    pass T112 "symlinked configs resolved, links preserved (incl. dangling)"
+else
+    fail T112 "exit=$WREN_EXIT links=[$(ls -l "$SETTINGS" "$OCCONF" "$QODER_SETTINGS" 2>&1 | tr '\n' ' ')] cc=[$(cat "$SETTINGS" 2>/dev/null | tr '\n' '~')] qc=[$(cat "$BOX/nope/qc.json" 2>/dev/null | tr '\n' '~')]"
+fi
+
+# ============================================================
+# T113: B-6 卸载不连用户子键一起删——只摘 wren 写入的 type/command，
+#       装前用户原生 statusLine.padding 存活；空壳才整键删。
+# ============================================================
+new_box
+printf '{"model":"m","statusLine":{"type":"command","command":"old-thing","padding":5}}\n' >"$SETTINGS"
+run_wren install cc
+run_wren uninstall cc
+if [[ "$WREN_EXIT" == "0" && ! -e "$CLAUDE/wren-cc" ]] \
+   && [[ "$(json_field "$SETTINGS" "repr(d.get('statusLine'))")" == "{'padding': 5}" ]] \
+   && [[ "$(json_field "$SETTINGS" '"|".join(d.keys())')" == "model|statusLine" ]]; then
+    pass T113 "uninstall strips only wren-written keys; user subkeys survive"
+else
+    fail T113 "sl=[$(json_field "$SETTINGS" 'repr(d.get("statusLine"))')] keys=[$(json_field "$SETTINGS" '"|".join(d.keys())')]"
+fi
+
+# ============================================================
+# T114: B-2 herdr env 压平——oneLine（cc one_line 同字符集：
+#       \n \r \v \f \x1c \x1d \x1e \x85 \u2028 \u2029），wren-oc.ts 导出、
+#       wren-oc.tsx herdr 三段各自压平再 filter。含与 cc 侧逐字符集交叉验证。
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T114 "node with .ts type-stripping not available"
+else
+    t114_out="$(OC_CORE="$OC_CORE_TS" node -e '
+import(process.env.OC_CORE).then((m) => {
+  const cases = ["a\nb", "x\u2028y", "w9\n:t1", "p\u00856", "q\u2029r\vs", "plain"];
+  console.log(cases.map((s) => m.oneLine(s)).join("\n"));
+});
+' 2>&1)"
+    t114_py="$(python3 -c '
+cases = ["a\nb", "x\u2028y", "w9\n:t1", "p\u00856", "q\u2029r\vs", "plain"]
+def one_line(s):
+    return "".join(ch for ch in s if ch not in "\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029")
+print("\n".join(one_line(s) for s in cases))')"
+    if [[ "$t114_out" == "$t114_py" && "$t114_out" == $'ab\nxy\nw9:t1\np6\nqrs\nplain' ]] \
+       && grep -qF "oneLine(process.env.HERDR_WORKSPACE_ID)" "$OC_PAYLOAD" \
+       && grep -qF "oneLine(process.env.HERDR_TAB_ID" "$OC_PAYLOAD" \
+       && grep -qF "oneLine(process.env.HERDR_PANE_ID" "$OC_PAYLOAD"; then
+        pass T114 "oc oneLine flattens herdr envs; charset matches cc one_line"
+    else
+        fail T114 "ts=[$(printf '%s' "$t114_out" | tr '\n' '~')] py=[$(printf '%s' "$t114_py" | tr '\n' '~')]"
+    fi
+fi
+
+# ============================================================
+# T115: B-3 session_prompt 兜底不丢 props——契约意外变化（session_id 缺失）时
+#       退回的裸 Prompt 必须透传白名单 + ref（结构钉：tsx 是 JSX，harness 无法
+#       执行，行为面由 T101 真机 e2e 兜）。
+# ============================================================
+if grep -qF '<api.ui.Prompt sessionID={props?.session_id} visible={props?.visible} disabled={props?.disabled} onSubmit={props?.on_submit} ref={props?.ref} />' "$OC_PAYLOAD"; then
+    pass T115 "session_prompt fallback passes through props (whitelist + ref)"
+else
+    fail T115 "tsx=[$(grep -n 'session_prompt' "$OC_PAYLOAD" | tr '\n' ' ')]"
+fi
+
+# ============================================================
+# T121: 交叉审 Q1/Q2 —— 原生 stdin 字段净化（对齐 cc _nt 纪律）：
+#       used_percentage NaN / total_input_tokens '500'（字符串）/ current_usage
+#       Infinity / 负 used_percentage。非法一律当缺失走回落链，不出 nan/inf/负 %。
+# ============================================================
+new_box
+t121_tr="$BOX/t121.jsonl"
+printf '{"type":"user","timestamp":"2026-09-28T10:00:00Z","message":{"content":"a"}}\n{"type":"assistant","timestamp":"2026-09-28T10:00:07.4Z","message":{"usage":{"input_tokens":26254,"output_tokens":10,"cache_read_input_tokens":24064}}}\n' >"$t121_tr"
+t121_run() {  # $1 = context_window JSON 片段，$2 = 缓存键
+    printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":%s,"transcript_path":"%s"}' "$1" "$t121_tr" \
+        | NO_COLOR=1 COLUMNS=90 WREN_CACHE_DIR="$BOX/c116-$2" python3 "$QC_PAYLOAD" 2>/dev/null
+}
+t121a="$(t121_run '{"context_window_size":1000000,"used_percentage":NaN,"total_input_tokens":30000}' a)"
+t121b="$(t121_run '{"context_window_size":1000000,"used_percentage":-5}' b)"
+t121c="$(t121_run '{"context_window_size":1000000,"current_usage":{"input_tokens":Infinity,"cache_read_input_tokens":100}}' c)"
+t121d="$(t121_run '{"context_window_size":1000000,"total_input_tokens":"500"}' d)"
+t121_lines_a=$(printf '%s\n' "$t121a" | wc -l | tr -d ' ')
+t121_lines_d=$(printf '%s\n' "$t121d" | wc -l | tr -d ' ')
+if [[ "$t121_lines_a" == "2" && "$t121_lines_d" == "2" ]] \
+   && printf '%s' "$t121a" | tail -1 | grep -qF "3.00%/1M" \
+   && ! printf '%s' "$t121a" | grep -qi "nan" \
+   && ! printf '%s' "$t121b" | grep -qF -- "-5" \
+   && ! printf '%s' "$t121c" | grep -qi "inf" \
+   && printf '%s' "$t121c" | tail -1 | grep -qF "CH100.00%"; then
+    pass T121 "native stdin fields sanitized: NaN/str/Infinity fall back, negative pct not rendered"
+else
+    fail T121 "a=[$(printf '%s' "$t121a" | tr '\n' '~')] b=[$(printf '%s' "$t121b" | tr '\n' '~')] c=[$(printf '%s' "$t121c" | tr '\n' '~')] d=[$(printf '%s' "$t121d" | tr '\n' '~')]"
+fi
+
+# ============================================================
+# T122: 变异存活（one_line 整删）—— display_name / runtime-config effort 带 \n
+#       注入，输出必须恰好 2 行（行界顶破契约的复现面）。
+# ============================================================
+new_box
+t122_tr="$BOX/t122.jsonl"
+printf '{"type":"user","timestamp":"2026-09-28T10:00:00Z","message":{"content":"a"}}\n{"type":"assistant","timestamp":"2026-09-28T10:00:07.4Z","message":{"usage":{"input_tokens":100,"output_tokens":10,"cache_read_input_tokens":80}}}\n{"type":"runtime-config","reasoningEffort":"max\\nhigh"}\n' >"$t122_tr"
+t122_out="$(printf '{"cwd":"/tmp","model":{"display_name":"Evil\\nModel"},"context_window":{"context_window_size":1000000},"transcript_path":"%s"}' "$t122_tr" \
+    | NO_COLOR=1 COLUMNS=90 WREN_CACHE_DIR="$BOX/c117" python3 "$QC_PAYLOAD" 2>/dev/null)"
+t122_n="$(printf '%s\n' "$t122_out" | wc -l | tr -d ' ')"
+if [[ "$t122_n" == "2" ]] \
+   && printf '%s' "$t122_out" | grep -qF "EvilModel" \
+   && printf '%s' "$t122_out" | tail -1 | grep -qF "maxhigh"; then
+    pass T122 "newline injection in display_name/effort flattened; exactly 2 lines"
+else
+    fail T122 "n=$t122_n out=[$(printf '%s' "$t122_out" | tr '\n' '~')]"
+fi
+
+# ============================================================
+# T123: 变异存活（split("\\n") 回退 splitlines()）—— transcript 记录的 JSON
+#       字符串字段含 U+2028：splitlines 会把该行拦腰斩断、记录丢失少记 token。
+# ============================================================
+new_box
+python3 - "$BOX/t123.jsonl" <<'T123PY'
+import json, sys
+recs = [
+    {"type": "user", "timestamp": "2026-09-28T10:00:00Z", "message": {"content": "a"}},
+    {"type": "assistant", "timestamp": "2026-09-28T10:00:07.4Z",
+     "message": {"usage": {"input_tokens": 52100, "output_tokens": 236, "cache_read_input_tokens": 47000},
+                 "content": "paste\u2028with-line-separator"}},
+]
+with open(sys.argv[1], "w", encoding="utf-8") as fh:
+    for r in recs:
+        fh.write(json.dumps(r, ensure_ascii=False) + "\n")
+T123PY
+t123_out="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":1000000,"total_input_tokens":30000},"transcript_path":"%s"}' "$BOX/t123.jsonl" \
+    | NO_COLOR=1 COLUMNS=90 WREN_CACHE_DIR="$BOX/c118" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1)"
+if printf '%s' "$t123_out" | grep -qF "↑52K" && printf '%s' "$t123_out" | grep -qF "R47K"; then
+    pass T123 "U+2028 inside record string does not lose the record (split by \\n only)"
+else
+    fail T123 "l2=[$t123_out]"
+fi
+
+# ============================================================
+# T124: 变异存活（预算地板 max(4)→max(24)）—— COLUMNS ∈ {20,10,6}：
+#       窄档有内容（徽标在场）且两行显示宽都 ≤ COLUMNS。
+# ============================================================
+new_box
+t124_tr="$BOX/t124.jsonl"
+printf '{"type":"user","timestamp":"2026-09-28T10:00:00Z","message":{"content":"a"}}\n{"type":"assistant","timestamp":"2026-09-28T10:00:07.4Z","message":{"usage":{"input_tokens":52100,"output_tokens":236,"cache_read_input_tokens":47000}}}\n' >"$t124_tr"
+t124_ok=1
+for w in 20 10 6; do
+    printf '{"cwd":"/very/long/path/for/narrow/tier","model":{"display_name":"m"},"context_window":{"context_window_size":1000000,"used_percentage":3},"transcript_path":"%s"}' "$t124_tr" \
+        | NO_COLOR=1 COLUMNS=$w WREN_CACHE_DIR="$BOX/c119-$w" python3 "$QC_PAYLOAD" >"$BOX/o119-$w.txt" 2>/dev/null
+    n=$(grep -c '' "$BOX/o119-$w.txt")  # 文件无尾换行（两行契约即如此），grep -c '' 按"有内容的行"计
+    maxw=$(python3 - "$BOX/o119-$w.txt" "$w" <<'T124PY'
+import sys, unicodedata
+w = 0
+for ln in open(sys.argv[1], encoding="utf-8"):
+    lw = sum(2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1 for ch in ln.rstrip("\n"))
+    w = max(w, lw)
+print("OVER" if w > int(sys.argv[2]) else "ok")
+T124PY
+)
+    # 徽标两遍锁定在物理可容区（" | qc" = 5 格）才断言：COLUMNS=6 → 实绘 4 格，
+    # 连徽标带分隔都放不下（物理极限区，与 cc 同边界），只钉「2 行 + 不超宽」
+    if [[ "$w" -ge 20 ]]; then   # 徽标需 cwd 地板 4 + " | qc" 5 = 9 格实绘；20 列（实绘 15）才物理可容
+        grep -q "qc" "$BOX/o119-$w.txt" || t124_ok=0
+    fi
+    [[ "$n" == "2" && "$maxw" == "ok" ]] || { t124_ok=0; echo "  w=$w n=$n width=$maxw" >&2; }
+done
+if [[ $t124_ok -eq 1 ]]; then
+    pass T124 "extreme narrow (20/10/6 cols): 2 lines, qc badge, width within COLUMNS"
+else
+    fail T124 "see stderr"
+fi
+
+# ============================================================
+# T125: 变异存活（四分位边界 off-by-one）—— 25/50/75 三个换档值，
+#       双源（原生 used_percentage + postTokens 回落）都盖。
+# ============================================================
+new_box
+t125_tr="$BOX/t125.jsonl"
+printf '{"type":"user","timestamp":"2026-09-28T10:00:00Z","message":{"content":"a"}}\n{"type":"assistant","timestamp":"2026-09-28T10:00:07.4Z","message":{"usage":{"input_tokens":100,"output_tokens":10,"cache_read_input_tokens":80}}}\n{"type":"system","subtype":"compact_boundary","isSidechain":false,"compactMetadata":{"trigger":"manual","postTokens":250000}}\n' >"$t125_tr"
+t125_ok=1
+for pct in 25 50 75; do
+    case $pct in 25) icon="▄" ;; 50) icon="▆" ;; 75) icon="█" ;; esac
+    a="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":1000000,"used_percentage":%d},"transcript_path":"%s"}' "$pct" "$t125_tr" \
+        | NO_COLOR=1 WREN_QC_NARROW=1 COLUMNS=51 WREN_CACHE_DIR="$BOX/c120n-$pct" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1)"
+    printf '%s' "$a" | grep -qF "${icon}${pct}%" || { t125_ok=0; echo "  native $pct=[$a]" >&2; }
+done
+for pct in 25 50 75; do
+    case $pct in 25) icon="▄"; post=250000 ;; 50) icon="▆"; post=500000 ;; 75) icon="█"; post=750000 ;; esac
+    tr2="$BOX/t125_$post.jsonl"
+    printf '{"type":"user","timestamp":"2026-09-28T10:00:00Z","message":{"content":"a"}}\n{"type":"assistant","timestamp":"2026-09-28T10:00:07.4Z","message":{"usage":{"input_tokens":100,"output_tokens":10,"cache_read_input_tokens":80}}}\n{"type":"system","subtype":"compact_boundary","isSidechain":false,"compactMetadata":{"trigger":"manual","postTokens":%d}}\n' "$post" >"$tr2"
+    b="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":1000000},"transcript_path":"%s"}' "$tr2" \
+        | NO_COLOR=1 WREN_QC_NARROW=1 COLUMNS=51 WREN_CACHE_DIR="$BOX/c120f-$post" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1)"
+    printf '%s' "$b" | grep -qF "${icon}${pct}%" || { t125_ok=0; echo "  fallback $pct=[$b]" >&2; }
+done
+if [[ $t125_ok -eq 1 ]]; then
+    pass T125 "quartile boundaries 25/50/75 pinned on both native and postTokens sources"
+else
+    fail T125 "see stderr"
+fi
+
+# ============================================================
+# T126: cc 徽标两遍锁定——自然序放不下徽标时 rescue 重拼（变异 M7b 守门：
+#   交叉审 18 变异 8 存活之一；cwd 含 "cc" 子串同时钉 T2 的入选索引判定）
+# ============================================================
+new_box
+mkdir -p "$BOX/acc"
+t126=$(printf '{"cwd":"%s","model":{"display_name":"m"}}' "$BOX/acc" \
+    | NO_COLOR=1 COLUMNS=24 HERDR_WORKSPACE_ID=wW HERDR_TAB_ID=wW:t12 HERDR_PANE_ID=wW:p34 \
+      python3 "$CC_PAYLOAD" 2>/dev/null | head -1)
+# 24 列：herdr(13) 吃掉自然序尾部 → rescue 必须保 " | cc" 在行内
+if printf '%s' "$t126" | grep -qF "| cc"; then
+    pass T126 "cc badge two-pass lock: rescue keeps badge at 24 cols (cwd has cc substring)"
+else
+    fail T126 "24col=[$t126]"
+fi
+
+# ============================================================
+# T127: BUG1 徽标保住判定不能拿子串猜——cwd 折叠后含 "qc"（/tmp/xqc）时
+#       'qc' not in line1 误判已保住、跳过 rescue。判定必须用入选索引
+#       （对齐 cc 7ee3794 的 assemble_l1_report 模式）。
+#       24 列：natural 序 herdr 在/徽标出 → rescue 后徽标必须在场；
+#       51 列 + 38 格 herdr 同款（cwd+herdr 放得下、+徽标放不下）。
+# ============================================================
+new_box
+t127_env() {  # $1 = COLUMNS, $2 = herdr 三段
+    printf '{"cwd":"/tmp/xqc","model":{"display_name":"m"},"context_window":{"context_window_size":1000000,"used_percentage":3}}' \
+        | NO_COLOR=1 COLUMNS=$1 HERDR_WORKSPACE_ID=$2 HERDR_TAB_ID=$3 HERDR_PANE_ID=$4 \
+            WREN_CACHE_DIR="$BOX/c127-$1" python3 "$QC_PAYLOAD" 2>/dev/null | head -1
+}
+t127_a="$(t127_env 24 wW t12 p34)"
+t127_b="$(t127_env 51 wW t1234567890123456789012345678901 p34)"
+if printf '%s' "$t127_a" | grep -qF " | qc" \
+   && printf '%s' "$t127_b" | grep -qF " | qc"; then
+    pass T127 "badge rescue decided by taken-index, not substring (cwd containing qc)"
+else
+    fail T127 "24=[$t127_a] 51=[$t127_b]"
+fi
+
+# ============================================================
+# T128: BUG5 跨宿主缓存键碰撞——cc 与 qc 共用 ~/.cache/wren 且键同为
+#       sha1(path)[:16].json。同一 transcript 两宿主先后读，后读方继承
+#       先写方 last_prompt_tokens 语义（两宿主 CH 口径不同）。
+#       fixture：input=10000, cache_read=8000 →
+#       cc 口径 CH = 8000/(10000+8000) = 44.44%；qc 口径 CH = 8000/10000 = 80.00%。
+#       断言：cc 先跑、qc 后跑（同缓存目录）→ qc 仍显 80.00%（键已掺宿主标识）。
+# ============================================================
+new_box
+t128_tr="$BOX/t128.jsonl"
+printf '{"type":"user","timestamp":"2026-09-28T10:00:00Z","message":{"content":"a"}}\n{"type":"assistant","timestamp":"2026-09-28T10:00:05Z","message":{"usage":{"input_tokens":10000,"output_tokens":10,"cache_read_input_tokens":8000,"cache_creation_input_tokens":0}}}\n' >"$t128_tr"
+printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$t128_tr" \
+    | NO_COLOR=1 COLUMNS=90 WREN_CACHE_DIR="$BOX/shared" python3 "$CC_PAYLOAD" >/dev/null 2>&1
+t128_qc="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$t128_tr" \
+    | NO_COLOR=1 COLUMNS=90 WREN_CACHE_DIR="$BOX/shared" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1)"
+if printf '%s' "$t128_qc" | grep -qF "CH80.00%" && ! printf '%s' "$t128_qc" | grep -qF "CH44.44%"; then
+    pass T128 "cross-host cache keys do not collide (qc after cc keeps qc CH semantics)"
+else
+    fail T128 "qc=[$t128_qc]"
+fi
+
+# ============================================================
+# T129: BUG6 空串 user content 不开 TTFT 窗——message.content='' 的记录
+#       不是轮首（对齐 cc F2 语义：bool(content)）。5s 后 assistant 落盘
+#       不得显示 TTFT；对照：content='a' 的同形 transcript 显示 TTFT 5.0s。
+# ============================================================
+new_box
+printf '{"type":"user","timestamp":"2026-09-28T10:00:00Z","message":{"content":""}}\n{"type":"assistant","timestamp":"2026-09-28T10:00:05Z","message":{"usage":{"input_tokens":100,"output_tokens":10,"cache_read_input_tokens":80}}}\n' >"$BOX/t129a.jsonl"
+printf '{"type":"user","timestamp":"2026-09-28T10:00:00Z","message":{"content":"a"}}\n{"type":"assistant","timestamp":"2026-09-28T10:00:05Z","message":{"usage":{"input_tokens":100,"output_tokens":10,"cache_read_input_tokens":80}}}\n' >"$BOX/t129b.jsonl"
+t129a="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$BOX/t129a.jsonl" \
+    | NO_COLOR=1 COLUMNS=90 WREN_CACHE_DIR="$BOX/c129a" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1)"
+t129b="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$BOX/t129b.jsonl" \
+    | NO_COLOR=1 COLUMNS=90 WREN_CACHE_DIR="$BOX/c129b" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1)"
+if ! printf '%s' "$t129a" | grep -qE "TTFT" \
+   && printf '%s' "$t129b" | grep -qF "TTFT 5.0s"; then
+    pass T129 "empty-string user content does not open the TTFT window"
+else
+    fail T129 "empty=[$t129a] control=[$t129b]"
+fi
+
+# ============================================================
+# T130: pi transcript usage 净化（第七轮 BUG4）——猎杀四轮 tok() 只盖了
+#       cc/qc，pi 裸 += 会被负值/字符串/NaN 污染：负值带负号进渲染、字符串
+#       += 串接（"0500"）、负 cacheWrite 缩 CH 分母虚高到 100%。三注入形态
+#       全钳 0（typeof number + isFinite + >0）。
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T130 "node with .ts type-stripping not available"
+else
+    t130_run() {  # $1 = BRANCH json
+        env -u HERDR_WORKSPACE_ID -u HERDR_TAB_ID -u HERDR_PANE_ID NO_COLOR=1 WIDTH=90 BRANCH="$1" TTFT_MS=12400 MSG_UPDATES=0 MODEL_NAME=m \
+            WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs" \
+            node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null | tail -1
+    }
+    t130_a="$(t130_run '[{"type":"message","message":{"role":"assistant","usage":{"input":-50,"output":-7,"cacheRead":-100,"cacheWrite":-100}}}]')"
+    t130_b="$(t130_run '[{"type":"message","message":{"role":"assistant","usage":{"input":"500","cacheRead":"300","output":"7"}}}]')"
+    t130_c="$(t130_run '[{"type":"message","message":{"role":"assistant","usage":{"input":100,"cacheRead":50,"cacheWrite":-100}}}]')"
+    t130_ok=1
+    # a/b：负值与字符串全钳 0（无负号、无串接数字、无 NaN）
+    [[ "$t130_a" == "↑0 ↓0 | R0 | ?/200K TTFT 12s | m · high" ]] || t130_ok=0
+    [[ "$t130_b" == "↑0 ↓0 | R0 | ?/200K TTFT 12s | m · high" ]] || t130_ok=0
+    for l in "$t130_a" "$t130_b"; do
+        printf '%s' "$l" | grep -qE '\-|NaN' && t130_ok=0
+    done
+    # c：负 cacheWrite 不再缩 CH 分母（150 分母 → 33.33%，非 100%）
+    printf '%s' "$t130_c" | grep -qF "CH33.33%" || t130_ok=0
+    printf '%s' "$t130_c" | grep -qF "CH100.00%" && t130_ok=0
+    if [[ $t130_ok -eq 1 ]]; then
+        pass T130 "pi usage sanitized: negative/string -> 0, negative cacheWrite no longer inflates CH"
+    else
+        fail T130 "a=[$t130_a] b=[$t130_b] c=[$t130_c]"
+    fi
+fi
+
+# ============================================================
+# T131: 宽档 .2f 半值三侧同偶（第七轮 BUG2）——pi/oc 的 toFixed(2) 是半上，
+#       cc 的 Python :.2f 是半偶。0.125%（250/200000，二进制精确）与
+#       CH 12.125%（485/4000）两个精确半值：三侧统一半偶（pi/oc 改，
+#       cc/qc 现状即半偶不动）。
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T131 "node with .ts type-stripping not available"
+else
+    # pi：ctx percent=0.125 + CH 485/4000
+    t131_pi="$(env -u HERDR_WORKSPACE_ID -u HERDR_TAB_ID -u HERDR_PANE_ID NO_COLOR=1 WIDTH=90 \
+        BRANCH='[{"type":"message","message":{"role":"assistant","usage":{"input":3515,"output":0,"cacheRead":485,"cacheWrite":0}}}]' \
+        TTFT_MS=12400 MSG_UPDATES=0 MODEL_NAME=m CTX_USAGE='{"tokens":250,"contextWindow":200000,"percent":0.125}' \
+        WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs" \
+        node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null | tail -1)"
+    # cc 同值对照（ctx 与 CH 共用一条 native 记录，拆两跑）：
+    #   cc-ctx：input=250 → 250/200000 = 0.125% → 0.12%（CH 无 cache 不显示）
+    #   cc-ch：input=3515 + cache_read=485 → 485/4000 = 12.125% → CH12.12%
+    t131_ccctx="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"effort":{"level":"xhigh"},"context_window":{"current_usage":{"input_tokens":250,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"context_window_size":200000}}' \
+        | NO_COLOR=1 COLUMNS=90 python3 "$CC_PAYLOAD" 2>/dev/null | tail -1)"
+    t131_ccch="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"effort":{"level":"xhigh"},"context_window":{"current_usage":{"input_tokens":3515,"cache_read_input_tokens":485,"cache_creation_input_tokens":0},"context_window_size":200000}}' \
+        | NO_COLOR=1 COLUMNS=90 python3 "$CC_PAYLOAD" 2>/dev/null | tail -1)"
+    # oc：同值 buildLines（纯函数直调）
+    t131_oc="$(OC_CORE="$OC_CORE_TS" node -e '
+import(process.env.OC_CORE).then((m) => {
+  const lines = m.buildLines({width:90, cwd:"/tmp", home:"/h", branch:null, head:"", ab:"",
+    added:0, modified:0, deleted:0, herdr:"", durationMs:60000,
+    inputTokens:3515, outputTokens:0, cacheRead:485, cacheWrite:0, compactions:0,
+    ctxPercent:0.125, ctxWindow:200000, model:"m", thinking:"high", ttftMs:null});
+  const texts = lines.flat().map((s) => s.text).join("|");
+  const ch = /CH[0-9.]+%/.exec(texts);
+  const ctx = /[0-9.]+%\/[^ |]*/.exec(texts);
+  console.log((ch ? ch[0] : "NO-CH") + " " + (ctx ? ctx[0] : "NO-CTX"));
+});' 2>&1)"
+    t131_ok=1
+    printf '%s' "$t131_pi" | grep -qF "CH12.12%" || t131_ok=0
+    printf '%s' "$t131_pi" | grep -qF "0.12%/200K" || t131_ok=0
+    printf '%s' "$t131_ccch" | grep -qF "CH12.12%" || t131_ok=0
+    printf '%s' "$t131_ccctx" | grep -qF "0.12%/200K" || t131_ok=0
+    printf '%s' "$t131_oc" | grep -qF "CH12.12% 0.12%/200K" || t131_ok=0
+    # 半上变体必须不在场（toFixed(2) 会给 12.13/0.13）
+    for l in "$t131_pi" "$t131_ccch" "$t131_ccctx" "$t131_oc"; do
+        printf '%s' "$l" | grep -qE '12\.13|0\.13' && t131_ok=0
+    done
+    if [[ $t131_ok -eq 1 ]]; then
+        pass T131 "wide .2f half-even parity across pi/oc/cc: 0.125% -> 0.12, CH 12.125% -> 12.12"
+    else
+        fail T131 "pi=[$t131_pi] ccctx=[$t131_ccctx] ccch=[$t131_ccch] oc=[$t131_oc]"
+    fi
+fi
+
+# ============================================================
+# T132: pi 窄档量化链（第七轮 BUG3）——cc 先 :.2f 量化再 :.0f；pi 拿原始
+#       double 会差一档（25.499999 → 25 vs cc 26）。裁定：窄档链 = 量化(2位
+#       半偶) → 四分位/整数，色档阈值同读量化值（cc pct_val 同源）。
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T132 "node with .ts type-stripping not available"
+else
+    t132_run() {  # $1 = percent
+        env -u HERDR_WORKSPACE_ID -u HERDR_TAB_ID -u HERDR_PANE_ID NO_COLOR=1 WIDTH=51 \
+            BRANCH='[{"type":"message","message":{"role":"assistant","usage":{"input":743000,"output":117000,"cacheRead":19560000,"cacheWrite":0}}}]' \
+            TTFT_MS=12400 MSG_UPDATES=0 MODEL_NAME=m CTX_USAGE="{\"tokens\":1,\"contextWindow\":1000000,\"percent\":$1}" \
+            WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs" \
+            node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null | tail -1
+    }
+    t132_cc="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"effort":{"level":"xhigh"},"context_window":{"current_usage":{"input_tokens":254960,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"context_window_size":1000000}}' \
+        | NO_COLOR=1 COLUMNS=51 python3 "$CC_PAYLOAD" 2>/dev/null | tail -1)"
+    t132_ok=1
+    # 25.499999 / 25.496：量化到 25.50 → 半偶取整 26（旧行为 25，差一档）
+    printf '%s' "$(t132_run 25.499999)" | grep -qF "▄26%" || t132_ok=0
+    printf '%s' "$(t132_run 25.496)" | grep -qF "▄26%" || t132_ok=0
+    # cc 同带（254960/1M = 25.496% → 量化 25.50 → ▄26%）交叉验证
+    printf '%s' "$t132_cc" | grep -qF "▄26%" || t132_ok=0
+    # 色档同读量化值：70.001 → 量化 70.00 → 三档色 green（旧行为 raw>70 → yellow）
+    t132_col="$(env -u HERDR_WORKSPACE_ID -u HERDR_TAB_ID -u HERDR_PANE_ID NO_COLOR= COLOR_MODE=truecolor WIDTH=90 \
+        BRANCH='[{"type":"message","message":{"role":"assistant","usage":{"input":743000,"output":117000,"cacheRead":19560000,"cacheWrite":0}}}]' \
+        TTFT_MS=12400 MSG_UPDATES=0 MODEL_NAME=m CTX_USAGE='{"tokens":140002,"contextWindow":200000,"percent":70.001}' \
+        WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs" \
+        node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null | tail -1)"
+    printf '%s' "$t132_col" | grep -qF '38;2;80;250;123' || t132_ok=0
+    printf '%s' "$t132_col" | grep -qF '38;2;241;250;140' && t132_ok=0
+    if [[ $t132_ok -eq 1 ]]; then
+        pass T132 "pi narrow quantize chain: 2dp half-even then int; color reads quantized (cc parity)"
+    else
+        fail T132 "p1=[$(t132_run 25.499999)] p2=[$(t132_run 25.496)] cc=[$t132_cc] col=[$(printf '%s' "$t132_col" | LC_ALL=C sed 's/\x1b/ESC/g')]"
+    fi
+fi
+
+# ============================================================
+# T133: oc foldBranch 档位契约对齐（深度审核·决策落地）——旧单公式
+#       head8+…+tail(maxLen−9) 在 <24 档违反预算（12 档折出 14 格、8 档丢
+#       …），靠行1 出口硬截遮住。移植 cc/qc/pi 的六级+特例：24 档 8/15 同构、
+#       <24 三七开、≤4 …+尾段、0 空串；folds 表补 4/0 档。
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T133 "node with .ts type-stripping not available"
+else
+    t133_out="$(OC_CORE="$OC_CORE_TS" node -e '
+import(process.env.OC_CORE).then((m) => {
+  const b = "verylongbranchname-x";
+  const rows = [];
+  for (const n of [24, 12, 8, 4, 0]) {
+    const r = m.foldBranch(b, n);
+    rows.push(`${n}|${r}|${m.visibleWidth(r)}`);
+  }
+  const cjk = "一二三四五六七八九十百千万亿甲乙丙".slice(0, 13);
+  const c = m.foldBranch(cjk, 12);
+  rows.push(`cjk|${c}|${m.visibleWidth(c)}`);
+  rows.push(`short|${m.foldBranch("feat/x", 12)}`);
+  const l1 = (w) => {
+    const lines = m.buildLines({width:w, cwd:"/tmp", home:"/h", branch:b, head:b,
+      ab:" ↑1↓2", added:3, modified:1, deleted:2, herdr:"w9:t1:p1", durationMs:3600000,
+      inputTokens:100, outputTokens:50, cacheRead:200, cacheWrite:0, compactions:0,
+      ctxPercent:12.5, ctxWindow:200000, model:"m", thinking:"high", ttftMs:null});
+    const seg = lines[0];
+    const wsum = seg.reduce((a, s) => a + m.visibleWidth(s.text), 0);
+    const br = seg.find((s) => s.tone === "purple");
+    return `L1:${w}:${wsum}:${br ? br.text : "-"}`;
+  };
+  for (const w of [30, 26, 22]) rows.push(l1(w));
+  console.log(rows.join("\n"));
+});' 2>&1)"
+    t133_ok=1
+    # 24 档：20 ≤ 24 整名直过
+    printf '%s' "$t133_out" | grep -qF '24|verylongbranchname-x|20' || t133_ok=0
+    # 12 档：ver…chname-x 恰 12 格（旧公式给 verylong…e-x 14 格）
+    printf '%s' "$t133_out" | grep -qF '12|ver…chname-x|12' || t133_ok=0
+    # 8 档：ver…me-x 恰 8 格带 …（旧公式 verylong 无 …）
+    printf '%s' "$t133_out" | grep -qF '8|ver…me-x|8' || t133_ok=0
+    # 4 档：…+尾3 恰 4 格（三侧公式 max(2, maxLen−1)；≤3 档才 …+尾2）
+    printf '%s' "$t133_out" | grep -qF '4|…e-x|4' || t133_ok=0
+    # 0 档：空串（git 段让位）
+    printf '%s' "$t133_out" | grep -qF '0||0' || t133_ok=0
+    # CJK 13 码点 26 格：按格折（12 档内、非原串）
+    printf '%s' "$t133_out" | grep -E '^cjk\|' | grep -qF '一二三四五六七八九十百千万亿甲' && t133_ok=0
+    printf '%s' "$t133_out" | awk -F'|' '$1=="cjk" && $3+0>12 {exit 1}' || t133_ok=0
+    # 短名不折
+    printf '%s' "$t133_out" | grep -qF 'short|feat/x' || t133_ok=0
+    # 行1 级联：三档宽度都在预算内；26 列命中新 4 档（…e-x 在场证明 folds 表补档生效）
+    printf '%s' "$t133_out" | grep -qF 'L1:30:30:' || t133_ok=0
+    printf '%s' "$t133_out" | grep -qF 'L1:26:25:…e-x' || t133_ok=0
+    printf '%s' "$t133_out" | grep -qF 'L1:22:21:' || t133_ok=0
+    if [[ $t133_ok -eq 1 ]]; then
+        pass T133 "oc foldBranch tiers match cc/qc/pi: 8/15 at 24, 30/70 below, …+tail at 4, empty at 0; folds table has 4/0"
+    else
+        fail T133 "out=[$(printf '%s' "$t133_out" | tr '\n' '~')]"
+    fi
+fi
+
+# ============================================================
+# T134: 决策 2 —— ab 优先于 cwd 地板：行1 让位穷举把 with_ab 提到 floor 外层。
+#       46-52 列四档 ab（↑1↓0）恒在，cwd 提前折短代替闪灭 ab。
+#       fixture：带上游 ahead=1 的干净 repo + 12 格 herdr（48-52 为旧序红带：
+#       旧序 floor 外层会在 [43,47] 实绘带选「floor16+丢 ab」而非「floor8+保 ab」）。
+# ============================================================
+new_box
+T134_REPO="$BOX/r134"
+T134_REMOTE="$BOX/r134_remote"
+mkdir -p "$T134_REPO"
+(
+    cd "$T134_REPO" || exit 1
+    git -c init.defaultBranch=main init -q
+    git config user.email t@example.com
+    git config user.name t
+    printf 'a\n' >a.txt
+    git add -A >/dev/null 2>&1
+    git commit -q -m init >/dev/null 2>&1
+    git init -q --bare "$T134_REMOTE"
+    git remote add origin "$T134_REMOTE"
+    git push -q -u origin main >/dev/null 2>&1
+    printf 'b\n' >>a.txt
+    git add -A >/dev/null 2>&1
+    git commit -q -m second >/dev/null 2>&1
+) >/dev/null 2>&1
+t134_ok=1
+for w in 46 48 50 52; do
+    out="$(printf '{"cwd":"%s","model":{"display_name":"m"},"context_window":{"context_window_size":1000000,"used_percentage":3}}' "$T134_REPO" \
+        | NO_COLOR=1 COLUMNS=$w HERDR_WORKSPACE_ID=wW HERDR_TAB_ID=wW:t1234 HERDR_PANE_ID=wW:p5678 \
+            WREN_CACHE_DIR="$BOX/c134-$w" python3 "$QC_PAYLOAD" 2>/dev/null | head -1)"
+    printf '%s' "$out" | grep -qF "↑1↓0" || { t134_ok=0; echo "  w=$w l1=[$out]" >&2; }
+    printf '%s' "$out" | grep -qF "| qc" || { t134_ok=0; echo "  w=$w badge-missing l1=[$out]" >&2; }
+done
+if [[ $t134_ok -eq 1 ]]; then
+    pass T134 "ab survives cwd-floor sacrifice at 46-52 cols (with_ab hoisted above floor)"
+else
+    fail T134 "see stderr"
+fi
+
+# ============================================================
+# T135: 决策 3 —— 缓存清扫：CACHE_DIR 里 .json 超过 200 个时按 mtime 删最旧
+#       （cc-*/qc-*/无前缀三种都盖，模式就是 *.json）。渲染一次后 ≤200、
+#       最旧的没了、本次会话的 qc-<sha1> 键与较新文件存活。
+# ============================================================
+new_box
+t135_tr="$BOX/t135.jsonl"
+printf '{"type":"user","timestamp":"2026-09-28T10:00:00Z","message":{"content":"a"}}\n{"type":"assistant","timestamp":"2026-09-28T10:00:07.4Z","message":{"usage":{"input_tokens":100,"output_tokens":10,"cache_read_input_tokens":80}}}\n' >"$t135_tr"
+mkdir -p "$BOX/cache"
+i=0
+while [[ $i -lt 205 ]]; do
+    printf '{}' >"$BOX/cache/fake$i.json"
+    touch -t "$(printf '2025010100%02d' $((i / 60)) $((i % 60)))" "$BOX/cache/fake$i.json"
+    i=$((i + 1))
+done
+printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$t135_tr" \
+    | NO_COLOR=1 COLUMNS=90 WREN_CACHE_DIR="$BOX/cache" python3 "$QC_PAYLOAD" >/dev/null 2>&1
+t135_n=$(ls "$BOX/cache" | grep -c '\.json$')
+if [[ "$t135_n" -le 200 && "$t135_n" -ge 199 ]] \
+   && [[ ! -e "$BOX/cache/fake0.json" ]] \
+   && ls "$BOX/cache" | grep -q "^qc-" \
+   && [[ -e "$BOX/cache/fake204.json" ]]; then
+    pass T135 "cache swept to <=200 by mtime; oldest gone, session key + newest survive"
+else
+    fail T135 "n=$t135_n fake0=$([[ -e $BOX/cache/fake0.json ]] && echo y || echo n) qckey=$(ls "$BOX/cache" | grep -c '^qc-')"
+fi
+
+# ============================================================
+# T136: cc 物理极限区色档幻影分隔符——清空 git 段后 colored_git 是纯 ANSI
+#   包裹空串，.strip() 剥不掉转义（终审 3.1；NO_COLOR 用例全绿因无色档下
+#   c() 原样返回空串恰好掩盖）。truecolor 26/30 列断言无 ' | ' 空槽/尾悬空。
+# ============================================================
+new_box
+mkdir -p "$BOX/pk"
+(cd "$BOX/pk" && git init -q -b main && git config user.email t@e.com && git config user.name t \
+    && : >f && git add -A && git commit -qm i && printf 'x\n' >>f) >/dev/null 2>&1
+t136() {
+    printf '{"cwd":"%s","model":{"display_name":"m"}}' "$BOX/pk" \
+        | COLORTERM=truecolor COLUMNS=$1 HERDR_WORKSPACE_ID=wW HERDR_TAB_ID=wW:t12 HERDR_PANE_ID=wW:p34 \
+          WREN_CACHE_DIR="$BOX/t136-$1" python3 "$CC_PAYLOAD" 2>/dev/null | head -1 \
+        | python3 -c "import sys,re; print(re.sub(r'\x1b\\[[0-9;]*m','',sys.stdin.read().rstrip()))"
+}
+t136_26="$(t136 26)"; t136_30="$(t136 30)"
+# 无空槽（' |  | '）无尾悬空（以 ' | ' 或 '|' 结尾）
+t136_ok=1
+printf '%s' "$t136_26" | grep -qF '|  |' && t136_ok=0
+printf '%s' "$t136_26" | grep -qE '( \| |\|)$' && t136_ok=0
+printf '%s' "$t136_30" | grep -qF '|  |' && t136_ok=0
+printf '%s' "$t136_30" | grep -qE '( \| |\|)$' && t136_ok=0
+if [[ $t136_ok -eq 1 ]]; then
+    pass T136 "cc physical-limit colored phantom separator absent (26/30 cols truecolor)"
+else
+    fail T136 "26=[$t136_26] 30=[$t136_30]"
+fi
+
+# ============================================================
+# T137: pi 物理极限区色档幻影分隔符（终审九轮 #1）——分支折到 0 档后
+#       coloredGit 是纯 ANSI 包裹（cAt 包空串），truthy 判剥不掉 → 幻影
+#       ' | ' 空槽 + 3 格幻影宽偷 cwd。彩色档下剥色后无 '|  |' 双竖、行1
+#       以徽标收尾；且首帧 none/上色两帧渲染一致（跨帧不闪）。
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T137 "node with .ts type-stripping not available"
+else
+    new_box
+    # 长尾名仓库目录：W=37 探针靠「路径能展开几格」区分 gitW 幻影
+    # （maxPath 7 vs 10 → …trepo vs …hostrepo）
+    T137_REPO="$BOX/r137_ghostrepo"
+    mkdir -p "$T137_REPO"
+    (cd "$T137_REPO" && git -c init.defaultBranch=main init -q && git config user.email t@e.com         && git config user.name t && git checkout -q -b some-extremely-long-branch-name-for-ghost 2>/dev/null         && : >f && git add -A && git commit -qm i) >/dev/null 2>&1
+    t137_run() {  # $1 = COLOR_MODE 值（"truecolor" 或 "none"） $2 = WIDTH
+        # BRANCHNAME 喂 harness 的 getGitBranch()，与 porcelain 真 head 一起
+        # 使 hasBranch 为真：40 格分支在预算下折到 0 档（空串）触发幻影
+        (cd "$T137_REPO" && env NO_COLOR= COLOR_MODE="$1" WIDTH="${2:-30}" \
+            BRANCHNAME=some-extremely-long-branch-name-for-ghost \
+            HERDR_WORKSPACE_ID=wW HERDR_TAB_ID=wW:t1234 HERDR_PANE_ID=wW:p5678 GIT_WAIT_MS=1200 \
+            WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs" \
+            node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null | head -1)
+    }
+    t137_c="$(t137_run truecolor)"
+    t137_n="$(t137_run none)"
+    # W=37：maxPath 10（gitW 幻影修前只有 7）——路径能展开到 …hostrepo 即
+    # 证 ' | ' 前缀没偷预算；修前会缩成 …trepo
+    t137_37="$(t137_run none 37)"
+    t137_strip() { printf '%s' "$1" | LC_ALL=C sed 's/\x1b\[[0-9;]*m//g'; }
+    t137_ok=1
+    # 剥色后：无幻影空槽（连续分隔）、无尾悬空 '| '；herdr 与徽标都在
+    t137_cs="$(t137_strip "$t137_c")"
+    printf '%s' "$t137_cs" | grep -qF '|  |' && t137_ok=0
+    printf '%s' "$t137_cs" | grep -qE '\| *$' && t137_ok=0
+    printf '%s' "$t137_cs" | grep -qF 'wW:t1234:p5678' || t137_ok=0
+    printf '%s' "$t137_cs" | grep -qF '| pi' || t137_ok=0
+    # 剥色宽 ≤ termW（W=30 → 25 格）
+    t137_w="$(printf '%s' "$t137_cs" | python3 -c 'import sys; s=sys.stdin.read().rstrip("\n"); print(sum(2 if ord(ch)>0x2E80 else 1 for ch in s))' 2>/dev/null)"
+    [[ ${t137_w:-99} -le 25 ]] || t137_ok=0
+    # 跨帧一致：none 帧与彩色帧剥色后逐字相同（幻影修前：none 帧无幻影、彩色帧有）
+    t137_ns="$(t137_strip "$t137_n")"
+    [[ "$t137_cs" == "$t137_ns" ]] || t137_ok=0
+    # gitW 核空判：W=37 路径可展开到 …hostrepo（修前 3 格幻影宽偷预算 → …trepo）
+    printf '%s' "$t137_37" | grep -qF '…hostrepo' || t137_ok=0
+    printf '%s' "$t137_37" | grep -qF '…trepo' && t137_ok=0
+    if [[ $t137_ok -eq 1 ]]; then
+        pass T137 "pi physical-limit colored phantom separator absent; none/color frames identical"
+    else
+        fail T137 "color=[$t137_cs] none=[$t137_ns] w=$t137_w"
+    fi
+fi
+
+# ============================================================
+# T138: pi 决策 2 —— ab 优先于 cwd 地板（终审九轮 #2）：穷举序翻转
+#       （wdur → wab → blen → floor），46-52 列带 ab（↑1↓0）时 ab 恒在、
+#       徽标恒在。旧序 floor 最外/wab 最内 = ab 最先丢，46-50 列红带
+#       （cc T134 同型）。
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T138 "node with .ts type-stripping not available"
+else
+    new_box
+    T138_REPO="$BOX/r138"
+    T138_REMOTE="$BOX/r138_remote"
+    mkdir -p "$T138_REPO"
+    (cd "$T138_REPO" && git -c init.defaultBranch=main init -q && git config user.email t@e.com         && git config user.name t && printf 'a\n' >a.txt && git add -A && git commit -qm init         && git init -q --bare "$T138_REMOTE" && git remote add origin "$T138_REMOTE"         && git push -q -u origin main && printf 'b\n' >>a.txt && git add -A && git commit -qm second) >/dev/null 2>&1
+    t138_ok=1
+    for w in 46 48 50 52; do
+        out="$(cd "$T138_REPO" && env NO_COLOR=1 WIDTH=$w             HERDR_WORKSPACE_ID=wW HERDR_TAB_ID=wW:t1234 HERDR_PANE_ID=wW:p5678 GIT_WAIT_MS=1200             WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs"             node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null | head -1)"
+        printf '%s' "$out" | grep -qF '↑1↓0' || { t138_ok=0; echo "  w=$w ab-missing l1=[$out]" >&2; }
+        printf '%s' "$out" | grep -qF '| pi' || { t138_ok=0; echo "  w=$w badge-missing l1=[$out]" >&2; }
+    done
+    if [[ $t138_ok -eq 1 ]]; then
+        pass T138 "pi ab survives cwd-floor sacrifice at 46-52 cols (decision-2 loop order)"
+    else
+        fail T138 "see stderr"
+    fi
+fi
+
+# ============================================================
+# T139: 终审 9-1 幻影分隔符（物理极限区 + truecolor）——git 段被清空后
+#       colored_git 是纯 ANSI 包裹空串，.strip() 剥不掉 → 行1 幻影 " | "
+#       空槽/尾悬空（现有用例全 NO_COLOR，无色档恰好掩盖）。26/30 列两档：
+#       断言剥色后无 ' | ' 空槽（连续分隔）、无尾悬空 '| '，qc 徽标在场。
+# ============================================================
+new_box
+t139_env() {  # $1 = COLUMNS
+    printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":1000000,"used_percentage":3}}' \
+        | COLORTERM=truecolor COLUMNS=$1 HERDR_WORKSPACE_ID=wW HERDR_TAB_ID=wW:t1234567890123456 HERDR_PANE_ID=wW:p78 \
+            WREN_CACHE_DIR="$BOX/c139-$1" python3 "$QC_PAYLOAD" 2>/dev/null | head -1
+}
+t139_ok=1
+for w in 26 30; do
+    out="$(t139_env "$w")"
+    plain="$(printf '%s' "$out" | sed $'s/\x1b\\[[0-9;]*m//g')"
+    printf '%s' "$plain" | grep -qF "| qc" || { t139_ok=0; echo "  w=$w badge-missing l1=[$plain]" >&2; }
+    printf '%s' "$plain" | grep -qE '\| *\|' && { t139_ok=0; echo "  w=$w phantom-slot l1=[$plain]" >&2; }
+    printf '%s' "$plain" | grep -qE '\| *$' && { t139_ok=0; echo "  w=$w trailing-sep l1=[$plain]" >&2; }
+done
+if [[ $t139_ok -eq 1 ]]; then
+    pass T139 "physical-limit truecolor: no phantom separator slot after git segment cleared"
+else
+    fail T139 "see stderr"
+fi
+
+# ============================================================
+# T140: 宽度探测链（终审十轮·任务 3）——qoder 宿主不给 COLUMNS（payload 无
+#       宽度字段、spawn env 原样继承），stdout 又是管道。链：COLUMNS env →
+#       控制终端（ctermid）→ 兜底 80。窄档默认关（WREN_QC_NARROW 开关，真身
+#       进程探测不可达——探针实锤 /dev/tty ENXIO），本用例显式开 + pty 造
+#       51 列控制终端、剥 COLUMNS：探测链应命中窄档（短形 + xh 缩写）。
+# ============================================================
+new_box
+t140_tr="$BOX/t140.jsonl"
+printf '{"type":"user","timestamp":"2026-09-19T04:18:46.065Z","message":{"content":"hi"}}\n{"type":"assistant","timestamp":"2026-09-19T04:18:58.465Z","message":{"usage":{"input_tokens":743000,"output_tokens":117000,"cache_read_input_tokens":19560000,"cache_creation_input_tokens":0}}}\n{"type":"system","subtype":"compact_boundary","isSidechain":false,"compactMetadata":{"trigger":"manual","postTokens":284200}}\n{"type":"runtime-config","reasoningEffort":"xhigh"}\n' >"$t140_tr"
+t140_out="$(python3 - "$QC_PAYLOAD" "$t140_tr" "$BOX/c140" <<'T140PY'
+import fcntl, os, pty, select, struct, subprocess, sys, termios
+
+payload = '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":1000000},"transcript_path":"%s"}' % sys.argv[2]
+m, s = pty.openpty()
+fcntl.ioctl(s, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 51, 0, 0))
+env = {k: v for k, v in os.environ.items() if k != "COLUMNS"}
+env.update({"NO_COLOR": "1", "WREN_QC_NARROW": "1", "WREN_CACHE_DIR": sys.argv[3]})
+
+def preexec():
+    os.setsid()
+    fcntl.ioctl(s, termios.TIOCSCTTY, 0)
+
+p = subprocess.Popen([sys.executable, sys.argv[1]], stdin=subprocess.PIPE, stdout=s, stderr=s,
+                     env=env, preexec_fn=preexec)
+os.close(s)  # 父进程关掉 slave，子进程退出后 master 才有 EOF
+p.stdin.write(payload.encode())
+p.stdin.close()
+out = b""
+while True:
+    r, _, _ = select.select([m], [], [], 5)
+    if not r:
+        break
+    try:
+        chunk = os.read(m, 4096)
+    except OSError:
+        break
+    if not chunk:
+        break
+    out += chunk
+os.close(m)
+p.wait(timeout=10)
+sys.stdout.write(out.decode("utf-8", "ignore"))
+T140PY
+)"
+t140_l2="$(printf '%s' "$t140_out" | tail -1)"
+if printf '%s' "$t140_l2" | grep -qF "743K/117K|◈96.34%|▄28% ⏱12s|m · xh"; then
+    pass T140 "width probe chain: no COLUMNS + 51-col controlling tty triggers narrow tier"
+else
+    fail T140 "l2=[$t140_l2] out=[$(printf '%s' "$t140_out" | tr '\n' '~')]"
 fi
 
 # ---------- 汇总 ----------

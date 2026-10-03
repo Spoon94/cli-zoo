@@ -1,40 +1,35 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="920" height="358" viewBox="0 0 920 358" font-family="Menlo, Monaco, 'SF Mono', Consolas, monospace" font-size="14">
-  <!-- wren statusline 预览（Dracula 主题，深底）
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="586" viewBox="0 0 920 586" font-family="Menlo, Monaco, 'SF Mono', Consolas, 'Apple Symbols', 'Segoe UI Symbol', monospace" font-size="13">
+  <!-- wren statusline 预览（Dracula 主题，深底）。上：宽档；下：窄档（仅 cc/pi）。
        色值与 zoo-scripts/wren/ 下四个 payload 的色板一致：
        bg #282a36 | comment #6272a4 | purple #bd93f9 | green #50fa7b
-       red #ff5555 | yellow #f1fa8c | fg #f8f8f2 | cyan #8be9fd | pink #ff79c6 -->
-  <rect width="920" height="358" fill="#282a36"/>
-  <!-- 终端窗口点缀 -->
+       red #ff5555 | yellow #f1fa8c | fg #f8f8f2 | cyan #8be9fd | pink #ff79c6
+       所有样例由 wren-cc.py / wren-pi.ts 真渲染产出，非手写。 -->
+  <rect width="920" height="586" fill="#282a36"/>
   <circle cx="18" cy="16" r="5" fill="#ff5555" opacity="0.85"/>
   <circle cx="34" cy="16" r="5" fill="#f1fa8c" opacity="0.85"/>
   <circle cx="50" cy="16" r="5" fill="#50fa7b" opacity="0.85"/>
-
-  <!-- CC 侧（行首标签在 SVG 外用文本注释代替） -->
-  <text x="24" y="46" fill="#6272a4" font-size="11">Claude Code</text>
-  <text x="24" y="70" xml:space="preserve"><tspan fill="#6272a4">~/Code/cli-zoo | </tspan><tspan fill="#bd93f9">main</tspan><tspan fill="#f8f8f2"> ↑0↓0 </tspan><tspan fill="#50fa7b">+5</tspan><tspan fill="#f8f8f2"> </tspan><tspan fill="#f1fa8c">✱4</tspan><tspan fill="#6272a4"> | wC:t1:p1 | cc</tspan><tspan fill="#6272a4"> · </tspan><tspan fill="#f8f8f2">1h5m</tspan></text>
-  <text x="24" y="92" xml:space="preserve"><tspan fill="#f8f8f2">↑12K ↓3K</tspan><tspan fill="#6272a4"> | </tspan><tspan fill="#f8f8f2">R1.2M </tspan><tspan fill="#8be9fd">CH98.77%</tspan><tspan fill="#6272a4"> CP2 | </tspan><tspan fill="#ff5555">121.50%/1M</tspan><tspan fill="#f8f8f2"> TTFT 6.8s</tspan><tspan fill="#6272a4"> | </tspan><tspan fill="#ff79c6">claude-opus-5</tspan><tspan fill="#f8f8f2"> · </tspan><tspan fill="#8be9fd">high</tspan></text>
-
-  <!-- 分隔线 -->
-  <line x1="24" y1="104" x2="896" y2="104" stroke="#44475a" stroke-width="1"/>
-
-  <!-- pi 侧（与 CC 区同构：标签→行1 间距 24，行距 22，两行同 x 左对齐） -->
-  <text x="24" y="124" fill="#6272a4" font-size="11">pi</text>
-  <text x="24" y="148" xml:space="preserve"><tspan fill="#6272a4">~/Code/cli-zoo | </tspan><tspan fill="#bd93f9">main</tspan><tspan fill="#f8f8f2"> ↑0↓0 </tspan><tspan fill="#50fa7b">+5</tspan><tspan fill="#f8f8f2"> </tspan><tspan fill="#f1fa8c">✱4</tspan><tspan fill="#6272a4"> | wC:t1:p4 | pi</tspan><tspan fill="#6272a4"> · </tspan><tspan fill="#f8f8f2">46m</tspan></text>
-  <text x="24" y="170" xml:space="preserve"><tspan fill="#f8f8f2">↑743K ↓117K | R19.6M </tspan><tspan fill="#8be9fd">CH99.31%</tspan><tspan fill="#6272a4"> | </tspan><tspan fill="#50fa7b">28.42%/1M</tspan><tspan fill="#f8f8f2"> TTFT 4.2s</tspan><tspan fill="#6272a4"> | </tspan><tspan fill="#ff79c6">claude-opus-5</tspan><tspan fill="#f8f8f2"> · </tspan><tspan fill="#8be9fd">high</tspan></text>
-
-  <!-- 分隔线 2 -->
-  <line x1="24" y1="192" x2="896" y2="192" stroke="#44475a" stroke-width="1"/>
-
-  <!-- qc 侧（同上同构；样例取 README 的真会话抓取） -->
-  <text x="24" y="212" fill="#6272a4" font-size="11">Qoder CLI</text>
-  <text x="24" y="236" xml:space="preserve"><tspan fill="#6272a4">~/Code/cli-zoo | </tspan><tspan fill="#bd93f9">feat/x</tspan><tspan fill="#f8f8f2"> ↑0↓0</tspan><tspan fill="#6272a4"> | wW:t1:p2 | qc</tspan><tspan fill="#6272a4"> · </tspan><tspan fill="#f8f8f2">16m</tspan></text>
-  <text x="24" y="258" xml:space="preserve"><tspan fill="#f8f8f2">↑4.5M ↓65K | R4.2M </tspan><tspan fill="#8be9fd">CH98.21%</tspan><tspan fill="#6272a4"> | </tspan><tspan fill="#50fa7b">15.00%/1M</tspan><tspan fill="#f8f8f2"> TTFT 4.2s</tspan><tspan fill="#6272a4"> | </tspan><tspan fill="#ff79c6">Qwen3.8-Max</tspan><tspan fill="#f8f8f2"> · </tspan><tspan fill="#8be9fd">xhigh</tspan></text>
-
-  <!-- 分隔线 3 -->
-  <line x1="24" y1="280" x2="896" y2="280" stroke="#44475a" stroke-width="1"/>
-
-  <!-- oc 侧（opencode：replace prompt + hint，两行落在 prompt 框正下方那一行左半；右半是宿主 usage/快捷键） -->
-  <text x="24" y="300" fill="#6272a4" font-size="11">opencode（prompt 框下方那一行）</text>
-  <text x="24" y="324" xml:space="preserve"><tspan fill="#6272a4">~/Code/cli-zoo | </tspan><tspan fill="#bd93f9">main</tspan><tspan fill="#f8f8f2"> ↑0↓0 </tspan><tspan fill="#50fa7b">+3</tspan><tspan fill="#6272a4"> | wC:t1:p1 | oc</tspan><tspan fill="#6272a4"> · </tspan><tspan fill="#f8f8f2">15m</tspan><tspan fill="#6272a4">        162.4K  ctrl+p commands</tspan></text>
-  <text x="24" y="346" xml:space="preserve"><tspan fill="#f8f8f2">↑17K ↓7 | R20K </tspan><tspan fill="#8be9fd">CH54.46%</tspan><tspan fill="#6272a4"> | </tspan><tspan fill="#50fa7b">7.19%/262K</tspan><tspan fill="#f8f8f2"> TTFT 4.3s</tspan></text>
+  <text x="24" y="42" fill="#6272a4" font-size="11">宽档（终端宽 ≥ 56 列）</text>
+  <text x="24" y="64" fill="#6272a4" font-size="11">Claude Code</text>
+  <text x="24" y="86" xml:space="preserve"><tspan fill="#6272a4">~/Code/cli-zoo | </tspan><tspan fill="#bd93f9">feat/wren-narrow-tier</tspan><tspan fill="#f8f8f2"> ↑0↓0</tspan><tspan fill="#6272a4"> | wC:t1:p1 | cc · </tspan><tspan fill="#f8f8f2">1h5m</tspan></text>
+  <text x="24" y="108" xml:space="preserve"><tspan fill="#f8f8f2">↑12K ↓3K</tspan><tspan fill="#6272a4"> | </tspan><tspan fill="#f8f8f2">R1.2M </tspan><tspan fill="#8be9fd">CH57.14%</tspan><tspan fill="#6272a4"> CP2 | </tspan><tspan fill="#50fa7b">8.40%/200K</tspan><tspan fill="#f8f8f2"> TTFT 6.6s</tspan><tspan fill="#6272a4"> | </tspan><tspan fill="#ff79c6">claude-opus-5</tspan><tspan fill="#f8f8f2"> · </tspan><tspan fill="#8be9fd">high</tspan></text>
+  <text x="24" y="130" fill="#6272a4" font-size="11">pi</text>
+  <text x="24" y="152" xml:space="preserve"><tspan fill="#6272a4">~/Code/cli-zoo | </tspan><tspan fill="#bd93f9">main</tspan><tspan fill="#f8f8f2"> ↑0↓0 </tspan><tspan fill="#50fa7b">+5</tspan><tspan fill="#f8f8f2"> </tspan><tspan fill="#f1fa8c">✱4</tspan><tspan fill="#6272a4"> | wC:t1:p4 | pi · </tspan><tspan fill="#f8f8f2">46m</tspan></text>
+  <text x="24" y="174" xml:space="preserve"><tspan fill="#f8f8f2">↑743K ↓117K</tspan><tspan fill="#6272a4"> | </tspan><tspan fill="#f8f8f2">R19.6M </tspan><tspan fill="#8be9fd">CH99.31%</tspan><tspan fill="#6272a4"> | </tspan><tspan fill="#50fa7b">28.42%/1M</tspan><tspan fill="#f8f8f2"> TTFT 4.2s</tspan><tspan fill="#6272a4"> | </tspan><tspan fill="#ff79c6">claude-opus-5</tspan><tspan fill="#f8f8f2"> · </tspan><tspan fill="#8be9fd">high</tspan></text>
+  <text x="24" y="196" fill="#6272a4" font-size="11">Qoder CLI</text>
+  <text x="24" y="218" xml:space="preserve"><tspan fill="#6272a4">~/Code/cli-zoo | </tspan><tspan fill="#bd93f9">feat/x</tspan><tspan fill="#f8f8f2"> ↑0↓0</tspan><tspan fill="#6272a4"> | wW:t1:p2 | qc · </tspan><tspan fill="#f8f8f2">16m</tspan></text>
+  <text x="24" y="240" xml:space="preserve"><tspan fill="#f8f8f2">↑4.5M ↓65K</tspan><tspan fill="#6272a4"> | </tspan><tspan fill="#f8f8f2">R4.2M </tspan><tspan fill="#8be9fd">CH98.21%</tspan><tspan fill="#6272a4"> | </tspan><tspan fill="#50fa7b">15.00%/1M</tspan><tspan fill="#f8f8f2"> TTFT 4.2s</tspan><tspan fill="#6272a4"> | </tspan><tspan fill="#ff79c6">Qwen3.8-Max</tspan><tspan fill="#f8f8f2"> · </tspan><tspan fill="#8be9fd">xhigh</tspan></text>
+  <text x="24" y="262" fill="#6272a4" font-size="11">opencode（渲染在 prompt 框下方那一行的左半）</text>
+  <text x="24" y="284" xml:space="preserve"><tspan fill="#6272a4">~/Code/cli-zoo | </tspan><tspan fill="#bd93f9">main</tspan><tspan fill="#f8f8f2"> ↑0↓0 </tspan><tspan fill="#50fa7b">+3</tspan><tspan fill="#6272a4"> | wC:t1:p1 | oc · </tspan><tspan fill="#f8f8f2">15m</tspan><tspan fill="#6272a4">      162.4K  ctrl+p commands</tspan></text>
+  <text x="24" y="306" xml:space="preserve"><tspan fill="#f8f8f2">↑17K ↓7</tspan><tspan fill="#6272a4"> | </tspan><tspan fill="#f8f8f2">R20K </tspan><tspan fill="#8be9fd">CH54.46%</tspan><tspan fill="#6272a4"> | </tspan><tspan fill="#50fa7b">7.19%/262K</tspan><tspan fill="#f8f8f2"> TTFT 4.3s</tspan></text>
+  <line x1="24" y1="330" x2="896" y2="330" stroke="#44475a" stroke-width="1"/>
+  <text x="24" y="362" fill="#6272a4" font-size="11">窄档（终端宽 ≤ 55 列。移动端 herdr 把 pane 拖成 51 列时触发）</text>
+  <text x="24" y="384" fill="#6272a4" font-size="11">Claude Code</text>
+  <text x="24" y="406" xml:space="preserve"><tspan fill="#6272a4">…-zoo | </tspan><tspan fill="#bd93f9">fea…-narrow-tier</tspan><tspan fill="#f8f8f2"> ↑0↓0</tspan><tspan fill="#6272a4"> | wC:t1:p1 | cc</tspan></text>
+  <text x="24" y="428" xml:space="preserve"><tspan fill="#f8f8f2">12K/3K</tspan><tspan fill="#6272a4">|</tspan><tspan fill="#8be9fd">◈57.14%</tspan><tspan fill="#6272a4">|</tspan><tspan fill="#50fa7b">▂8%</tspan><tspan fill="#f8f8f2"> </tspan><tspan fill="#8be9fd">⏱6.6s</tspan><tspan fill="#6272a4">|</tspan><tspan fill="#ff79c6">claude-opus-5</tspan><tspan fill="#f8f8f2"> · </tspan><tspan fill="#8be9fd">hi</tspan></text>
+  <text x="24" y="450" fill="#6272a4" font-size="11">pi</text>
+  <text x="24" y="472" xml:space="preserve"><tspan fill="#6272a4">~/Code/cli-zoo | wC:t1:p1 | pi</tspan></text>
+  <text x="24" y="494" xml:space="preserve"><tspan fill="#f8f8f2">12K/3K</tspan><tspan fill="#6272a4">|</tspan><tspan fill="#8be9fd">◈99.01%</tspan><tspan fill="#6272a4">|</tspan><tspan fill="#50fa7b">▂8%</tspan><tspan fill="#f8f8f2"> </tspan><tspan fill="#8be9fd">⏱6.6s</tspan><tspan fill="#6272a4">|</tspan><tspan fill="#ff79c6">claude-opus-5</tspan><tspan fill="#f8f8f2"> · </tspan><tspan fill="#8be9fd">xh</tspan></text>
+  <line x1="24" y1="518" x2="896" y2="518" stroke="#44475a" stroke-width="1"/>
+  <text x="24" y="544" fill="#6272a4" font-size="11">Qoder CLI 与 opencode：没有窄档（qc 拿不到终端宽；oc 暂不实现）</text>
+  <text x="24" y="570" fill="#6272a4" font-size="11">窄档图标：◈ 缓存命中率（两位小数）　▂▄▆█ 上下文占用四分位（&lt;25 / &lt;50 / &lt;75 / ≥75%）　⏱ 首片延迟（不丢弃）</text>
 </svg>
