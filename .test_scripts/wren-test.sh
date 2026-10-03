@@ -3135,6 +3135,22 @@ else
     fail T125 "see stderr"
 fi
 
+# ============================================================
+# T126: cc 徽标两遍锁定——自然序放不下徽标时 rescue 重拼（变异 M7b 守门：
+#   交叉审 18 变异 8 存活之一；cwd 含 "cc" 子串同时钉 T2 的入选索引判定）
+# ============================================================
+new_box
+mkdir -p "$BOX/acc"
+t126=$(printf '{"cwd":"%s","model":{"display_name":"m"}}' "$BOX/acc" \
+    | NO_COLOR=1 COLUMNS=24 HERDR_WORKSPACE_ID=wW HERDR_TAB_ID=wW:t12 HERDR_PANE_ID=wW:p34 \
+      python3 "$CC_PAYLOAD" 2>/dev/null | head -1)
+# 24 列：herdr(13) 吃掉自然序尾部 → rescue 必须保 " | cc" 在行内
+if printf '%s' "$t126" | grep -qF "| cc"; then
+    pass T126 "cc badge two-pass lock: rescue keeps badge at 24 cols (cwd has cc substring)"
+else
+    fail T126 "24col=[$t126]"
+fi
+
 # ---------- 汇总 ----------
 printf '\nTotal: %d  Pass: %d  Fail: %d  Skip: %d\n' "$TOTAL" "$PASS_N" "$FAIL_N" "$SKIP_N"
 

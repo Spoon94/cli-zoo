@@ -643,7 +643,21 @@ def main():
     if keep_duration:
         natural.append((dur_s, " · " + duration))
     line1 = assemble_l1(natural)
-    if "cc" not in strip_ansi(line1):
+    # 徽标保住判定不能拿子串 "cc" 猜（CR 交叉审 T2：cwd=/tmp/acc 会误判已保住、
+    # 跳过 rescue）——assemble 返回行同时报每个 part 是否入选，直接看徽标本身。
+    def assemble_l1_report(order):
+        line = c("comment", display_cwd)
+        used = dwidth(display_cwd)
+        taken = []
+        for idx, (part, part_p) in enumerate(order):
+            if used + dwidth(part_p) <= term_w:
+                line += part
+                used += dwidth(part_p)
+                taken.append(idx)
+        return line, taken
+
+    line1, taken = assemble_l1_report(natural)
+    if natural.index(cc_part) not in taken:
         # cc 没保住：cc 最优先重拼（herdr/git 争剩余）
         rescue = [cc_part] + [p for p in natural if p is not cc_part]
         line1 = assemble_l1(rescue)
