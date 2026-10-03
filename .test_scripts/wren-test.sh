@@ -562,7 +562,7 @@ mod.default(pi);
 
 const ctx = {
   sessionManager: { getBranch: () => JSON.parse(process.env.BRANCH || "[]") },
-  model: { name: "anthropic/claude-opus-5", contextWindow: Number(process.env.CTX_WINDOW || 200000) },
+  model: { name: process.env.MODEL_NAME || "anthropic/claude-opus-5", contextWindow: Number(process.env.CTX_WINDOW || 200000) },
   thinkingLevel: process.env.THINKING || "high",
   // pi 的权威上下文用量（percent 为 null 表示压缩后暂不可知）
   getContextUsage: () => JSON.parse(process.env.CTX_USAGE || "null"),
@@ -1677,10 +1677,13 @@ else
     # 65：再丢 CH
     printf '%s' "$t73_w65" | grep -qF "CH96.34%" && t73_ok=0
     printf '%s' "$t73_w65" | grep -qF "CP1" || t73_ok=0
-    # 55：再丢 CP
+    # 55：窄档（≤55，与 cc T107 / qc T109 同契约）——短形 + 紧分隔；R/CP 本就
+    # 不进段表；此 fixture 实宽 55 > 实绘 50 → ⏱ 也让位（丢序 CP→TTFT→CH 的一环）
+    printf '%s' "$t73_w55" | grep -qF "743K/117K|◈96.34%|▄28%|claude-opus-5 · xhigh" || t73_ok=0
     printf '%s' "$t73_w55" | grep -qF "CP1" && t73_ok=0
-    # 四档都不剔：账本头、ctx%、模型名
-    for l in "$t73_w90" "$t73_w75" "$t73_w65" "$t73_w55"; do
+    printf '%s' "$t73_w55" | grep -qF "⏱" && t73_ok=0
+    # 宽档三档（90/75/65）都不剔：账本头、ctx%、模型名；55 窄档同段以短形在场
+    for l in "$t73_w90" "$t73_w75" "$t73_w65"; do
         printf '%s' "$l" | grep -qF "↑743K ↓117K" || t73_ok=0
         printf '%s' "$l" | grep -qF "28.42%/1M" || t73_ok=0
         printf '%s' "$l" | grep -qF "claude-opus-5" || t73_ok=0
@@ -2578,6 +2581,74 @@ if printf '%s' "$t107_51" | grep -qF "◈96.34%" \
     pass T107 "cc narrow tier: ◈/▂▄▆█/⏱ icons, quartile×color orthogonal, TTFT->CH drop"
 else
     fail T107 "51=[$t107_51] 42=[$t107_42] 36=[$t107_36] 90=[$t107_90] l1=[$t107_l1] q12=[$t107_q12] q37=[$t107_q37] q62=[$t107_q62] q80=[$t107_q80] q96=[$t107_q96]"
+fi
+
+# ============================================================
+# T108: pi 窄档（≤55 列，与 cc T107 / qc T109 同一款）：预算 WIDTH−5 地板 4、
+#       in/out 短形（去 ↑/↓ 与空格，/ 分向）、◈CH、▂▄▆█ ctx（整数 + 四分位
+#       块高，与色档 70/90 正交）、⏱TTFT（预算 ⏱⏱99m59s 8 格防 iOS 表情宽）、
+#       R/CP 不进段表、紧分隔 |、丢序 CP→TTFT→CH、行1 时长不渲染、徽标锁定。
+#       宽档边界 56 仍走宽档形态（R/CH 原样），钉「≤55 才切窄」。
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T108 "node with .ts type-stripping not available"
+else
+    T108_BR='[{"type":"compaction"},{"type":"message","message":{"role":"assistant","usage":{"input":743000,"output":117000,"cacheRead":19560000,"cacheWrite":0}}}]'
+    t108_run() {  # $1=WIDTH $2=MODEL_NAME($3=percent)
+        env NO_COLOR=1 WIDTH="$1" BRANCH="$T108_BR" TTFT_MS=12400 MSG_UPDATES=0 THINKING=xhigh \
+            MODEL_NAME="${2:-m}" CTX_USAGE="{\"tokens\":284200,\"contextWindow\":1000000,\"percent\":${3:-28.42}}" \
+            WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs" \
+            node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null | tail -1
+    }
+    t108_51="$(t108_run 51)"; t108_42="$(t108_run 42)"; t108_36="$(t108_run 36)"
+    t108_56="$(t108_run 56)"   # 宽档边界（MODEL=m 时 CH 仍在，与 55 窄档形态对照）
+    t108_90="$(t108_run 90 claude-opus-5)"
+    t108_q12="$(t108_run 51 m 12)"; t108_q37="$(t108_run 51 m 37)"
+    t108_q62="$(t108_run 51 m 62)"; t108_q80="$(t108_run 51 m 80)"; t108_q96="$(t108_run 51 m 96)"
+    t108_l1="$(env NO_COLOR=1 WIDTH=51 BRANCH="$T108_BR" TTFT_MS=12400 MSG_UPDATES=0 THINKING=xhigh \
+        HERDR_WORKSPACE_ID=w9 HERDR_TAB_ID=w9:t1 HERDR_PANE_ID=w9:p1 \
+        CTX_USAGE='{"tokens":284200,"contextWindow":1000000,"percent":28.42}' \
+        WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs" \
+        node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null | head -1)"
+    t108_ok=1
+    # 51 满配：短形 + ◈ + ▄ + ⏱ + 身份组；R/CP/小数 ctx/↑↓ 都不在
+    printf '%s' "$t108_51" | grep -qF "◈96.34%" || t108_ok=0
+    printf '%s' "$t108_51" | grep -qF "▄28%" || t108_ok=0
+    printf '%s' "$t108_51" | grep -qF "⏱12s" || t108_ok=0
+    printf '%s' "$t108_51" | grep -qF "|m · xhigh" || t108_ok=0
+    printf '%s' "$t108_51" | grep -qF "743K/117K" || t108_ok=0
+    printf '%s' "$t108_51" | grep -qF "R19.6M" && t108_ok=0
+    printf '%s' "$t108_51" | grep -qF "CP1" && t108_ok=0
+    printf '%s' "$t108_51" | grep -qF "28.42%" && t108_ok=0
+    printf '%s' "$t108_51" | grep -qF "↑743K" && t108_ok=0
+    # 丢序：42 丢 ⏱（◈仍在）；36 再丢 ◈（head|ctx 相邻）
+    printf '%s' "$t108_42" | grep -qF "◈96.34%" || t108_ok=0
+    printf '%s' "$t108_42" | grep -qF "⏱" && t108_ok=0
+    printf '%s' "$t108_36" | grep -qF "◈" && t108_ok=0
+    printf '%s' "$t108_36" | grep -qF "117K|▄28%" || t108_ok=0
+    # 56 = 宽档边界：R/↑↓ 原样、无 ⏱/◈（与 55 窄档形态互斥；MODEL=m 时 56 实宽
+    # 68→丢⏱ 57→丢◈ 48，R 在场即宽档形）
+    printf '%s' "$t108_56" | grep -qF "R19.6M" || t108_ok=0
+    printf '%s' "$t108_56" | grep -qF "↑743K ↓117K" || t108_ok=0
+    printf '%s' "$t108_56" | grep -qF "⏱" && t108_ok=0
+    printf '%s' "$t108_56" | grep -qF "◈" && t108_ok=0
+    # 90 宽档全量（长模型名）
+    printf '%s' "$t108_90" | grep -qF "R19.6M CH96.34% CP1 | 28.42%/1M TTFT 12s | claude-opus-5" || t108_ok=0
+    # 行1：herdr 坐标在、时长不在
+    printf '%s' "$t108_l1" | grep -qF "w9:t1:p1" || t108_ok=0
+    printf '%s' "$t108_l1" | grep -qF "| pi" || t108_ok=0
+    printf '%s' "$t108_l1" | grep -qE "· [0-9]+[hm]" && t108_ok=0
+    # 四分位矩阵：▂<25 ▄<50 ▆<75 █≥75（与色档 70/90 正交：80%=█但黄）
+    printf '%s' "$t108_q12" | grep -qF "▂12%" || t108_ok=0
+    printf '%s' "$t108_q37" | grep -qF "▄37%" || t108_ok=0
+    printf '%s' "$t108_q62" | grep -qF "▆62%" || t108_ok=0
+    printf '%s' "$t108_q80" | grep -qF "█80%" || t108_ok=0
+    printf '%s' "$t108_q96" | grep -qF "█96%" || t108_ok=0
+    if [[ $t108_ok -eq 1 ]]; then
+        pass T108 "pi narrow tier: short-form/◈/▂▄▆█/⏱, CP→TTFT→CH drop, 56 stays wide, quartile matrix"
+    else
+        fail T108 "51=[$t108_51] 42=[$t108_42] 36=[$t108_36] 56=[$t108_56] 90=[$t108_90] l1=[$t108_l1] q12=[$t108_q12] q37=[$t108_q37] q62=[$t108_q62] q80=[$t108_q80] q96=[$t108_q96]"
+    fi
 fi
 
 # ============================================================

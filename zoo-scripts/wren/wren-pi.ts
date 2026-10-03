@@ -64,12 +64,13 @@ function ttftColor(ms: number | null | undefined): string {
 	return "red";
 }
 
-const TTFT_BUDGET = 11;
+// TTFT 预算上界占位串（宽档 11 格）；窄档用 `⏱⏱99m59s`（8 格，见 build2）。
+const TTFT_BUDGET_S = "TTFT 99m59s";
 const DUR_BUDGET = visibleWidth(" · 99h59m");
 
 // TTFT 显示分档（设计 §3）：<10s 一位小数 / ≥10s 整数 / ≥60s `TTFT 1m05s` / ≥1h `TTFT 1h40m`。
 // 统一带 `TTFT ` 前缀（用户定稿：裸 T 前缀不直观）。上界 11 格（`TTFT 99m59s`），与
-// TTFT_BUDGET 对齐；超 99h 钳到 `TTFT 99h+`（9 格）保住上界。
+// TTFT_BUDGET_S 对齐；超 99h 钳到 `TTFT 99h+`（9 格）保住上界。
 function fmtTtft(ms: number): string {
 	if (ms < 10_000) return `TTFT ${(ms / 1000).toFixed(1)}s`;
 	const total = Math.round(ms / 1000);
@@ -89,6 +90,27 @@ function fmtDurationElapsed(ms: number): string {
 	const m = Math.floor((s % 3600) / 60);
 	if (h > 99 || (h === 99 && m > 59)) return "99h+";
 	return h > 0 ? `${h}h${m}m` : `${m}m`;
+}
+
+// 剥 ANSI 转义（量宽用）：pi 的 visibleWidth 本身已剥，但段表纪律要求预算串
+// 全程无色（与 cc 的 strip_ansi 同地位）——预算一律量 plain，色档不得影响折叠。
+const ANSI_RE = /\x1b\[[0-9;]*m/g;
+function stripAnsi(s: string): string {
+	return s.replace(ANSI_RE, "");
+}
+
+// 分支折叠六档（行1 梯子逐级传 24→20→16→12→8→4），与 wren-cc.py 的 fold_branch 同规则：
+// ≥24 档三侧同构 head8/tail15（CR 轮 9 尾重头轻）；<24 档窄档私有（头≈30% 尾吃剩余）；
+// ≤4 档只剩 …+尾2；0 档 git 段整体让位（物理极限区最后一级）。
+function foldBranchAt(b: string, maxLen: number): string {
+	if (visibleWidth(b) <= maxLen) return b;
+	if (maxLen >= 24) return sliceCells(b, 8, false) + "…" + sliceCells(b, 15, true);
+	if (maxLen <= 0) return "";
+	if (maxLen <= 4) return "…" + sliceCells(b, Math.max(2, maxLen - 1), true);
+	const head = Math.max(3, Math.floor((maxLen * 3) / 10) - 1);
+	let tail = Math.max(4, maxLen - head - 1);
+	if (head + 1 + tail > maxLen) tail = Math.max(2, maxLen - head - 1);
+	return sliceCells(b, head, false) + "…" + sliceCells(b, tail, true);
 }
 
 // theme.getColorMode() 是 pi 宿主的公开 API（theme.d.ts）；NO_COLOR 优先于宿主判定。
@@ -217,14 +239,8 @@ export default function (pi: ExtensionAPI) {
 			// 重求值并同步进 colorCache（refreshGit 的 counts 拼接也用它）
 			colorCache.mode = colorMode(theme);
 			const c = (name: string, text: string) => cAt(name, text, colorCache);
-			// 分支折叠：与 wren.py 的 fold_branch 同规则（>24 字符截中段保头尾）。
-			// 路径折叠已有（render 内 segs 逻辑），分支此前不折叠、长分支会把
-			// 行2 模型段挤掉（truncateToWidth 砍尾）。
-			// 分支折叠：尾重头轻（head 8 / tail 15），与 wren.py 的 fold_branch 同规则
-			const foldBranch = (b: string, maxLen = 24) =>
-				visibleWidth(b) <= maxLen
-					? b
-					: sliceCells(b, 8, false) + "…" + sliceCells(b, 15, true);
+			// 分支折叠（≥24 默认档）：foldBranchAt 提到模块级，行1 梯子逐级传更小档位
+			const foldBranch = (b: string) => foldBranchAt(b, 24);
 			return {
 				dispose() {
 					unsub();
@@ -249,23 +265,55 @@ export default function (pi: ExtensionAPI) {
 					const branch = footerData.getGitBranch();
 					// 分支有无由 porcelain 的 # branch.head 判断（"(" 开头 = detached = 无分支），
 					// 与 wren.py 完全同规则；getGitBranch() 只提供显示名与 onBranchChange 响应性
-					const hasBranch = !!branch && git.head !== "" && !git.head.startsWith("(");
-					// 行1 梯子（设计 §4）：时长按 9 格上界（DUR_BUDGET，含 " · "）计入 rest；
-					// 路径预算会掉到 16 地板以下时先把时长丢掉（整段退回裸徽标），再走折叠 / 硬截。
-					// 预算用上界常量而不是当前值宽度：数值变化不改变折叠决策（§1.1-2）。
+					const hasBranch = !!branch && git.head !== "" && git.head !== "(detached)"; // 字面 ( 开头的真分支不误判（猎杀五轮 B-2b）
+					// 窄档（≤55 列，与 cc 同契约）：预算按实绘宽 width−5 收（宿主左缩进 +
+					// 尾部留白/省略号），地板 max(4, …) 不钳 24——钳 24 会让更窄的行按 24 格
+					// 排版/截断，实际输出超终端宽、宿主切行炸版。宽档（≥56）零变化。
+					const narrow = width <= 55;
+					const termW = narrow ? Math.max(4, width - 5) : width;
+					// 行1 梯子（与 wren-cc.py 同一套穷举）：永不丢 dmg / herdr 坐标 / pi 徽标；
+					// 溢出让位顺序（循环序 = 牺牲序，外层更晚牺牲）：ab → 分支六档压缩
+					// （24→20→16→12→8→4，… 省略中段）→ 时长（窄档一律不渲染）→ cwd 地板
+					// 16→8→4（… /尾段截断，目录长度压缩优先于丢铁律段）。
+					// 宽度探针按「分支折叠后真实宽」计，不按档位上界虚记；git 各件全空时
+					// 探针返 0（非 git cwd 若仍记 3 格幻影宽，目录预算被偷）。
 					const durText = fmtDurationElapsed(Date.now() - sessionStart);
-					const gitRest = hasBranch || git.ab || git.counts
-						? visibleWidth(` | ${hasBranch ? foldBranch(branch) : ""}${git.ab}${git.counts}`)
-						: 0;
-					const herdrRest = herdrTag ? visibleWidth(` | ${herdrTag}`) : 0;
-					const baseRest = gitRest + herdrRest + visibleWidth(" | pi");
-					let keepDuration = true;
-					let rest = baseRest + DUR_BUDGET;
-					if (width - rest < 16) {
-						keepDuration = false;
-						rest = baseRest;
+					const abRaw = git.ab;
+					let dmgPlainEff = stripAnsi(git.counts); // pi 的 counts 在 refreshGit 里已上色，量宽用无色副本
+					let abEff = abRaw;
+					const gitW = (blen: number, withAb: boolean): number => {
+						if (!hasBranch && !abRaw && !dmgPlainEff) return 0;
+						return visibleWidth(` | ${hasBranch ? foldBranchAt(branch, blen) : ""}${withAb ? abRaw : ""}${dmgPlainEff}`);
+					};
+					const herdrW = herdrTag ? visibleWidth(` | ${herdrTag}`) : 0;
+					const badgeW = visibleWidth(" | pi");
+					const durW = durText ? DUR_BUDGET : 0;
+					const canDur = !!durText && !narrow; // 窄档裁定不渲染时长（契约 #6）
+					let keepDuration = canDur, bBudget = 24, dropAb = false, cwdFloor = 16, found = false;
+					search:
+					for (const floor of [16, 8, 4]) {
+						for (const wd of canDur ? [true, false] : [false]) {
+							for (const blen of [24, 20, 16, 12, 8, 4]) {
+								for (const wab of abRaw ? [true, false] : [false]) {
+									if (gitW(blen, wab) + herdrW + badgeW + (wd ? durW : 0) + floor <= termW) {
+										bBudget = blen; keepDuration = wd; dropAb = !wab && !!abRaw; cwdFloor = floor;
+										found = true;
+										break search;
+									}
+								}
+							}
+						}
 					}
-					const maxPath = Math.max(16, width - rest);
+					if (!found) {
+						// 物理极限区（与 cc 同）：最小配置（分支 4 档、丢 ab/时长、cwd 地板 4）
+						// 仍放不下 → 逐段再丢 git 计数（dmg 是铁律但物理不可容时最后让位）。
+						bBudget = 4; dropAb = !!abRaw; keepDuration = false; cwdFloor = 4;
+						if (gitW(bBudget, false) + herdrW + badgeW + 4 > termW) dmgPlainEff = "";
+						if (gitW(bBudget, false) + herdrW + badgeW + 4 > termW) { bBudget = 0; abEff = ""; }
+					}
+					if (dropAb) abEff = "";
+					const rest = gitW(bBudget, !!abEff) + herdrW + badgeW + (keepDuration ? durW : 0);
+					const maxPath = Math.max(cwdFloor, termW - rest);
 					const segs = cwd.split("/");
 					let displayPath = cwd;
 					if (visibleWidth(cwd) > maxPath) {
@@ -286,21 +334,38 @@ export default function (pi: ExtensionAPI) {
 					// Dracula: cwd/分隔线/herdr 灰、分支紫、ab 白（counts 已在拼接处上色）
 					const sep1 = c("comment", "|");
 					// detached HEAD：分支名不显示（设计），ab/counts 照常——counts 是铁律
-					// （Bug 猎杀 #2，与 wren-cc.py 同步：旧版 hasBranch 门控把脏树计数吞掉）
-					const coloredGit = hasBranch
-						? c("purple", foldBranch(branch)) + c("fg", git.ab) + git.counts
-						: (git.ab || git.counts ? (c("fg", git.ab) + git.counts).replace(/^ +/, "") : "");
-					// 行1 尾的宿主徽标：同屏多个 agent 时区分 CC / pi（词汇表复用 wren install 的目标名）
-					// 行1 尾的徽标 + 时长（顺序写死 `| 徽标 · 时长`，见设计 §1.1-1）：
-					// 徽标在前、时长在后 ⇒ 极端窄终端的 truncate 先吃时长、保住宿主徽标
-					const left1 = c("comment", displayPath)
-						+ (coloredGit ? ` ${sep1} ${coloredGit}` : "")
-						+ (herdrTag ? ` ${sep1} ${c("comment", herdrTag)}` : "")
-						+ ` ${sep1} ${c("comment", "pi")}`
-						+ (keepDuration ? ` ${c("comment", "·")} ${c("fg", durText)}` : "");
-					// 行内布局（与 wren.py 一致）：herdr 段已在 left1 里以 " | " 拼接，
-					// 不做右对齐/pad。truncateToWidth 保留防溢出。
-					let line1 = truncateToWidth(left1, width);
+					// （Bug 猎杀 #2，与 wren-cc.py 同步：旧版 hasBranch 门控把脏树计数吞掉）。
+					// 分支按梯子命中的 bBudget 折；counts 已在物理极限区被清时不再渲染。
+					const coloredGit = ((hasBranch ? c("purple", foldBranchAt(branch, bBudget)) : "")
+						+ (abEff ? c("fg", abEff) : "")
+						+ (dmgPlainEff ? git.counts : "")).replace(/^ +/, "");
+					// 段对 (colored, plain) 纪律（与 cc/build2 同）：量宽只看 plain——预算串
+					// 全程无色，色档不得影响折叠。两遍策略（契约 #6）：先按自然序
+					// （git→herdr→pi→dur）拼；徽标没保住才换徽标优先序重拼（铁律高于视觉）。
+					// 徽标是否入列由 assembleL1 直接回报——不用 cc 的子串包含判断
+					// （路径/分支里含 "pi" 时会误判已保住，此处比 cc 硬一点）。
+					type Seg = { colored: string; plain: string };
+					const badgeSeg: Seg = { colored: ` ${sep1} ${c("comment", "pi")}`, plain: " | pi" };
+					const natural: Seg[] = [];
+					if (coloredGit) natural.push({ colored: ` ${sep1} ${coloredGit}`, plain: ` | ${stripAnsi(coloredGit)}` });
+					if (herdrTag) natural.push({ colored: ` ${sep1} ${c("comment", herdrTag)}`, plain: ` | ${herdrTag}` });
+					natural.push(badgeSeg);
+					if (keepDuration) natural.push({ colored: ` ${c("comment", "·")} ${c("fg", durText)}`, plain: ` · ${durText}` });
+					const assembleL1 = (order: Seg[]) => {
+						let line = c("comment", displayPath), used = visibleWidth(displayPath), badgeIn = false;
+						for (const s of order) {
+							if (used + visibleWidth(s.plain) <= termW) {
+								line += s.colored; used += visibleWidth(s.plain);
+								if (s === badgeSeg) badgeIn = true;
+							}
+						}
+						return { line, badgeIn };
+					};
+					let l1res = assembleL1(natural);
+					let line1 = l1res.badgeIn
+						? l1res.line
+					: assembleL1([badgeSeg, ...natural.filter((s) => s !== badgeSeg)]).line;
+					line1 = truncateToWidth(line1, termW);
 
 					// 行2左: token 统计 + 上下文占用
 					let input = 0,
@@ -361,38 +426,75 @@ export default function (pi: ExtensionAPI) {
 					// Dracula: token 白、R 白、CH 青、CP 灰、ctx% 三档（>70 黄、>90 红，pi 语义）
 					const sep2 = c("comment", "|");
 
-					// 身份组：模型粉 · 思考青（时长已上移行1，不再参与行2）
+					// 身份组：模型粉 · 思考青（时长已上移行1，不再参与行2）；
+					// 拼接移进 build2 的段表（窄/宽同构），这里只留名字解析
 					const raw = model?.name || model?.id || "no-model";
 					const display = raw.includes("/") ? raw.split("/").pop()! : raw;
-					const rightParts = [c("pink", display)];
-					if (ctx.thinkingLevel) rightParts.push(c("cyan", ctx.thinkingLevel));
-					const right = rightParts.join(" · ");
 
-					// 行2 梯子（设计 §4）：段列表 + 逐段剔，丢弃优先级 TTFT → CH → CP；
-					// 永不剔除 ↑in↓out / ctx% / 模型名。TTFT 按 11 格上界常量计预算，
-					// 数值变化只影响显示、不影响折叠决策（§1.1-2）。
+					// 行2 梯子（与 cc 同一套段表）：段列表 + 逐段剔，每段 (colored, plain)
+					// 成对收集、量宽只看 plain（预算串全程无色，色档不得影响折叠）。
+					// 宽档丢序 TTFT → CH → CP（新段先丢）；窄档 CP → TTFT → CH（⏱ 最先
+					// 让位给身份组；CP 在窄档本就不进段表，首位丢弃是空操作）。
+					// 永不剔除 in/out / ctx% / 模型·思考。
+					// TTFT 预算用上界占位串而非「彩色串宽 + 差额」：宽档 `TTFT 99m59s`=11 格，
+					// 窄档 `⏱⏱99m59s`=8 格（⏱ 计 1 格、iOS 实显 2 格，双占位补足——
+					// visibleWidth 对 U+23F1（EAW=N）只算 1 格，单格口径双向出错）。
 					const ttftText = lastTtftMs != null ? fmtTtft(lastTtftMs) : "";
 					const chText = ch ? ch.trim() : "";
 					const cpText = cp ? cp.trim() : "";
-					const assemble2 = (k: { ttft: boolean; ch: boolean; cp: boolean }) =>
-						c("fg", `↑${fmt(input)} ↓${fmt(output)}`)
-						+ ` ${sep2} ` + `R${fmt(cacheRead)}`
-						+ (k.ch ? " " + c("cyan", chText) : "")
-						+ (k.cp ? " " + c("comment", cpText) : "")
-						+ ` ${sep2} ` + c(ctxColorName, ctxPercentText)
-						+ (k.ttft ? " " + c(ttftColor(lastTtftMs), ttftText) : "")
-						+ ` ${sep2} ${right}`;
-					const budget2 = (k: { ttft: boolean; ch: boolean; cp: boolean }) =>
-						visibleWidth(assemble2(k)) + (k.ttft ? Math.max(0, TTFT_BUDGET - visibleWidth(ttftText)) : 0);
-					let keep2 = { ttft: !!ttftText, ch: !!chText, cp: !!cpText };
-					for (const drop of ["ttft", "ch", "cp"] as const) {
-						if (budget2(keep2) <= width) break;
+					// 窄档短形（契约 #3，与 cc 同）：in/out 去 ↑/↓ 前缀与中间空格、/ 分向
+					// （31.2M/643K，方向靠位置约定：/ 前 in 后 out）；CH 前缀 CH→◈（两位
+					// 小数原样）；ctx% 整数 + 四分位块高图标（▂<25 ▄<50 ▆<75 █≥75，等宽
+					// 四分位=几何体积，与色档 70/90 解耦：图标说占了几成，颜色说风险）；
+					// TTFT 前缀 TTFT→⏱；R/CP 不进段表；紧分隔 |（3 个分隔省 6 格）。
+					// percent=null（压缩后未知）＝cc 的 ctx_pct 为空 → 窄档不渲染 ctx。
+					const pctNum = ctxUsage?.percent ?? null;
+					const chS = narrow ? (chText.startsWith("CH") ? "◈" + chText.slice(2) : chText) : chText;
+					const ctxS = narrow
+						? (pctNum == null ? "" : `${pctNum < 25 ? "▂" : pctNum < 50 ? "▄" : pctNum < 75 ? "▆" : "█"}${pctNum.toFixed(0)}%`)
+						: ctxPercentText;
+					const ttftS = narrow ? (ttftText ? "⏱" + ttftText.slice(5) : "") : ttftText;
+					const ttftBudgetS = narrow ? "⏱⏱" + "99m59s" : TTFT_BUDGET_S;
+					const build2 = (k: { ttft: boolean; ch: boolean; cp: boolean }): [string, string] => {
+						const head = narrow ? `${fmt(input)}/${fmt(output)}` : `↑${fmt(input)} ↓${fmt(output)}`;
+						const segsC: string[] = [c("fg", head)];
+						const segsP: string[] = [head];
+						let ledgerC = narrow ? "" : `R${fmt(cacheRead)}`;
+						let ledgerP = ledgerC;
+						if (k.ch && chS) {
+							ledgerC += (ledgerC ? " " : "") + c("cyan", chS);
+							ledgerP += (ledgerP ? " " : "") + chS;
+						}
+						if (k.cp && cpText && !narrow) {
+							ledgerC += (ledgerC ? " " : "") + c("comment", cpText);
+							ledgerP += (ledgerP ? " " : "") + cpText;
+						}
+						if (ledgerC) { segsC.push(ledgerC); segsP.push(ledgerP); }
+						let statC = "", statP = "";
+						if (ctxS) { statC = c(ctxColorName, ctxS); statP = ctxS; }
+						if (k.ttft && ttftS) {
+							const t = c(ttftColor(lastTtftMs), ttftS);
+							statC = statC ? `${statC} ${t}` : t;
+							statP = statP ? `${statP} ${ttftBudgetS}` : ttftBudgetS;
+						}
+						if (statC) { segsC.push(statC); segsP.push(statP); }
+						// 身份组窄档也进（契约：模型·思考不可丢），组内仍 · 分隔
+						const identC = [c("pink", display)].concat(ctx.thinkingLevel ? [c("cyan", ctx.thinkingLevel)] : []);
+						const identP = [display].concat(ctx.thinkingLevel ? [ctx.thinkingLevel] : []);
+						if (identC.length) { segsC.push(identC.join(" · ")); segsP.push(identP.join(" · ")); }
+						return [segsC.join(narrow ? "|" : ` ${sep2} `), segsP.join(narrow ? "|" : " | ")];
+					};
+					let keep2 = { ttft: !!ttftS, ch: !!chS, cp: !!cpText };
+					let [line2c, plain2] = build2(keep2);
+					for (const drop of (narrow ? ["cp", "ttft", "ch"] : ["ttft", "ch", "cp"]) as const) {
+						if (visibleWidth(plain2) <= termW) break;
 						keep2 = { ...keep2, [drop]: false };
+						[line2c, plain2] = build2(keep2);
 					}
 
-					// 行内布局（与 wren.py 一致）：右段直接接在 " | " 后，无 pad/右对齐；
-					// 梯子之后仍溢出走硬截兜底
-					const line2 = truncateToWidth(assemble2(keep2), width);
+					// 行内布局（与 cc 一致）：梯子之后仍溢出走硬截兜底；窄档预算已按
+					// termW（width−5）收，硬截也按 termW
+					const line2 = truncateToWidth(line2c, termW);
 					return [line1, line2];
 				},
 			};
