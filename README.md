@@ -58,52 +58,88 @@ otter -h                         # 帮助
 
 ### [wren](./zoo-scripts/wren)
 
-把两行 statusline（Dracula 配色）装到 Claude Code、pi、Qoder CLI 与 opencode 四个宿主上的安装器。装的是文件副本，装完不依赖本仓库还在原处。
+wren 是一个安装器。wren 把两行 statusline（Dracula 配色）装到 4 个宿主：Claude Code、pi、Qoder CLI、opencode。
+wren 复制文件副本到宿主。安装完成后，宿主不再依赖本仓库的位置。
 
 ```bash
-./cli-zoo-install.sh wren        # 先把 wren 装到 $PREFIX
-wren install [cc|pi|qc|oc|all]   # 装到宿主（默认 all；幂等；别名：claude / qoder / opencode）
-wren uninstall [cc|pi|qc|oc|all] # 卸载（默认 all）
-wren -h                          # 帮助
+./cli-zoo-install.sh wren        # 第一步：把 wren 装到 $PREFIX
+wren install [cc|pi|qc|oc|all]   # 装到宿主。默认 all。幂等。别名：claude、qoder、opencode
+wren uninstall [cc|pi|qc|oc|all] # 卸载。默认 all
+wren -h                          # 显示帮助
 ```
 
 ![wren statusline preview](./docs/wren-preview.svg)
 
+**宽档样例**（终端宽 ≥ 56 列）：
+
 ```
-~/Code/cli-zoo | main ↑0↓0 +4 ✱2 | wC:t1:p1 | cc · 1h5m
+~/Code/cli-zoo | feat/wren-narrow-tier ↑0↓0 | wC:t1:p1 | cc · 1h5m
 ↑12K ↓3K | R1.2M CH57.14% CP2 | 8.40%/200K TTFT 6.6s | claude-opus-5 · high
 ```
 
-窄档（≤55 列，移动端 herdr 把 pane 拖成 51 列时；⏱/◈/▂▄▆█ 图标语言 + 紧分隔 + 身份组缩短）：
+**窄档样例**（终端宽 ≤ 55 列。移动端 herdr 把 pane 拖成 51 列时触发）：
 
 ```
-…oo | feat/…tier ✱2 | wC:t1:p1 | cc
-12K/3K|◈57.14%|▂4%|claude-opus-5 · hi
+…-zoo | fea…-narrow-tier ↑0↓0 | wC:t1:p1 | cc
+12K/3K|◈57.14%|▂8% ⏱6.6s|claude-opus-5 · hi
 ```
 
-qc 侧同构，仅数据源不同（另一 workspace 的真会话实测样例，故分支与 pane 编号不同）：
+上面两组样例来自同一个会话。wren 在 80 列渲染第一组，在 51 列渲染第二组。
+
+窄档使用 3 类图标：
+
+| 图标 | 含义 |
+|------|------|
+| `◈` | 缓存命中率（CH）。保留两位小数 |
+| `▂` `▄` `▆` `█` | 上下文占用四分位：< 25%、< 50%、< 75%、≥ 75% |
+| `⏱` | 首片延迟（TTFT）。窄档不丢弃此段 |
+
+窄档的 4 条规则：
+
+1. wren 不显示 R（缓存读取量）与 CP（压缩次数）。
+2. wren 把 in/out 写成短形 `12K/3K`。
+3. wren 去掉模型名的 `[1m]` 后缀。wren 缩写思考等级：xhigh→xh、high→hi、medium→med。
+4. wren 在窄档不显示行 1 的时长。
+
+两行的段序：
+
+- 行 1：cwd、git 状态、herdr 坐标、宿主徽标、会话时长。
+- 行 2：累计 token、缓存读取量、CH、CP、上下文占用、TTFT、模型名、思考等级。
+
+**行 1 放不下时的让位顺序**：时长 → ahead-behind → 分支折叠（6 档：24→20→16→12→8→4）→ cwd 折叠（地板 16→8→4）。
+wren 永不丢弃 3 个段：dmg 计数、herdr 坐标、宿主徽标。
+
+**着色**：上下文占用与 TTFT 用突变色档。
+TTFT 四档：绿 < 5s、白 5–20s、黄 20–60s、红 > 60s。判据是屏幕显示值。
+上下文占用三档：绿 ≤ 70%、黄 70–90%、红 > 90%。
+
+qc 侧同构。qc 侧只有数据源不同。样例来自另一个 workspace 的真会话，所以分支与 pane 编号不同：
 
 ```
 ~/Code/cli-zoo | feat/x ↑0↓0 | wW:t1:p2 | qc · 16m
 ↑4.5M ↓65K | R4.2M CH98.21% | 15.00%/1M TTFT 4.2s | Qwen3.8-Max · xhigh
 ```
 
-opencode 侧同样两行，渲染在 prompt 框正下方那一行的左半（顶掉宿主原本的 cwd；右半是宿主的 `162.4K (16%)  ctrl+p commands`，真会话实测样例）：
+oc 侧同样两行。wren 把两行渲染在 prompt 框正下方那一行的左半。样例：
 
 ```
 ~/Code/ai_code/cli-zoo | feat/wre…upport_opencode ↑0↓0 ✱6 | wC:t1:p1 | oc · 5h15m      162.4K  ctrl+p commands
 ↑390K ↓12K | R5.5M CH93.41% | 14.08%/1M TTFT 2.0s
 ```
 
-oc 侧不渲染模型 · 思考（宿主 prompt 框内左侧同一行已有 `agent · model · variant`）；
-cwd 恢复显示——wren 行1 正好占宿主原来显示 cwd 的那一格。其余三宿主（cc/pi/qc）都带 cwd 与模型，
-因为那里没有宿主自带信息可依赖。行1 溢出让位序：时长 → ahead-behind → 分支六档折叠
-（24→20→16→12→8→4，… 省略中段）→ cwd 折叠（16→8→4 地板）；dmg 计数、herdr 坐标、宿主徽标
-永不丢（徽标两遍锁定，物理极限区才交硬截——实测硬截起点 ~12-14 列，34 列附近是 dmg 让位点）。
+oc 侧有 3 点不同：
 
-行 1 = cwd + git + herdr 位置 + 宿主徽标 · 会话时长；行 2 = 累计 token + 缓存（读取量 / `CH` 命中率 / `CP` 压缩次数）+ 上下文占用 + 首片延迟（`TTFT`）+ 模型 · 思考（oc 侧模型 · 思考跟宿主重复不渲染）。长路径长分支自动折叠不溢出，cc/qc/pi ≤55 列（移动端 herdr 会把 pane 拖成 51 列）进窄档：预算按实绘宽 `COLUMNS−5` 收（宿主缩进与尾部省略号），行2 换图标短形（in/out 去 ↑↓ 与空格 `31.2M/643K`、CH 前缀 ◈ 两位小数、ctx% 四分位块图标 ▂<25 ▄<50 ▆<75 █≥75 + 整数、TTFT 前缀 ⏱），R/CP 不进段表、模型·思考保留、紧分隔 |，丢序 CP → CH（⏱ 铁律不丢、模型去 [1m] 思考缩写）；qc 窄档默认关（qoder 宿主不给宽度通道，`WREN_QC_NARROW=1` 显式开）；oc 无窄档（opencode v2 将出，裁定不做）。`ctx%` 与 `TTFT` 三档/四档突变着色（TTFT：绿 <5s、白 5–20s、黄 20–60s、红 >60s，判据为屏幕显示值）。装完在 pi 里用 `/footer` 切换。
+1. oc 侧不渲染模型名与思考等级。宿主 prompt 框内同一行已有 `agent · model · variant`。
+2. oc 侧显示 cwd。wren 行 1 占用宿主原来显示 cwd 的那一格。
+3. cc、pi、qc 三个宿主带 cwd 与模型名。这 3 个宿主没有自带信息可用。
 
-四宿主差异（cc / pi / qc / oc）、安装器细节、`wren-pi.ts` 相对 pi 上游的有意修改、Dracula 色板，见 [zoo-scripts/wren/README.md](./zoo-scripts/wren/README.md)；测试见 [docs/testing.md](./docs/testing.md)。
+窄档在 4 个宿主上不同：
+
+- cc 与 pi：窄档直接生效。
+- qc：窄档默认关闭。qoder 宿主不给宽度通道。设置 `WREN_QC_NARROW=1` 打开。
+- oc：不做窄档（opencode v2 将发布）。
+
+装完在 pi 里用 `/footer` 切换自定义/内置 footer。
 
 ## 安装与卸载
 
