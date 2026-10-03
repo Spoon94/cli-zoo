@@ -350,7 +350,10 @@ def scan_transcript(path):
     except OSError:
         return st
 
-    cache_file = CACHE_DIR / f"{hashlib.sha1(str(path).encode()).hexdigest()[:16]}.json"
+    # 键掺宿主前缀（猎杀七轮 BUG5）：cc/qc 共用默认 ~/.cache/wren 时同 transcript
+    # 的缓存互染（两宿主 last_prompt_tokens 口径不同，后读方 CH/ctx% 错到下一条
+    # assistant 才自愈）。旧键无前缀，升级后首渲染按 miss 全量重算一次，自迁移。
+    cache_file = CACHE_DIR / f"cc-{hashlib.sha1(str(path).encode()).hexdigest()[:16]}.json"
     offset = 0
     if cache_file.exists():
         try:
@@ -642,7 +645,6 @@ def main():
     natural.append(cc_part)
     if keep_duration:
         natural.append((dur_s, " · " + duration))
-    line1 = assemble_l1(natural)
     # 徽标保住判定不能拿子串 "cc" 猜（CR 交叉审 T2：cwd=/tmp/acc 会误判已保住、
     # 跳过 rescue）——assemble 返回行同时报每个 part 是否入选，直接看徽标本身。
     def assemble_l1_report(order):
