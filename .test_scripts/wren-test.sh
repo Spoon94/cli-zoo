@@ -2870,6 +2870,140 @@ else
     fail T115 "tsx=[$(grep -n 'session_prompt' "$OC_PAYLOAD" | tr '\n' ' ')]"
 fi
 
+# ============================================================
+# T121: 交叉审 Q1/Q2 —— 原生 stdin 字段净化（对齐 cc _nt 纪律）：
+#       used_percentage NaN / total_input_tokens '500'（字符串）/ current_usage
+#       Infinity / 负 used_percentage。非法一律当缺失走回落链，不出 nan/inf/负 %。
+# ============================================================
+new_box
+t121_tr="$BOX/t121.jsonl"
+printf '{"type":"user","timestamp":"2026-09-28T10:00:00Z","message":{"content":"a"}}\n{"type":"assistant","timestamp":"2026-09-28T10:00:07.4Z","message":{"usage":{"input_tokens":26254,"output_tokens":10,"cache_read_input_tokens":24064}}}\n' >"$t121_tr"
+t121_run() {  # $1 = context_window JSON 片段，$2 = 缓存键
+    printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":%s,"transcript_path":"%s"}' "$1" "$t121_tr" \
+        | NO_COLOR=1 COLUMNS=90 WREN_CACHE_DIR="$BOX/c116-$2" python3 "$QC_PAYLOAD" 2>/dev/null
+}
+t121a="$(t121_run '{"context_window_size":1000000,"used_percentage":NaN,"total_input_tokens":30000}' a)"
+t121b="$(t121_run '{"context_window_size":1000000,"used_percentage":-5}' b)"
+t121c="$(t121_run '{"context_window_size":1000000,"current_usage":{"input_tokens":Infinity,"cache_read_input_tokens":100}}' c)"
+t121d="$(t121_run '{"context_window_size":1000000,"total_input_tokens":"500"}' d)"
+t121_lines_a=$(printf '%s\n' "$t121a" | wc -l | tr -d ' ')
+t121_lines_d=$(printf '%s\n' "$t121d" | wc -l | tr -d ' ')
+if [[ "$t121_lines_a" == "2" && "$t121_lines_d" == "2" ]] \
+   && printf '%s' "$t121a" | tail -1 | grep -qF "3.00%/1M" \
+   && ! printf '%s' "$t121a" | grep -qi "nan" \
+   && ! printf '%s' "$t121b" | grep -qF -- "-5" \
+   && ! printf '%s' "$t121c" | grep -qi "inf" \
+   && printf '%s' "$t121c" | tail -1 | grep -qF "CH100.00%"; then
+    pass T121 "native stdin fields sanitized: NaN/str/Infinity fall back, negative pct not rendered"
+else
+    fail T121 "a=[$(printf '%s' "$t121a" | tr '\n' '~')] b=[$(printf '%s' "$t121b" | tr '\n' '~')] c=[$(printf '%s' "$t121c" | tr '\n' '~')] d=[$(printf '%s' "$t121d" | tr '\n' '~')]"
+fi
+
+# ============================================================
+# T122: 变异存活（one_line 整删）—— display_name / runtime-config effort 带 \n
+#       注入，输出必须恰好 2 行（行界顶破契约的复现面）。
+# ============================================================
+new_box
+t122_tr="$BOX/t122.jsonl"
+printf '{"type":"user","timestamp":"2026-09-28T10:00:00Z","message":{"content":"a"}}\n{"type":"assistant","timestamp":"2026-09-28T10:00:07.4Z","message":{"usage":{"input_tokens":100,"output_tokens":10,"cache_read_input_tokens":80}}}\n{"type":"runtime-config","reasoningEffort":"max\\nhigh"}\n' >"$t122_tr"
+t122_out="$(printf '{"cwd":"/tmp","model":{"display_name":"Evil\\nModel"},"context_window":{"context_window_size":1000000},"transcript_path":"%s"}' "$t122_tr" \
+    | NO_COLOR=1 COLUMNS=90 WREN_CACHE_DIR="$BOX/c117" python3 "$QC_PAYLOAD" 2>/dev/null)"
+t122_n="$(printf '%s\n' "$t122_out" | wc -l | tr -d ' ')"
+if [[ "$t122_n" == "2" ]] \
+   && printf '%s' "$t122_out" | grep -qF "EvilModel" \
+   && printf '%s' "$t122_out" | tail -1 | grep -qF "maxhigh"; then
+    pass T122 "newline injection in display_name/effort flattened; exactly 2 lines"
+else
+    fail T122 "n=$t122_n out=[$(printf '%s' "$t122_out" | tr '\n' '~')]"
+fi
+
+# ============================================================
+# T123: 变异存活（split("\\n") 回退 splitlines()）—— transcript 记录的 JSON
+#       字符串字段含 U+2028：splitlines 会把该行拦腰斩断、记录丢失少记 token。
+# ============================================================
+new_box
+python3 - "$BOX/t123.jsonl" <<'T123PY'
+import json, sys
+recs = [
+    {"type": "user", "timestamp": "2026-09-28T10:00:00Z", "message": {"content": "a"}},
+    {"type": "assistant", "timestamp": "2026-09-28T10:00:07.4Z",
+     "message": {"usage": {"input_tokens": 52100, "output_tokens": 236, "cache_read_input_tokens": 47000},
+                 "content": "paste\u2028with-line-separator"}},
+]
+with open(sys.argv[1], "w", encoding="utf-8") as fh:
+    for r in recs:
+        fh.write(json.dumps(r, ensure_ascii=False) + "\n")
+T123PY
+t123_out="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":1000000,"total_input_tokens":30000},"transcript_path":"%s"}' "$BOX/t123.jsonl" \
+    | NO_COLOR=1 COLUMNS=90 WREN_CACHE_DIR="$BOX/c118" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1)"
+if printf '%s' "$t123_out" | grep -qF "↑52K" && printf '%s' "$t123_out" | grep -qF "R47K"; then
+    pass T123 "U+2028 inside record string does not lose the record (split by \\n only)"
+else
+    fail T123 "l2=[$t123_out]"
+fi
+
+# ============================================================
+# T124: 变异存活（预算地板 max(4)→max(24)）—— COLUMNS ∈ {20,10,6}：
+#       窄档有内容（徽标在场）且两行显示宽都 ≤ COLUMNS。
+# ============================================================
+new_box
+t124_tr="$BOX/t124.jsonl"
+printf '{"type":"user","timestamp":"2026-09-28T10:00:00Z","message":{"content":"a"}}\n{"type":"assistant","timestamp":"2026-09-28T10:00:07.4Z","message":{"usage":{"input_tokens":52100,"output_tokens":236,"cache_read_input_tokens":47000}}}\n' >"$t124_tr"
+t124_ok=1
+for w in 20 10 6; do
+    printf '{"cwd":"/very/long/path/for/narrow/tier","model":{"display_name":"m"},"context_window":{"context_window_size":1000000,"used_percentage":3},"transcript_path":"%s"}' "$t124_tr" \
+        | NO_COLOR=1 COLUMNS=$w WREN_CACHE_DIR="$BOX/c119-$w" python3 "$QC_PAYLOAD" >"$BOX/o119-$w.txt" 2>/dev/null
+    n=$(grep -c '' "$BOX/o119-$w.txt")  # 文件无尾换行（两行契约即如此），grep -c '' 按"有内容的行"计
+    maxw=$(python3 - "$BOX/o119-$w.txt" "$w" <<'T124PY'
+import sys, unicodedata
+w = 0
+for ln in open(sys.argv[1], encoding="utf-8"):
+    lw = sum(2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1 for ch in ln.rstrip("\n"))
+    w = max(w, lw)
+print("OVER" if w > int(sys.argv[2]) else "ok")
+T124PY
+)
+    # 徽标两遍锁定在物理可容区（" | qc" = 5 格）才断言：COLUMNS=6 → 实绘 4 格，
+    # 连徽标带分隔都放不下（物理极限区，与 cc 同边界），只钉「2 行 + 不超宽」
+    if [[ "$w" -ge 20 ]]; then   # 徽标需 cwd 地板 4 + " | qc" 5 = 9 格实绘；20 列（实绘 15）才物理可容
+        grep -q "qc" "$BOX/o119-$w.txt" || t124_ok=0
+    fi
+    [[ "$n" == "2" && "$maxw" == "ok" ]] || { t124_ok=0; echo "  w=$w n=$n width=$maxw" >&2; }
+done
+if [[ $t124_ok -eq 1 ]]; then
+    pass T124 "extreme narrow (20/10/6 cols): 2 lines, qc badge, width within COLUMNS"
+else
+    fail T124 "see stderr"
+fi
+
+# ============================================================
+# T125: 变异存活（四分位边界 off-by-one）—— 25/50/75 三个换档值，
+#       双源（原生 used_percentage + postTokens 回落）都盖。
+# ============================================================
+new_box
+t125_tr="$BOX/t125.jsonl"
+printf '{"type":"user","timestamp":"2026-09-28T10:00:00Z","message":{"content":"a"}}\n{"type":"assistant","timestamp":"2026-09-28T10:00:07.4Z","message":{"usage":{"input_tokens":100,"output_tokens":10,"cache_read_input_tokens":80}}}\n{"type":"system","subtype":"compact_boundary","isSidechain":false,"compactMetadata":{"trigger":"manual","postTokens":250000}}\n' >"$t125_tr"
+t125_ok=1
+for pct in 25 50 75; do
+    case $pct in 25) icon="▄" ;; 50) icon="▆" ;; 75) icon="█" ;; esac
+    a="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":1000000,"used_percentage":%d},"transcript_path":"%s"}' "$pct" "$t125_tr" \
+        | NO_COLOR=1 COLUMNS=51 WREN_CACHE_DIR="$BOX/c120n-$pct" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1)"
+    printf '%s' "$a" | grep -qF "${icon}${pct}%" || { t125_ok=0; echo "  native $pct=[$a]" >&2; }
+done
+for pct in 25 50 75; do
+    case $pct in 25) icon="▄"; post=250000 ;; 50) icon="▆"; post=500000 ;; 75) icon="█"; post=750000 ;; esac
+    tr2="$BOX/t125_$post.jsonl"
+    printf '{"type":"user","timestamp":"2026-09-28T10:00:00Z","message":{"content":"a"}}\n{"type":"assistant","timestamp":"2026-09-28T10:00:07.4Z","message":{"usage":{"input_tokens":100,"output_tokens":10,"cache_read_input_tokens":80}}}\n{"type":"system","subtype":"compact_boundary","isSidechain":false,"compactMetadata":{"trigger":"manual","postTokens":%d}}\n' "$post" >"$tr2"
+    b="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":1000000},"transcript_path":"%s"}' "$tr2" \
+        | NO_COLOR=1 COLUMNS=51 WREN_CACHE_DIR="$BOX/c120f-$post" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1)"
+    printf '%s' "$b" | grep -qF "${icon}${pct}%" || { t125_ok=0; echo "  fallback $pct=[$b]" >&2; }
+done
+if [[ $t125_ok -eq 1 ]]; then
+    pass T125 "quartile boundaries 25/50/75 pinned on both native and postTokens sources"
+else
+    fail T125 "see stderr"
+fi
+
 # ---------- 汇总 ----------
 printf '\nTotal: %d  Pass: %d  Fail: %d  Skip: %d\n' "$TOTAL" "$PASS_N" "$FAIL_N" "$SKIP_N"
 

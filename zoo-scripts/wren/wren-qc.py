@@ -472,16 +472,21 @@ def main():
     # used_percentage 在时 fmt(win) → int(nan) ValueError 走裸 cwd。非法回落默认窗。
     _win = cw.get("context_window_size")
     win = _win if (isinstance(_win, int) and _win > 0) else (1_000_000 if "[1m]" in model_name else 200_000)
-    # ctx% 数据源：原生 used_percentage 优先；缺失时 total_input_tokens 本身就是
-    # 当前上下文占用（qoder 文档注明非累计），可直接当分子
-    native_pct = cw.get("used_percentage")
-    ctx_native_tokens = cw.get("total_input_tokens") or 0
+    # ctx% 数据源净化（交叉审 Q1/Q2，对齐 cc 的 _nt 纪律）：注释此前声称盖了
+    # used_percentage，实际只守了窗口大小。json.loads 接受非标 NaN/Infinity/负数/
+    # 字符串（'500' 直接比较会 TypeError 走裸 cwd），逐项过 _num——非法一律当
+    # 缺失走回落链；负 used_percentage 同判无效（Q2：不渲染 '▂-5%'）
+    def _num(v):
+        return v if (isinstance(v, (int, float)) and not isinstance(v, bool)
+                     and (not isinstance(v, float) or math.isfinite(v)) and v > 0) else 0
+    native_pct = _num(cw.get("used_percentage")) or None
+    ctx_native_tokens = _num(cw.get("total_input_tokens"))
     cu = cw.get("current_usage") or {}   # 兼容 CC 式字段（qoder 不提供时为空）
     native_prompt = native_cache_r = 0
-    if cu:
-        native_prompt = (cu.get("input_tokens", 0) + cu.get("cache_read_input_tokens", 0)
-                         + cu.get("cache_creation_input_tokens", 0))
-        native_cache_r = cu.get("cache_read_input_tokens", 0)
+    if isinstance(cu, dict) and cu:
+        native_prompt = (_num(cu.get("input_tokens", 0)) + _num(cu.get("cache_read_input_tokens", 0))
+                         + _num(cu.get("cache_creation_input_tokens", 0)))
+        native_cache_r = _num(cu.get("cache_read_input_tokens", 0))
 
     transcript = data.get("transcript_path", "")
 
@@ -538,8 +543,9 @@ def main():
     compactions = st["compactions"]
 
     # 上下文占用: 原生 used_percentage → 压缩后 postTokens → transcript 末次请求
+    # native_pct 已过 _num 净化（Q1/Q2）：非法/非正当 None，走回落链
     ctx_pct = ""
-    if isinstance(native_pct, (int, float)):
+    if native_pct is not None:
         ctx_pct = f"{native_pct:.2f}%/{fmt(win)}"
     else:
         if ctx_native_tokens > 0:

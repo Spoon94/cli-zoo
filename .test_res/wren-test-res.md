@@ -1,5 +1,5 @@
 # wren 测试结果
-执行时间：2026-10-03 15:10:57
+执行时间：2026-10-03 16:45:59
 
 | ID | 状态 | 备注 |
 |----|------|------|
@@ -113,11 +113,20 @@
 | T108 | PASS | pi narrow tier: short-form/◈/▂▄▆█/⏱, CP→TTFT→CH drop, 56 stays wide, quartile matrix |
 | T109 | PASS | qc narrow tier mirrors cc: short in/out, ◈/▂▄▆█/⏱, CP->TTFT->CH order, wide untouched |
 | T116 | PASS | pi herdr env flattened: newline-injection stays 2 lines, empty segment dropped |
+| T117 | PASS | pi narrow quartile boundaries 25/50/75 + banker's rounding (.5->even), cc parity at 74.5% |
+| T118 | PASS | pi narrow budget floor max(4,W-5): W=20/10/6 -> exact truncated forms |
+| T119 | PASS | pi badge two-pass lock: long herdr yields, badge keeps prefix slot at floor width |
+| T120 | FAIL | a(n=3)=[~/Code/cli-zoo \| pi · 0m~↑743K ↓117K \| R19.6M CH96.34% CP1 \| ?/200K TTFT 12s \| evil~model · highx] b=[↑743K ↓117K \| R19.6M CH96.34% CP1 \| ?/200K TTFT 12s \|  · high] c=[ · high] d=[↑743K ↓117K \| R19.6M CH96.34% CP1 \| ?/200K TTFT 12s \| claude-opus-5] |
 | T110 | PASS | bare-relative config env keeps payload next to config (cc/oc/qc) |
 | T111 | PASS | plugin-array scan matches top-level strings only; uninstall leaves object intact |
 | T112 | PASS | symlinked configs resolved, links preserved (incl. dangling) |
 | T113 | PASS | uninstall strips only wren-written keys; user subkeys survive |
 | T114 | PASS | oc oneLine flattens herdr envs; charset matches cc one_line |
 | T115 | PASS | session_prompt fallback passes through props (whitelist + ref) |
+| T121 | PASS | native stdin fields sanitized: NaN/str/Infinity fall back, negative pct not rendered |
+| T122 | PASS | newline injection in display_name/effort flattened; exactly 2 lines |
+| T123 | PASS | U+2028 inside record string does not lose the record (split by \n only) |
+| T124 | PASS | extreme narrow (20/10/6 cols): 2 lines, qc badge, width within COLUMNS |
+| T125 | PASS | quartile boundaries 25/50/75 pinned on both native and postTokens sources |
 
-汇总：Total 116 / Pass 115 / Fail 0 / Skip 1
+汇总：Total 125 / Pass 123 / Fail 1 / Skip 1

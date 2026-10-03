@@ -146,6 +146,11 @@
 | T113 | 卸载 | 预置 `statusLine: {type, command, padding: 5}` → install → uninstall | `statusLine` 存活且恰为 `{'padding': 5}`、键序 `model\|statusLine`（**B-6 只摘自家键守门**） |
 | T114 | oc | `oneLine`（cc one_line 同字符集）六组样例 ts/py 交叉 + tsx herdr 三段使用 | ts 输出与 python 逐字相同；tsx 三段 grep 到 `oneLine(...)`（**B-2 herdr 压平守门**） |
 | T115 | oc | 结构钉：`session_prompt` 兜底分支的裸 Prompt | 白名单 + ref 全透传（**B-3 兜底丢 props 守门**；行为面由 T101 真机 e2e 兜） |
+| T121 | qc | 原生 stdin 字段污染四连：`used_percentage:NaN`、`used_percentage:-5`、`current_usage.input_tokens:Infinity`、`total_input_tokens:"500"`（字符串） | NaN/负值/字符串走回落链（a 落 `3.00%/1M`）、Infinity 后 CH 走净化口径 `CH100.00%`（与 cc `_nt` 同构）、无 nan/inf/`-5` 字样、恰好 2 行（**交叉审 Q1/Q2 净化守门**） |
+| T122 | qc | `display_name:"Evil\nModel"` + runtime-config `reasoningEffort:"max\nhigh"` 注入 | 输出恰 2 行、`EvilModel`/`maxhigh` 压平在场（**one_line 整删变异存活**：整删后 n=4 红） |
+| T123 | qc | transcript assistant 记录 content 含 U+2028（ensure_ascii=False 落盘） | 行2 含 `↑52K`/`R47K`（记录完整解析；**split→splitlines 变异存活**：回退后 `↑0` 红） |
+| T124 | qc | `COLUMNS∈{20,10,6}` + 长路径满配 | 恰 2 行、显示宽 ≤COLUMNS；≥20 列时 qc 徽标在场（6 列实绘 4 格为物理极限区只钉结构；**max(4)→max(24) 变异存活**） |
+| T125 | qc | 四分位换档值 25/50/75 双源（原生 `used_percentage` + postTokens 回落） | `▄25%`/`▆50%`/`█75%` 六组合全中（**阈值 off-by-one 变异存活**：`<=25` 注入后 25→▂ 红） |
 | T116 | pi | herdr env 注入：harness 注 `HERDR_TAB_ID=$'t1\nEVIL'`、纯 `\n`、`\n`+WS/PANE 三探针（`env -u` 隔离真实 herdr env） | 换行压平进段（行1 `w9:t1EVIL:p1`）且总行数=2；纯 `\n` 且无他段→herdr 段消失；空段被 `filter(Boolean)` 拆掉无 `::`（**pi herdr env 压平守门**；非空转已证：回退旧代码 n=3 红） |
 
 ## 条件用例（不满足条件时 SKIP，不算 FAIL）
