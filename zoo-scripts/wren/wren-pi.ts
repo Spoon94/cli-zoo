@@ -301,9 +301,10 @@ export default function (pi: ExtensionAPI) {
 					const narrow = width <= 55;
 					const termW = narrow ? Math.max(4, width - 5) : width;
 					// 行1 梯子（与 wren-cc.py 同一套穷举）：永不丢 dmg / herdr 坐标 / pi 徽标；
-					// 溢出让位顺序（循环序 = 牺牲序，外层更晚牺牲）：ab → 分支六档压缩
-					// （24→20→16→12→8→4，… 省略中段）→ 时长（窄档一律不渲染）→ cwd 地板
-					// 16→8→4（… /尾段截断，目录长度压缩优先于丢铁律段）。
+					// 溢出让位顺序（循环序 = 牺牲序，外层更晚牺牲，终审九轮 #2 与 cc/qc
+					// 决策 2 定稿同序）：cwd 地板 16→8→4（… /尾段截断）→ 分支六档压缩
+					// （24→20→16→12→8→4）→ ab（46-52 列带 ab 时恒在）→ 时长（窄档一律
+					// 不渲染）。旧序 floor 最外/wab 最内 = ab 最先丢，46-52 列红带。
 					// 宽度探针按「分支折叠后真实宽」计，不按档位上界虚记；git 各件全空时
 					// 探针返 0（非 git cwd 若仍记 3 格幻影宽，目录预算被偷）。
 					const durText = fmtDurationElapsed(Date.now() - sessionStart);
@@ -311,8 +312,11 @@ export default function (pi: ExtensionAPI) {
 					let dmgPlainEff = stripAnsi(git.counts); // pi 的 counts 在 refreshGit 里已上色，量宽用无色副本
 					let abEff = abRaw;
 					const gitW = (blen: number, withAb: boolean): number => {
-						if (!hasBranch && !abRaw && !dmgPlainEff) return 0;
-						return visibleWidth(` | ${hasBranch ? foldBranchAt(branch, blen) : ""}${withAb ? abRaw : ""}${dmgPlainEff}`);
+						// 核空判（终审九轮 #1）：分支折到 0 档（空串）且无 ab/dmg 时
+						// ' | ' 前缀也不进预算——旧判只看 hasBranch 会记 3 格幻影宽偷 cwd。
+						const core = `${hasBranch ? foldBranchAt(branch, blen) : ""}${withAb ? abRaw : ""}${dmgPlainEff}`;
+						if (!core) return 0;
+						return visibleWidth(` | ${core}`);
 					};
 					const herdrW = herdrTag ? visibleWidth(` | ${herdrTag}`) : 0;
 					const badgeW = visibleWidth(" | pi");
@@ -320,10 +324,10 @@ export default function (pi: ExtensionAPI) {
 					const canDur = !!durText && !narrow; // 窄档裁定不渲染时长（契约 #6）
 					let keepDuration = canDur, bBudget = 24, dropAb = false, cwdFloor = 16, found = false;
 					search:
-					for (const floor of [16, 8, 4]) {
-						for (const wd of canDur ? [true, false] : [false]) {
+					for (const wd of canDur ? [true, false] : [false]) {
+						for (const wab of abRaw ? [true, false] : [false]) {
 							for (const blen of [24, 20, 16, 12, 8, 4]) {
-								for (const wab of abRaw ? [true, false] : [false]) {
+								for (const floor of [16, 8, 4]) {
 									if (gitW(blen, wab) + herdrW + badgeW + (wd ? durW : 0) + floor <= termW) {
 										bBudget = blen; keepDuration = wd; dropAb = !wab && !!abRaw; cwdFloor = floor;
 										found = true;
@@ -368,6 +372,10 @@ export default function (pi: ExtensionAPI) {
 					const coloredGit = ((hasBranch ? c("purple", foldBranchAt(branch, bBudget)) : "")
 						+ (abEff ? c("fg", abEff) : "")
 						+ (dmgPlainEff ? git.counts : "")).replace(/^ +/, "");
+					// 色档空判（终审九轮 #1）：cAt 包空串是纯 ANSI 包裹，truthy/.trim()
+					// 都剥不掉 → 行内幻影 ' | ' 空槽 + rest 幻影 3 格偷 cwd 预算；且首帧
+					// colorCache='none' 时为空跳过、上色后幻影出现 → 跨帧闪烁。空核整段不进
+					// 段表（cc 侧 strip_ansi 守卫同款）。
 					// 段对 (colored, plain) 纪律（与 cc/build2 同）：量宽只看 plain——预算串
 					// 全程无色，色档不得影响折叠。两遍策略（契约 #6）：先按自然序
 					// （git→herdr→pi→dur）拼；徽标没保住才换徽标优先序重拼（铁律高于视觉）。
@@ -376,7 +384,7 @@ export default function (pi: ExtensionAPI) {
 					type Seg = { colored: string; plain: string };
 					const badgeSeg: Seg = { colored: ` ${sep1} ${c("comment", "pi")}`, plain: " | pi" };
 					const natural: Seg[] = [];
-					if (coloredGit) natural.push({ colored: ` ${sep1} ${coloredGit}`, plain: ` | ${stripAnsi(coloredGit)}` });
+					if (stripAnsi(coloredGit).trim()) natural.push({ colored: ` ${sep1} ${coloredGit}`, plain: ` | ${stripAnsi(coloredGit)}` });
 					if (herdrTag) natural.push({ colored: ` ${sep1} ${c("comment", herdrTag)}`, plain: ` | ${herdrTag}` });
 					natural.push(badgeSeg);
 					if (keepDuration) natural.push({ colored: ` ${c("comment", "·")} ${c("fg", durText)}`, plain: ` · ${durText}` });

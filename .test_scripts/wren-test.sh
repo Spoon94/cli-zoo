@@ -3451,7 +3451,7 @@ mkdir -p "$BOX/cache"
 i=0
 while [[ $i -lt 205 ]]; do
     printf '{}' >"$BOX/cache/fake$i.json"
-    touch -t "$(printf '2501010%02d%02d' $((i / 60)) $((i % 60)))" "$BOX/cache/fake$i.json"
+    touch -t "$(printf '2025010100%02d' $((i / 60)) $((i % 60)))" "$BOX/cache/fake$i.json"
     i=$((i + 1))
 done
 printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$t135_tr" \
@@ -3464,6 +3464,114 @@ if [[ "$t135_n" -le 200 && "$t135_n" -ge 199 ]] \
     pass T135 "cache swept to <=200 by mtime; oldest gone, session key + newest survive"
 else
     fail T135 "n=$t135_n fake0=$([[ -e $BOX/cache/fake0.json ]] && echo y || echo n) qckey=$(ls "$BOX/cache" | grep -c '^qc-')"
+fi
+
+# ============================================================
+# T136: cc 物理极限区色档幻影分隔符——清空 git 段后 colored_git 是纯 ANSI
+#   包裹空串，.strip() 剥不掉转义（终审 3.1；NO_COLOR 用例全绿因无色档下
+#   c() 原样返回空串恰好掩盖）。truecolor 26/30 列断言无 ' | ' 空槽/尾悬空。
+# ============================================================
+new_box
+mkdir -p "$BOX/pk"
+(cd "$BOX/pk" && git init -q -b main && git config user.email t@e.com && git config user.name t \
+    && : >f && git add -A && git commit -qm i && printf 'x\n' >>f) >/dev/null 2>&1
+t136() {
+    printf '{"cwd":"%s","model":{"display_name":"m"}}' "$BOX/pk" \
+        | COLORTERM=truecolor COLUMNS=$1 HERDR_WORKSPACE_ID=wW HERDR_TAB_ID=wW:t12 HERDR_PANE_ID=wW:p34 \
+          WREN_CACHE_DIR="$BOX/t136-$1" python3 "$CC_PAYLOAD" 2>/dev/null | head -1 \
+        | python3 -c "import sys,re; print(re.sub(r'\x1b\\[[0-9;]*m','',sys.stdin.read().rstrip()))"
+}
+t136_26="$(t136 26)"; t136_30="$(t136 30)"
+# 无空槽（' |  | '）无尾悬空（以 ' | ' 或 '|' 结尾）
+t136_ok=1
+printf '%s' "$t136_26" | grep -qF '|  |' && t136_ok=0
+printf '%s' "$t136_26" | grep -qE '( \| |\|)$' && t136_ok=0
+printf '%s' "$t136_30" | grep -qF '|  |' && t136_ok=0
+printf '%s' "$t136_30" | grep -qE '( \| |\|)$' && t136_ok=0
+if [[ $t136_ok -eq 1 ]]; then
+    pass T136 "cc physical-limit colored phantom separator absent (26/30 cols truecolor)"
+else
+    fail T136 "26=[$t136_26] 30=[$t136_30]"
+fi
+
+# ============================================================
+# T137: pi 物理极限区色档幻影分隔符（终审九轮 #1）——分支折到 0 档后
+#       coloredGit 是纯 ANSI 包裹（cAt 包空串），truthy 判剥不掉 → 幻影
+#       ' | ' 空槽 + 3 格幻影宽偷 cwd。彩色档下剥色后无 '|  |' 双竖、行1
+#       以徽标收尾；且首帧 none/上色两帧渲染一致（跨帧不闪）。
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T137 "node with .ts type-stripping not available"
+else
+    new_box
+    # 长尾名仓库目录：W=37 探针靠「路径能展开几格」区分 gitW 幻影
+    # （maxPath 7 vs 10 → …trepo vs …hostrepo）
+    T137_REPO="$BOX/r137_ghostrepo"
+    mkdir -p "$T137_REPO"
+    (cd "$T137_REPO" && git -c init.defaultBranch=main init -q && git config user.email t@e.com         && git config user.name t && git checkout -q -b some-extremely-long-branch-name-for-ghost 2>/dev/null         && : >f && git add -A && git commit -qm i) >/dev/null 2>&1
+    t137_run() {  # $1 = COLOR_MODE 值（"truecolor" 或 "none"） $2 = WIDTH
+        # BRANCHNAME 喂 harness 的 getGitBranch()，与 porcelain 真 head 一起
+        # 使 hasBranch 为真：40 格分支在预算下折到 0 档（空串）触发幻影
+        (cd "$T137_REPO" && env NO_COLOR= COLOR_MODE="$1" WIDTH="${2:-30}" \
+            BRANCHNAME=some-extremely-long-branch-name-for-ghost \
+            HERDR_WORKSPACE_ID=wW HERDR_TAB_ID=wW:t1234 HERDR_PANE_ID=wW:p5678 GIT_WAIT_MS=1200 \
+            WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs" \
+            node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null | head -1)
+    }
+    t137_c="$(t137_run truecolor)"
+    t137_n="$(t137_run none)"
+    # W=37：maxPath 10（gitW 幻影修前只有 7）——路径能展开到 …hostrepo 即
+    # 证 ' | ' 前缀没偷预算；修前会缩成 …trepo
+    t137_37="$(t137_run none 37)"
+    t137_strip() { printf '%s' "$1" | LC_ALL=C sed 's/\x1b\[[0-9;]*m//g'; }
+    t137_ok=1
+    # 剥色后：无幻影空槽（连续分隔）、无尾悬空 '| '；herdr 与徽标都在
+    t137_cs="$(t137_strip "$t137_c")"
+    printf '%s' "$t137_cs" | grep -qF '|  |' && t137_ok=0
+    printf '%s' "$t137_cs" | grep -qE '\| *$' && t137_ok=0
+    printf '%s' "$t137_cs" | grep -qF 'wW:t1234:p5678' || t137_ok=0
+    printf '%s' "$t137_cs" | grep -qF '| pi' || t137_ok=0
+    # 剥色宽 ≤ termW（W=30 → 25 格）
+    t137_w="$(printf '%s' "$t137_cs" | python3 -c 'import sys; s=sys.stdin.read().rstrip("\n"); print(sum(2 if ord(ch)>0x2E80 else 1 for ch in s))' 2>/dev/null)"
+    [[ ${t137_w:-99} -le 25 ]] || t137_ok=0
+    # 跨帧一致：none 帧与彩色帧剥色后逐字相同（幻影修前：none 帧无幻影、彩色帧有）
+    t137_ns="$(t137_strip "$t137_n")"
+    [[ "$t137_cs" == "$t137_ns" ]] || t137_ok=0
+    # gitW 核空判：W=37 路径可展开到 …hostrepo（修前 3 格幻影宽偷预算 → …trepo）
+    printf '%s' "$t137_37" | grep -qF '…hostrepo' || t137_ok=0
+    printf '%s' "$t137_37" | grep -qF '…trepo' && t137_ok=0
+    if [[ $t137_ok -eq 1 ]]; then
+        pass T137 "pi physical-limit colored phantom separator absent; none/color frames identical"
+    else
+        fail T137 "color=[$t137_cs] none=[$t137_ns] w=$t137_w"
+    fi
+fi
+
+# ============================================================
+# T138: pi 决策 2 —— ab 优先于 cwd 地板（终审九轮 #2）：穷举序翻转
+#       （wdur → wab → blen → floor），46-52 列带 ab（↑1↓0）时 ab 恒在、
+#       徽标恒在。旧序 floor 最外/wab 最内 = ab 最先丢，46-50 列红带
+#       （cc T134 同型）。
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T138 "node with .ts type-stripping not available"
+else
+    new_box
+    T138_REPO="$BOX/r138"
+    T138_REMOTE="$BOX/r138_remote"
+    mkdir -p "$T138_REPO"
+    (cd "$T138_REPO" && git -c init.defaultBranch=main init -q && git config user.email t@e.com         && git config user.name t && printf 'a\n' >a.txt && git add -A && git commit -qm init         && git init -q --bare "$T138_REMOTE" && git remote add origin "$T138_REMOTE"         && git push -q -u origin main && printf 'b\n' >>a.txt && git add -A && git commit -qm second) >/dev/null 2>&1
+    t138_ok=1
+    for w in 46 48 50 52; do
+        out="$(cd "$T138_REPO" && env NO_COLOR=1 WIDTH=$w             HERDR_WORKSPACE_ID=wW HERDR_TAB_ID=wW:t1234 HERDR_PANE_ID=wW:p5678 GIT_WAIT_MS=1200             WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs"             node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null | head -1)"
+        printf '%s' "$out" | grep -qF '↑1↓0' || { t138_ok=0; echo "  w=$w ab-missing l1=[$out]" >&2; }
+        printf '%s' "$out" | grep -qF '| pi' || { t138_ok=0; echo "  w=$w badge-missing l1=[$out]" >&2; }
+    done
+    if [[ $t138_ok -eq 1 ]]; then
+        pass T138 "pi ab survives cwd-floor sacrifice at 46-52 cols (decision-2 loop order)"
+    else
+        fail T138 "see stderr"
+    fi
 fi
 
 # ============================================================
