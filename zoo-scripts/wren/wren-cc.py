@@ -581,20 +581,20 @@ def main():
         非 git cwd 若仍记 3 格幻影宽，目录预算被偷（CR 实测 rest 19 vs 17）。"""
         if not (branch or ab or dmg_plain):
             return 0
-        return dwidth(f" | {fold_branch(branch, blen) if branch else ''}"
-                     f"{ab if with_ab else ''}{dmg_plain}")
+        core = (fold_branch(branch, blen) if branch else "") \
+            + (ab if with_ab else "") + dmg_plain
+        if not core:
+            return 0  # 折到 0 档（物理极限区）后核心空，" | " 前缀也不进（终审 3.1 幻影宽）
+        return dwidth(f" | {core}")
 
     # 让位顺序（穷举搜索，靠循环序表达优先级）：时长 → ahead-behind → 分支六档
     # → cwd 地板 16→8→4（决策 2 定稿：with_ab 在 floor 外层，46-51 列 ab 恒在、
     # cwd 提前折短——旧序 floor 在外有非单调带：加宽反而丢 ab）。
     # cwd 地板 8/4 = "…/尾段截断"（用户裁定「目录长度压缩」优先于丢铁律段）。
-    # ≤31 列极端叠加为物理极限区，交 truncate 兜底。
+    # ≤~14 列极端叠加为物理极限区，交 truncate 兜底。
     keep_duration = bool(duration) and not narrow  # 窄档裁定不渲染时长
     b_budget, drop_ab, cwd_floor = 24, False, 16
     found = False
-    # 层级序即让位序（决策 2）：时长 → ahead-behind → 分支六档 → cwd 地板。
-    # with_ab 提到 floor 外层：46-51 列 ab 恒在、cwd 提前折短——旧序 floor 在外
-    # 产生非单调带（窗口加宽反而丢 ab，拖动闪灭；深度审核视角 1 实测 48 列）。
     for with_dur in ([True, False] if keep_duration else [False]):
         for with_ab in ([True, False] if ab else [False]):
             for blen in (24, 20, 16, 12, 8, 4):
@@ -629,10 +629,18 @@ def main():
     # 超宽、truncate 砍行尾 cc 徽标（56 列实测）；!found 时地板 4（最小配置的一部分）。
     path_budget = max(cwd_floor, term_w - rest)
     display_cwd = fold_path(short_cwd, path_budget)
-    # detached HEAD：分支名不显示（设计），ab/dmg 照常——dmg 是铁律
+    # detached HEAD：分支名不显示（设计），ab/dmg 照常——dmg 是铁律。
+    # 空判用 strip_ansi（终审 3.1：物理极限区清到 b_budget=0/ab=""/dmg="" 时
+    # colored_git 是纯 ANSI 包裹的空串，.strip() 剥不掉转义 → 判非空 → 行内
+    # 幻影 " | " 空槽 + rest 幻影 3 格偷 cwd 预算——NO_COLOR 用例全绿是因
+    # 无色档下 c() 原样返回空串，恰好掩盖）。
     colored_git = ((c("purple", fold_branch(branch, b_budget)) if branch else "")
                    + (c("fg", ab) if ab else "") + dmg)
-    colored_git = colored_git.lstrip() if colored_git.strip() else ""
+    # 空判用 strip_ansi（终审 3.1：b_budget=0 清空后纯 ANSI 空串 .strip() 剥不掉），
+    # 但判完保留原串——dmg 段自带色码，剥掉会让 git 段失彩（T39/T55 真色档红）。
+    # 判空用 strip_ansi（终审 3.1），判后 lstrip 保持旧结构：dmg 自带前导空格，
+    # line1 的 " | " 前缀已给一个空格，双重空格破坏 T38 三侧同构
+    colored_git = colored_git.lstrip() if strip_ansi(colored_git).strip() else ""
     # Bug 猎杀 #1 悬空尾：预算内就按段拼，超预算按段丢而非钝刀切字符——
     # 尾分隔符永远跟着它的段走，不孤立。两遍策略：先按自然序（git→herdr→cc→dur，
     # 徽标收尾的常规视觉）拼；cc 徽标没进来才换 cc 优先序重拼（铁律高于视觉，
