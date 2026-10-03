@@ -1,5 +1,5 @@
 # wren 测试结果
-执行时间：2026-10-03 14:23:50
+执行时间：2026-10-03 15:10:57
 
 | ID | 状态 | 备注 |
 |----|------|------|
@@ -112,5 +112,12 @@
 | T107 | PASS | cc narrow tier: ◈/▂▄▆█/⏱ icons, quartile×color orthogonal, TTFT->CH drop |
 | T108 | PASS | pi narrow tier: short-form/◈/▂▄▆█/⏱, CP→TTFT→CH drop, 56 stays wide, quartile matrix |
 | T109 | PASS | qc narrow tier mirrors cc: short in/out, ◈/▂▄▆█/⏱, CP->TTFT->CH order, wide untouched |
+| T116 | PASS | pi herdr env flattened: newline-injection stays 2 lines, empty segment dropped |
+| T110 | PASS | bare-relative config env keeps payload next to config (cc/oc/qc) |
+| T111 | PASS | plugin-array scan matches top-level strings only; uninstall leaves object intact |
+| T112 | PASS | symlinked configs resolved, links preserved (incl. dangling) |
+| T113 | PASS | uninstall strips only wren-written keys; user subkeys survive |
+| T114 | PASS | oc oneLine flattens herdr envs; charset matches cc one_line |
+| T115 | PASS | session_prompt fallback passes through props (whitelist + ref) |
 
-汇总：Total 109 / Pass 108 / Fail 0 / Skip 1
+汇总：Total 116 / Pass 115 / Fail 0 / Skip 1

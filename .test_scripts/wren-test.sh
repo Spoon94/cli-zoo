@@ -2707,6 +2707,169 @@ else
     fail T109 "55=[$t109_55] 51=[$t109_51] 42=[$t109_42] 36=[$t109_36] 90=[$t109_90] l1=[$t109_l1] q12=[$t109_q12] q37=[$t109_q37] q62=[$t109_q62] q80=[$t109_q80] q96=[$t109_q96]"
 fi
 
+# ============================================================
+# T116: pi herdr env 换行注入——herdrId 三段各自压平（与 cc one_line 同款）
+#       后拼接；\n 类字符不得进渲染文本（2 行契约），压平后为空的段被
+#       filter(Boolean) 拆掉（无 :: 残留）。CR 六轮补洞（cc 侧猎杀四轮 #4
+#       的 pi 侧遗漏）；oc 侧同款见 T114（B-2）。
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T116 "node with .ts type-stripping not available"
+else
+    t116_run() {  # $@ = 额外 env（HERDR_*）
+        env -u HERDR_WORKSPACE_ID -u HERDR_TAB_ID -u HERDR_PANE_ID \
+            NO_COLOR=1 WIDTH=80 TTFT_MS=12400 MSG_UPDATES=0 "$@" \
+            WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs" \
+            node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" 2>/dev/null
+    }
+    # A：TAB 含换行——压平进段，总行数仍 2，行1 无 EVIL 后续行残留
+    t116_a="$(t116_run HERDR_WORKSPACE_ID=w9 HERDR_TAB_ID=$'t1\nEVIL' HERDR_PANE_ID=w9:p1)"
+    # B：TAB 纯换行且无其它段——herdr 段整体消失
+    t116_b="$(t116_run HERDR_TAB_ID=$'\n')"
+    # C：TAB 纯换行但 WS/PANE 在——空段被拆，无 ::
+    t116_c="$(t116_run HERDR_WORKSPACE_ID=w9 HERDR_TAB_ID=$'\n' HERDR_PANE_ID=w9:p1)"
+    t116_a_l1="$(printf '%s' "$t116_a" | head -1)"
+    t116_a_n="$(printf '%s\n' "$t116_a" | wc -l | tr -d ' ')"
+    t116_b_l1="$(printf '%s' "$t116_b" | head -1)"
+    t116_c_l1="$(printf '%s' "$t116_c" | head -1)"
+    t116_ok=1
+    # A：行1 压平为 w9:t1EVIL:p1；总行数 = 2（注入前 bug 会顶成 3）
+    printf '%s' "$t116_a_l1" | grep -qF "w9:t1EVIL:p1" || t116_ok=0
+    [[ $t116_a_n -eq 2 ]] || t116_ok=0
+    # B：无 herdr 段（无 w9/:，只剩路径 + 徽标）
+    printf '%s' "$t116_b_l1" | grep -qF "~/Code/cli-zoo | pi" || t116_ok=0
+    printf '%s' "$t116_b_l1" | grep -qE 'w9|:p' && t116_ok=0
+    # C：空段被拆——w9:p1 紧凑拼接，无 :: 残留
+    printf '%s' "$t116_c_l1" | grep -qF "w9:p1 | pi" || t116_ok=0
+    printf '%s' "$t116_c_l1" | grep -qF "::" && t116_ok=0
+    if [[ $t116_ok -eq 1 ]]; then
+        pass T116 "pi herdr env flattened: newline-injection stays 2 lines, empty segment dropped"
+    else
+        fail T116 "A(n=$t116_a_n)=[$t116_a_l1] B=[$t116_b_l1] C=[$t116_c_l1]"
+    fi
+fi
+
+# ============================================================
+#       CLAUDE_SETTINGS/OPENCODE_TUI_CONFIG 给裸文件名（无斜杠）时配置落 CWD，
+#       payload 旧版落 $CLAUDE_CONFIG_DIR / $OPENCODE_CONFIG_DIR（分裂）；
+#       QODER_SETTINGS 覆盖到别处时 qc payload 旧版仍钉死 $QODER_CONFIG_DIR。
+#       修法：payload 落点跟随配置文件所在目录（cc/qc 绝对化，host 要绝对 command）。
+# ============================================================
+new_box
+(cd "$BOX" && env NO_COLOR=1 PREFIX="$BIN" CLAUDE_CONFIG_DIR="$CLAUDE" CLAUDE_SETTINGS="settings.json" \
+    "$WREN" install cc) >"$BOX/o110a.txt" 2>&1; t110a=$?
+(cd "$BOX" && env NO_COLOR=1 PREFIX="$BIN" OPENCODE_CONFIG_DIR="$OC" OPENCODE_TUI_CONFIG="tui.json" \
+    "$WREN" install oc) >"$BOX/o110b.txt" 2>&1; t110b=$?
+(cd "$BOX" && env NO_COLOR=1 PREFIX="$BIN" QODER_CONFIG_DIR="$QODER" QODER_SETTINGS="$BOX/alt/q.json" \
+    "$WREN" install qc) >"$BOX/o110c.txt" 2>&1; t110c=$?
+if [[ $t110a -eq 0 && -f "$BOX/settings.json" && -f "$BOX/wren-cc" && ! -e "$CLAUDE/wren-cc" ]] \
+   && [[ "$(json_field "$BOX/settings.json" 'd.get("statusLine",{}).get("command")')" == "$BOX/wren-cc" ]] \
+   && [[ $t110b -eq 0 && -f "$BOX/tui.json" && -f "$BOX/plugins/wren-oc.tsx" && ! -e "$OC/plugins/wren-oc.tsx" ]] \
+   && [[ "$(json_field "$BOX/tui.json" "d['plugin']")" == "['./plugins/wren-oc.tsx']" ]] \
+   && [[ $t110c -eq 0 && -f "$BOX/alt/wren-qc.py" && ! -e "$QODER/wren-qc.py" ]] \
+   && [[ "$(json_field "$BOX/alt/q.json" 'd.get("statusLine",{}).get("command")')" == "$BOX/alt/wren-qc.py" ]]; then
+    pass T110 "bare-relative config env keeps payload next to config (cc/oc/qc)"
+else
+    fail T110 "a=$t110a[$(ls "$BOX" | tr '\n' ' ')] b=$t110b[$(ls "$BOX/plugins" 2>/dev/null | tr '\n' ' ')] c=$t110c[$(ls "$BOX/alt" 2>/dev/null | tr '\n' ' ')]"
+fi
+
+# ============================================================
+# T111: B-4 plugin 数组嵌套对象误命中——find 只认数组顶层的字符串元素。
+#       旧版 install 判「已存在」静默 no-op；uninstall 删嵌套 token 产出非法 JSON。
+# ============================================================
+new_box
+printf '{\n  "plugin": [\n    { "src": "./plugins/wren-oc.tsx", "on": "session_start" }\n  ]\n}\n' >"$OCCONF"
+run_wren install oc
+t111_after="$(json_field "$OCCONF" "[repr(x) for x in d['plugin']]")"
+run_wren uninstall oc
+t111_valid="$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(repr(d['plugin']))" "$OCCONF" 2>&1)"
+if [[ "$t111_after" == "[\"'./plugins/wren-oc.tsx'\", \"{'src': './plugins/wren-oc.tsx', 'on': 'session_start'}\"]" ]] \
+   && [[ "$t111_valid" == "[{'src': './plugins/wren-oc.tsx', 'on': 'session_start'}]" ]] \
+   && grep -qF '"src": "./plugins/wren-oc.tsx"' "$OCCONF"; then
+    pass T111 "plugin-array scan matches top-level strings only; uninstall leaves object intact"
+else
+    fail T111 "after=[$t111_after] uninstalled=[$t111_valid] raw=[$(cat "$OCCONF" | tr '\n' '~')]"
+fi
+
+# ============================================================
+# T112: B-5 配置是符号链接时不顶掉链接（chezmoi/stow 常态）——解引用写真实目标。
+#       覆盖有效链接（cc settings + oc tui.json）与悬空链接（qc settings）。
+# ============================================================
+new_box
+mkdir -p "$BOX/real"
+printf '{"model":"m"}\n' >"$BOX/real/cc.json"
+printf '{\n  "plugin": []\n}\n' >"$BOX/real/tui.json"
+ln -s "$BOX/real/cc.json" "$SETTINGS"
+ln -s "$BOX/real/tui.json" "$OCCONF"
+ln -s "$BOX/nope/qc.json" "$QODER_SETTINGS"
+t112_cc="$CLAUDE/wren-cc"; t112_qc="$QODER/wren-qc.py"
+run_wren install all
+if [[ "$WREN_EXIT" == "0" && -L "$SETTINGS" && -L "$OCCONF" && -L "$QODER_SETTINGS" ]] \
+   && [[ "$(json_field "$SETTINGS" 'd.get("statusLine",{}).get("command")')" == "$t112_cc" ]] \
+   && [[ "$(json_field "$OCCONF" "d['plugin']")" == "['./plugins/wren-oc.tsx']" ]] \
+   && [[ -f "$BOX/nope/qc.json" ]] \
+   && [[ "$(json_field "$BOX/nope/qc.json" 'd.get("statusLine",{}).get("command")')" == "$t112_qc" ]]; then
+    pass T112 "symlinked configs resolved, links preserved (incl. dangling)"
+else
+    fail T112 "exit=$WREN_EXIT links=[$(ls -l "$SETTINGS" "$OCCONF" "$QODER_SETTINGS" 2>&1 | tr '\n' ' ')] cc=[$(cat "$SETTINGS" 2>/dev/null | tr '\n' '~')] qc=[$(cat "$BOX/nope/qc.json" 2>/dev/null | tr '\n' '~')]"
+fi
+
+# ============================================================
+# T113: B-6 卸载不连用户子键一起删——只摘 wren 写入的 type/command，
+#       装前用户原生 statusLine.padding 存活；空壳才整键删。
+# ============================================================
+new_box
+printf '{"model":"m","statusLine":{"type":"command","command":"old-thing","padding":5}}\n' >"$SETTINGS"
+run_wren install cc
+run_wren uninstall cc
+if [[ "$WREN_EXIT" == "0" && ! -e "$CLAUDE/wren-cc" ]] \
+   && [[ "$(json_field "$SETTINGS" "repr(d.get('statusLine'))")" == "{'padding': 5}" ]] \
+   && [[ "$(json_field "$SETTINGS" '"|".join(d.keys())')" == "model|statusLine" ]]; then
+    pass T113 "uninstall strips only wren-written keys; user subkeys survive"
+else
+    fail T113 "sl=[$(json_field "$SETTINGS" 'repr(d.get("statusLine"))')] keys=[$(json_field "$SETTINGS" '"|".join(d.keys())')]"
+fi
+
+# ============================================================
+# T114: B-2 herdr env 压平——oneLine（cc one_line 同字符集：
+#       \n \r \v \f \x1c \x1d \x1e \x85 \u2028 \u2029），wren-oc.ts 导出、
+#       wren-oc.tsx herdr 三段各自压平再 filter。含与 cc 侧逐字符集交叉验证。
+# ============================================================
+if [[ "$TS_OK" -ne 1 ]]; then
+    skip T114 "node with .ts type-stripping not available"
+else
+    t114_out="$(OC_CORE="$OC_CORE_TS" node -e '
+import(process.env.OC_CORE).then((m) => {
+  const cases = ["a\nb", "x\u2028y", "w9\n:t1", "p\u00856", "q\u2029r\vs", "plain"];
+  console.log(cases.map((s) => m.oneLine(s)).join("\n"));
+});
+' 2>&1)"
+    t114_py="$(python3 -c '
+cases = ["a\nb", "x\u2028y", "w9\n:t1", "p\u00856", "q\u2029r\vs", "plain"]
+def one_line(s):
+    return "".join(ch for ch in s if ch not in "\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029")
+print("\n".join(one_line(s) for s in cases))')"
+    if [[ "$t114_out" == "$t114_py" && "$t114_out" == $'ab\nxy\nw9:t1\np6\nqrs\nplain' ]] \
+       && grep -qF "oneLine(process.env.HERDR_WORKSPACE_ID)" "$OC_PAYLOAD" \
+       && grep -qF "oneLine(process.env.HERDR_TAB_ID" "$OC_PAYLOAD" \
+       && grep -qF "oneLine(process.env.HERDR_PANE_ID" "$OC_PAYLOAD"; then
+        pass T114 "oc oneLine flattens herdr envs; charset matches cc one_line"
+    else
+        fail T114 "ts=[$(printf '%s' "$t114_out" | tr '\n' '~')] py=[$(printf '%s' "$t114_py" | tr '\n' '~')]"
+    fi
+fi
+
+# ============================================================
+# T115: B-3 session_prompt 兜底不丢 props——契约意外变化（session_id 缺失）时
+#       退回的裸 Prompt 必须透传白名单 + ref（结构钉：tsx 是 JSX，harness 无法
+#       执行，行为面由 T101 真机 e2e 兜）。
+# ============================================================
+if grep -qF '<api.ui.Prompt sessionID={props?.session_id} visible={props?.visible} disabled={props?.disabled} onSubmit={props?.on_submit} ref={props?.ref} />' "$OC_PAYLOAD"; then
+    pass T115 "session_prompt fallback passes through props (whitelist + ref)"
+else
+    fail T115 "tsx=[$(grep -n 'session_prompt' "$OC_PAYLOAD" | tr '\n' ' ')]"
+fi
+
 # ---------- 汇总 ----------
 printf '\nTotal: %d  Pass: %d  Fail: %d  Skip: %d\n' "$TOTAL" "$PASS_N" "$FAIL_N" "$SKIP_N"
 

@@ -27,6 +27,13 @@ export function visibleWidth(s: string): number {
 	return w;
 }
 
+// 压平换行（B-2，与 cc 侧 one_line 同字符集）：\n \r \v \f \x1c \x1d \x1e \x85 \u2028 \u2029。
+// 宿主按行渲染 statusline，herdr env 含行界会把 2 行契约顶破；tsx 的 herdr 三段用它。
+const LINE_BREAKS = /[\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029]/g;
+export function oneLine(s: string | undefined | null): string {
+	return String(s ?? "").replace(LINE_BREAKS, "");
+}
+
 // 按显示格取头/尾片段（不按码点切：13 个汉字的分支是 26 格，按码点切会切出两倍预算）
 export function sliceCells(s: string, maxW: number, fromEnd: boolean): string {
 	const chars = Array.from(s);
