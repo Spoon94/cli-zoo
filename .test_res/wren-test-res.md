@@ -1,5 +1,5 @@
 # wren 测试结果
-执行时间：2026-10-03 01:33:25
+执行时间：2026-10-03 12:28:42
 
 | ID | 状态 | 备注 |
 |----|------|------|
@@ -44,10 +44,10 @@
 | T39 | PASS | cc Dracula: truecolor/256/NO_COLOR three modes |
 | T40 | PASS | pi Dracula: getColorMode truecolor/256 + NO_COLOR override |
 | T41 | PASS | CH survives compaction (old value, pi-aligned) |
-| T42 | PASS | cc folding: path=…/with-a-long-name-that-will-overflow branch=featur…-testing-overflow |
+| T42 | PASS | cc folding: path=…/with-a-long-name-that-will-overflow branch=feature/…esting-overflow |
 | T43 | PASS | pi branch folding (feature/…esting-overflow) |
 | T44 | PASS | CJK path display width 61 <= 80 |
-| T45 | PASS | CJK extreme line fits: nc=69 tc=69, color-independent folding |
+| T45 | PASS | CJK extreme line fits: nc=70 tc=70, color-independent folding |
 | T46 | PASS | pi CJK extreme line width 75 <= 80 |
 | T47 | PASS | qc minimal payload: 2 lines, qc badge, no invented segments |
 | T48 | PASS | qc ↑in/↓out from transcript sums, not native per-request field |
@@ -61,7 +61,7 @@
 | T56 | PASS | qc invalid JSON -> degrade to 2 lines, exit 0 |
 | T57 | PASS | qc WREN_DEBUG_DUMP captures raw stdin bytes |
 | T58 | PASS | qc ctx fallback chain: postTokens after compact_boundary; CP counted |
-| T59 | PASS | qc line1 identical to wren-cc.py after badge strip (/var/…/box43/r59 \| main +1 ✱1) |
+| T59 | PASS | qc line1 identical to cc after badge strip, short+long branch (/var/…/box43/r59 \| main +1 ✱1 / /var/…/box43/r59 \| feat/ver…-folding-parity +1 ✱1) |
 | T60 | PASS | install qc copies payload + writes absolute statusLine |
 | T61 | PASS | install qc only touches qc side |
 | T62 | PASS | qc install preserves keys/order and backs up original bytes |

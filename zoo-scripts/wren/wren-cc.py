@@ -231,14 +231,15 @@ def fold_path(p, budget):
 
 
 def fold_branch(b, max_len=24):
-    """分支折叠：max_len 驱动（行1 梯子逐级传 24→20→16→12→8）。
-    尾重头轻（head/tail 按 max_len 三七开，均按显示格计）。
-    CR 轮 9：50/50 等分时头部大半被 feature/ 这类前缀占掉、有效信息只剩几个字符；
-    ticket 号在 slug 前的情况（PROJ-1234-add-xxx）任何截法都会丢，不做启发式。
+    """分支折叠：max_len 驱动（行1 梯子逐级传 24→20→16→12→8→4）。
+    24 档与 qc/pi/oc 三侧同构（head 8 / tail 15，CR 轮 9 的尾重头轻结论）；
+    <24 档是 cc 窄档私有档位，头尾三七开（head≈30%、尾吃剩余）。
     CR 轮 11：触发条件与切片都改按显示格，此前 py 按格、ts 按码点，
     13 个汉字的分支（26 格 / 13 码点）在 cc 折、在 pi 不折。"""
     if dwidth(b) <= max_len:
         return b
+    if max_len >= 24:  # 宽档默认档：三侧同构 8/15（d0dca44 曾误改三七开致跨实现分叉）
+        return slice_cells(b, 8) + "…" + slice_cells(b, 15, from_end=True)
     if max_len <= 4:  # 极窄档：只剩 "…" + 尾 2
         return "…" + slice_cells(b, max(2, max_len - 1), from_end=True)
     head = max(3, max_len * 3 // 10 - 1)          # …，头 30%
@@ -494,8 +495,8 @@ def main():
     if narrow:
         term_w = max(24, term_w - 5)
     # 行1 梯子（宽窄档统一，用户裁定）：永不丢 dmg / herdr 坐标 / cc 徽标；
-    # 溢出让位顺序：时长（首丢，与 pi 侧/设计文档 §4 同构）→ ahead-behind →
-    # 分支六档折叠（24→20→16→12→8→4，… 省略中段，用户裁定「分支长度压缩」）
+    # 溢出让位顺序（CR 三轮实测）：ahead-behind → 分支六档折叠
+    # （24→20→16→12→8→4，… 省略中段，用户裁定「分支长度压缩」）→ 时长
     # → cwd 折叠（头尾 … 省略，「目录长度压缩」）。所有段都有 … 化路径，
     # 无整段消失，无 truncate 钝刀（物理极限区除外）。
     dur_s = f" {c('comment', '·')} {c('fg', duration)}" if duration else ""
@@ -512,18 +513,15 @@ def main():
         return dwidth(f" | {fold_branch(branch, blen)}"
                      f"{ab if with_ab else ''}{dmg_plain}")
 
-    # 让位顺序（穷举搜索，靠循环序表达优先级）：时长 → 分支六档（先于 ab——
-    # 分支折叠只丢中段字符，ab 是精确计数丢了就没了）→ ab → cwd 地板 16→8→4。
-    # cwd 地板 8/4 = "…/尾段截断"（用户裁定「目录长度压缩」优先于丢铁律段；
-    # dmg/herdr/cc 全保时 51 列极端叠加需 cwd 压到 8）。
-    # CR 修正：旧版 blen 每级内先试丢 ab，51 列 blen=24 原样档就把 ab 弄丢；
-    # 窄档还白算一级时长让位。≤31 列极端叠加为物理极限区，交 truncate 兜底。
+    # 让位顺序（穷举搜索，靠循环序表达优先级）：时长 → 分支六档 → ab → cwd
+    # 地板 16→8→4。注意循环序的语义：外层是「更晚牺牲」——with_dur 在第二层
+    # 意味着分支六档与 ab 全折完仍不够才丢时长（CR 三轮实测序：ab 先于分支
+    # 压缩消失，时长最后丢；与注释的历史版本相反，此处以实测为准）。
+    # cwd 地板 8/4 = "…/尾段截断"（用户裁定「目录长度压缩」优先于丢铁律段）。
+    # ≤31 列极端叠加为物理极限区，交 truncate 兜底。
     keep_duration = bool(duration) and not narrow  # 窄档裁定不渲染时长
     b_budget, drop_ab, cwd_floor = 24, False, 16
     found = False
-    # 让位优先级 = 循环层级（外层先牺牲）：时长 → 分支六档 → ab → cwd 地板。
-    # 与 pi 侧/设计文档 §4 对齐「时长首丢」（子代理 CR-N2：旧循环 blen 最内，
-    # 实际牺牲序是分支→ab→时长，与注释相反且与 pi 分歧）。
     for floor in (16, 8, 4):
         for with_dur in ([True, False] if keep_duration else [False]):
             for blen in (24, 20, 16, 12, 8, 4):
@@ -587,8 +585,9 @@ def main():
         ch_s = "◈" + ch[2:] if ch else ch
         ctx_s = f"{pct_icon}{pct_val:.0f}%" if ctx_pct else ""
         ttft_s = "⏱" + ttft[len("TTFT "):] if ttft else ""
-        ttft_budget = "⏱⏱""99m5s"  # 首个 ⏱ 计真实 1 格，第二个补 iOS 表情宽的
-        # 第 2 格；99m5s 是 fmt_ttft 上界（1m05s 形 6 格），显示态按最宽计不再取巧
+        ttft_budget = "⏱⏱""99m59s"  # 首个 ⏱ 计真实 1 格，第二个补 iOS 表情宽的
+        # 第 2 格；99m59s 是 fmt_ttft 的 6 字符上界形（59m59s/99h00m 同宽），
+        # iOS 实显 ⏱2格+6=8 格，预算按最宽计（CR 三轮：旧 7 格漏第 8 格）
     else:
         ch_s, ctx_s, ttft_s, ttft_budget = ch, ctx_pct, ttft, TTFT_BUDGET_S
 

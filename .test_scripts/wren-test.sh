@@ -1379,10 +1379,19 @@ cc59=$(printf '{"cwd":"%s","model":{"display_name":"m"}}' "$R59" \
 qc59=$(printf '{"cwd":"%s","model":{"display_name":"m"}}' "$R59" \
     | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q59" python3 "$QC_PAYLOAD" 2>/dev/null | head -1)
 cc59s="$(strip_tag "$cc59")"; qc59s="$(strip_tag "$qc59")"
-if [[ -n "$cc59s" && "$cc59s" == "$qc59s" ]] && printf '%s' "$cc59s" | grep -qF "main"; then
-    pass T59 "qc line1 identical to wren-cc.py after badge strip ($cc59s)"
+# 长分支夹具（>24 格触发折叠）：cc 的 24 档必须与 qc 同构（head 8 / tail 15）。
+# CR 三轮发现 d0dca44 曾把 cc 默认档改三七开致跨实现分叉——短分支夹具测不出。
+(cd "$R59" && git checkout -q -b feat/very-long-branch-name-testing-cross-host-folding-parity) >/dev/null 2>&1
+cc59l=$(printf '{"cwd":"%s","model":{"display_name":"m"}}' "$R59" \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/c59l" python3 "$CC_PAYLOAD" 2>/dev/null | head -1)
+qc59l=$(printf '{"cwd":"%s","model":{"display_name":"m"}}' "$R59" \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/q59l" python3 "$QC_PAYLOAD" 2>/dev/null | head -1)
+cc59ls="$(strip_tag "$cc59l")"; qc59ls="$(strip_tag "$qc59l")"
+if [[ -n "$cc59s" && "$cc59s" == "$qc59s" ]] && printf '%s' "$cc59s" | grep -qF "main" \
+   && [[ "$cc59ls" == "$qc59ls" ]] && printf '%s' "$cc59ls" | grep -qF "feat/ver"; then
+    pass T59 "qc line1 identical to cc after badge strip, short+long branch ($cc59s / $cc59ls)"
 else
-    fail T59 "cc=[$cc59s] qc=[$qc59s]"
+    fail T59 "cc=[$cc59s] qc=[$qc59s] long: cc=[$cc59ls] qc=[$qc59ls]"
 fi
 
 # ============================================================
@@ -2543,7 +2552,7 @@ t107_l1="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{
     | NO_COLOR=1 COLUMNS=51 HERDR_WORKSPACE_ID=w9 HERDR_TAB_ID=w9:t1 HERDR_PANE_ID=w9:p1 WREN_CACHE_DIR="$BOX/c107-l1" python3 "$CC_PAYLOAD" 2>/dev/null | head -1)"
 t107_q12="$(t107_ctx 12)"; t107_q37="$(t107_ctx 37)"; t107_q62="$(t107_ctx 62)"; t107_q80="$(t107_ctx 80)"; t107_q96="$(t107_ctx 96)"
 # 模型名用短名 m（身份组 21 格的长名会把 ⏱ 提前挤掉，级界随内容浮动属预期）：
-# 51 满配 ◈96.34%+▄28%+⏱12s+身份组；42（预算37，身份组 m·xhigh 长版）⏱ 让位；36（预算31）⏱/◈ 双让、▄28% 紧贴
+# 51 满配 ◈96.34%+▄28%+⏱12s+身份组；44 列起 ⏱ 让位（42 断言在其后；实测级界 ⏱=44、◈=36，in/out 短形后档界随内容浮动）
 # 90 宽档原样；行1 时长不在、herdr 坐标在
 if printf '%s' "$t107_51" | grep -qF "◈96.34%" \
    && printf '%s' "$t107_51" | grep -qF "▄28%" \
