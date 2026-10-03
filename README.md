@@ -74,6 +74,13 @@ wren -h                          # 帮助
 ↑12K ↓3K | R1.2M CH57.14% CP2 | 8.40%/200K TTFT 6.6s | claude-opus-5 · high
 ```
 
+窄档（≤55 列，移动端 herdr 把 pane 拖成 51 列时；⏱/◈/▂▄▆█ 图标语言 + 紧分隔 + 身份组缩短）：
+
+```
+…oo | feat/…tier ✱2 | wC:t1:p1 | cc
+12K/3K|◈57.14%|▂4%|claude-opus-5 · hi
+```
+
 qc 侧同构，仅数据源不同（另一 workspace 的真会话实测样例，故分支与 pane 编号不同）：
 
 ```
