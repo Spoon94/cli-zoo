@@ -137,6 +137,8 @@
 | T104 | oc 安装 | 预置旧名 `plugins/wren-oc-core.ts`（wren 系副本）后 `install oc` | 旧文件被删、新目标 `plugins/wren-oc.ts` 与 payload 逐字节相同、stdout 含 `migrated`（**改名迁移守门**） |
 | T105 | oc 渲染 | 空 cwd + 空 model（模型在 oc 侧确实不渲染；空 cwd 是 core 的能力面） | 行1 首段就是 git 组、无悬空分隔符；行2 无尾部 `\| `、无粉色模型段（**去重守门**） |
 | T106 | oc 渲染 | 窄预算（49 格，与宿主 usage/快捷键共行后的真实余量） | 行1 级联丢计数/ab 保 herdr；行2 先把 ctx% 换短形 `16%`（位置不变）保住 CH/TTFT，再不够才走梯子（**窄预算守门**：78 列窗格曾把 TTFT/herdr 全挤掉） |
+| T107 | cc 窄档 | `COLUMNS` 51/42/36/90 + 四分位矩阵（`current_usage` 原生） | 51：`743K/117K\|◈96.34%\|▄28% ⏱12s\|m · xhigh` 且无 R/CP/两位小数 ctx；42 丢 ⏱；36 再丢 ◈（`117K\|▄28%`）；90 宽档零变化；行1 时长不渲染、herdr 在；▂12/▄37/▆62/█80/█96（**cc 窄档守门**） |
+| T109 | qc 窄档 | 同 T107 输入面（ctx 源换 qc 口径：`used_percentage` 原生 + postTokens 回落；effort 走 runtime-config） | 同 T107 形态断言（55/51 短形满配、42 丢 ⏱、36 丢 ◈、90 宽档零变化、四分位矩阵；行1 `\| qc` 在、无 `· ` 时长）（**qc 窄档对齐 cc 守门**） |
 
 ## 条件用例（不满足条件时 SKIP，不算 FAIL）
 

@@ -1,5 +1,5 @@
 # wren 测试结果
-执行时间：2026-10-03 13:53:36
+执行时间：2026-10-03 14:09:50
 
 | ID | 状态 | 备注 |
 |----|------|------|
@@ -74,7 +74,7 @@
 | T69 | PASS | pi TTFT from event stream (3 tiers + first-update-only) |
 | T70 | PASS | duration in line1 badge slot, absent from line2 |
 | T71 | PASS | no dangling separator when TTFT absent |
-| T72 | PASS | line1 ladder drops duration first (55 <= 55, badge kept) |
+| T72 | PASS | line1 ladder drops duration first (43 <= 55, badge kept) |
 | T73 | PASS | line2 ladder drop order TTFT -> CH -> CP; core segments never dropped |
 | T74 | PASS | install pi migrates legacy wren.ts -> wren-pi.ts |
 | T75 | PASS | qc TTFT keeps previous turn value during wait; hidden when never paired |
@@ -110,5 +110,6 @@
 | T105 | PASS | empty cwd + empty model: no leading/trailing separator, no identity group |
 | T106 | PASS | narrow budget swaps ctx% to short form before dropping CH/TTFT |
 | T107 | PASS | cc narrow tier: ◈/▂▄▆█/⏱ icons, quartile×color orthogonal, TTFT->CH drop |
+| T109 | PASS | qc narrow tier mirrors cc: short in/out, ◈/▂▄▆█/⏱, CP->TTFT->CH order, wide untouched |
 
-汇总：Total 107 / Pass 106 / Fail 0 / Skip 1
+汇总：Total 108 / Pass 107 / Fail 0 / Skip 1

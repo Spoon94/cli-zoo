@@ -2580,6 +2580,62 @@ else
     fail T107 "51=[$t107_51] 42=[$t107_42] 36=[$t107_36] 90=[$t107_90] l1=[$t107_l1] q12=[$t107_q12] q37=[$t107_q37] q62=[$t107_q62] q80=[$t107_q80] q96=[$t107_q96]"
 fi
 
+# ============================================================
+# T109: qc 窄档（≤55 列，与 cc T107 同一款）：预算 COLUMNS−5 地板 4、
+#       in/out 短形 743K/117K、◈CH、四分位 ▂▄▆█ + 整数%、⏱ 前缀、
+#       R/CP 不进段表、紧分隔 |、丢序 CP→TTFT→CH（⏱ 先于 ◈ 丢）、
+#       行1 时长不渲染 + herdr/qc 徽标保留；宽档（90）零变化。
+#       ctx 数据源走 qc 口径：原生 used_percentage（四分位矩阵）与
+#       postTokens 回落（51 满配 ▄28%）两条都盖到；effort 走 runtime-config。
+# ============================================================
+new_box
+T109_TR="$BOX/tr109.jsonl"
+cat >"$T109_TR" <<'EOF2'
+{"type":"user","timestamp":"2026-09-19T04:18:46.065Z","message":{"content":"hi"}}
+{"type":"assistant","timestamp":"2026-09-19T04:18:58.465Z","message":{"usage":{"input_tokens":743000,"output_tokens":117000,"cache_read_input_tokens":19560000,"cache_creation_input_tokens":0}}}
+{"type":"system","subtype":"compact_boundary","isSidechain":false,"compactMetadata":{"trigger":"manual","postTokens":284200}}
+{"type":"runtime-config","reasoningEffort":"xhigh"}
+EOF2
+t109_at() {
+    printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":1000000},"transcript_path":"%s"}' "$T109_TR" \
+        | NO_COLOR=1 COLUMNS=$1 WREN_CACHE_DIR="$BOX/c109-$1" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1
+}
+# 四分位矩阵：原生 used_percentage（qc 的首选 ctx 源），钉 ▂▄▆█ 与色档正交
+t109_ctx() {
+    printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":1000000,"used_percentage":%d},"transcript_path":"%s"}' \
+        "$1" "$T109_TR" \
+        | NO_COLOR=1 COLUMNS=51 WREN_CACHE_DIR="$BOX/c109x-$1" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1
+}
+t109_55="$(t109_at 55)"; t109_51="$(t109_at 51)"; t109_42="$(t109_at 42)"; t109_36="$(t109_at 36)"
+t109_90="$(printf '{"cwd":"/tmp","model":{"display_name":"claude-opus-5"},"context_window":{"context_window_size":1000000},"transcript_path":"%s"}' "$T109_TR" \
+    | NO_COLOR=1 COLUMNS=90 WREN_CACHE_DIR="$BOX/c109-90" python3 "$QC_PAYLOAD" 2>/dev/null | tail -1)"
+t109_l1="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":1000000},"transcript_path":"%s"}' "$T109_TR" \
+    | NO_COLOR=1 COLUMNS=51 HERDR_WORKSPACE_ID=w9 HERDR_TAB_ID=w9:t1 HERDR_PANE_ID=w9:p1 WREN_CACHE_DIR="$BOX/c109-l1" python3 "$QC_PAYLOAD" 2>/dev/null | head -1)"
+t109_q12="$(t109_ctx 12)"; t109_q37="$(t109_ctx 37)"; t109_q62="$(t109_ctx 62)"; t109_q80="$(t109_ctx 80)"; t109_q96="$(t109_ctx 96)"
+if printf '%s' "$t109_55" | grep -qF "743K/117K|◈96.34%|▄28% ⏱12s|m · xhigh" \
+   && printf '%s' "$t109_51" | grep -qF "743K/117K|◈96.34%|▄28% ⏱12s|m · xhigh" \
+   && ! printf '%s' "$t109_51" | grep -qF "R19.6M" \
+   && ! printf '%s' "$t109_51" | grep -qF "CP1" \
+   && ! printf '%s' "$t109_51" | grep -qF "28.42%" \
+   && printf '%s' "$t109_42" | grep -qF "◈96.34%" \
+   && ! printf '%s' "$t109_42" | grep -qF "⏱" \
+   && ! printf '%s' "$t109_36" | grep -qF "⏱" \
+   && ! printf '%s' "$t109_36" | grep -qF "◈" \
+   && printf '%s' "$t109_36" | grep -qF "117K|▄28%" \
+   && printf '%s' "$t109_90" | grep -qF "R19.6M CH96.34% CP1 | 28.42%/1M TTFT 12s | claude-opus-5 · xhigh" \
+   && printf '%s' "$t109_l1" | grep -qF "w9:t1:p1" \
+   && printf '%s' "$t109_l1" | grep -qF "| qc" \
+   && ! printf '%s' "$t109_l1" | grep -qF "· " \
+   && printf '%s' "$t109_q12" | grep -qF "▂12%" \
+   && printf '%s' "$t109_q37" | grep -qF "▄37%" \
+   && printf '%s' "$t109_q62" | grep -qF "▆62%" \
+   && printf '%s' "$t109_q80" | grep -qF "█80%" \
+   && printf '%s' "$t109_q96" | grep -qF "█96%"; then
+    pass T109 "qc narrow tier mirrors cc: short in/out, ◈/▂▄▆█/⏱, CP->TTFT->CH order, wide untouched"
+else
+    fail T109 "55=[$t109_55] 51=[$t109_51] 42=[$t109_42] 36=[$t109_36] 90=[$t109_90] l1=[$t109_l1] q12=[$t109_q12] q37=[$t109_q37] q62=[$t109_q62] q80=[$t109_q80] q96=[$t109_q96]"
+fi
+
 # ---------- 汇总 ----------
 printf '\nTotal: %d  Pass: %d  Fail: %d  Skip: %d\n' "$TOTAL" "$PASS_N" "$FAIL_N" "$SKIP_N"
 

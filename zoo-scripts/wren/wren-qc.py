@@ -29,6 +29,7 @@
 # 假定深色终端底色（Dracula 为暗底设计）。
 import hashlib
 import json
+import math
 import os
 import re
 import subprocess
@@ -202,6 +203,19 @@ def slice_cells(s, maxw, from_end=False):
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 
+def strip_ansi(s):
+    """剥 ANSI 转义（量宽用）：dwidth 按 char 记宽，带色串虚高。"""
+    return _ANSI_RE.sub("", s)
+
+
+def one_line(s):
+    """压平换行（对齐 cc 猎杀四轮 #4）：宿主按行渲染 statusline，字段里的
+    \\n/\\r/Unicode 行界会把 2 行契约顶成 3+ 行。display_name/effort/herdr 用。"""
+    if not isinstance(s, str):
+        return s
+    return "".join(ch for ch in s if ch not in "\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029")
+
+
 def truncate_display(s, maxw):
     """按显示宽度硬截断整行，ANSI 转义原样保留、宽度记 0。
     地位与 pi 侧的 truncateToWidth 相同：折叠公式算偏了也不会溢出。"""
@@ -250,10 +264,23 @@ def fold_path(p, budget):
 
 
 def fold_branch(b, max_len=24):
-    """分支折叠：超长截中段，尾重头轻（head 8 / tail 15，均按显示格计）。"""
+    """分支折叠：max_len 驱动（行1 梯子逐级传 24→20→16→12→8→4）。
+    24 档与 cc/pi/oc 三侧同构（head 8 / tail 15，尾重头轻）；
+    <24 档是窄档私有档位，头尾三七开（head≈30%、尾吃剩余）。
+    触发条件与切片都按显示格（与 cc CR 轮 11 同口径）。"""
     if dwidth(b) <= max_len:
         return b
-    return slice_cells(b, 8) + "…" + slice_cells(b, 15, from_end=True)
+    if max_len >= 24:  # 宽档默认档：三侧同构 8/15
+        return slice_cells(b, 8) + "…" + slice_cells(b, 15, from_end=True)
+    if max_len <= 0:  # 0 档 = git 段整体让位（物理极限区最后一级）
+        return ""
+    if max_len <= 4:  # 极窄档：只剩 "…" + 尾 2
+        return "…" + slice_cells(b, max(2, max_len - 1), from_end=True)
+    head = max(3, max_len * 3 // 10 - 1)          # …，头 30%
+    tail = max(4, max_len - head - 1)             # 尾吃剩余，兜住最后一级 8 格
+    if head + 1 + tail > max_len:                 # 兜底互踩时尾让位（小档防溢出）
+        tail = max(2, max_len - head - 1)
+    return slice_cells(b, head) + "…" + slice_cells(b, tail, from_end=True)
 
 
 def accumulate(st, d):
@@ -276,8 +303,8 @@ def accumulate(st, d):
             r = gen.get("reasoning")
             if isinstance(r, dict):
                 e = r.get("effort")
-        if e:
-            st["effort"] = e
+        if isinstance(e, str) and e:  # 非字符串当缺失（对齐 cc 猎杀四轮 #2）
+            st["effort"] = one_line(e)
     if d.get("type") == "user" and _is_prompt_user(d) and d.get("isSidechain") is not True:
         # 轮首：真 user 提示开窗（tool_result 回填不开，见 _is_prompt_user）。
         # turn_first_ts 不在这里清——保留上一轮已完成配对，直到新一轮首片
@@ -288,26 +315,38 @@ def accumulate(st, d):
     if d.get("type") == "assistant" and "message" in d:
         m = d["message"]
         u = m.get("usage", {}) or {}
-        st["input_t"] += u.get("input_tokens", 0)
-        st["output_t"] += u.get("output_tokens", 0)
-        st["cache_r"] += u.get("cache_read_input_tokens", 0)
+
+        def tok(v):
+            """token 字段净化（对齐 cc 猎杀四轮 #1）：json.loads 接受非标
+            NaN/Infinity，直接累加会让 fmt 的 round() 抛 ValueError/OverflowError
+            走裸 cwd；负数/非数（str/dict/bool）一律当 0。"""
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                return 0
+            if isinstance(v, float) and not math.isfinite(v):
+                return 0
+            return v if v > 0 else 0
+
+        st["input_t"] += tok(u.get("input_tokens", 0))
+        st["output_t"] += tok(u.get("output_tokens", 0))
+        st["cache_r"] += tok(u.get("cache_read_input_tokens", 0))
         # cache_creation 可能是对象（ephemeral_5m/1h），与旧 qoder 脚本同口径
-        cw_v = u.get("cache_creation_input_tokens", 0)
+        cw_v = tok(u.get("cache_creation_input_tokens", 0))
         if not cw_v:
-            cc = u.get("cache_creation")
-            if isinstance(cc, dict):
-                cw_v = (cc.get("ephemeral_5m_input_tokens") or 0) + (cc.get("ephemeral_1h_input_tokens") or 0)
-        st["cache_w"] += cw_v or 0
+            cc_obj = u.get("cache_creation")
+            if isinstance(cc_obj, dict):
+                cw_v = tok(cc_obj.get("ephemeral_5m_input_tokens") or 0) \
+                    + tok(cc_obj.get("ephemeral_1h_input_tokens") or 0)
+        st["cache_w"] += cw_v
         # qoder 的 input_tokens 已含 cache → prompt 直接取 input_tokens；
         # 若某版本不含（input 明显小于 cache_r），补回 CC 口径
-        inp = u.get("input_tokens", 0)
-        cr = u.get("cache_read_input_tokens", 0)
-        st["last_prompt_tokens"] = inp if inp >= cr else (inp + cr + (cw_v or 0))
+        inp = tok(u.get("input_tokens", 0))
+        cr = tok(u.get("cache_read_input_tokens", 0))
+        st["last_prompt_tokens"] = inp if inp >= cr else (inp + cr + cw_v)
         st["last_cache_r"] = cr
         st["post_tokens"] = None  # 压缩后已有真实请求 → postTokens 过期
         e = d.get("effort")
-        if e:
-            st["effort"] = e
+        if isinstance(e, str) and e:  # 非字符串当缺失（对齐 cc 猎杀四轮 #2）
+            st["effort"] = one_line(e)
         ats = _epoch(d.get("timestamp") or m.get("timestamp"))
         if st["first_ts"] is None and ats is not None:
             st["first_ts"] = ats
@@ -339,9 +378,14 @@ def scan_transcript(path):
             old = json.loads(cache_file.read_text())
         except Exception:
             old = None
-        # offset 超出当前长度 = 文件被重建，从头再来
-        if isinstance(old, dict) and old.get("path") == str(path) and 0 <= old.get("offset", 0) <= size:
-            offset = old["offset"]
+        # offset 毒型（对齐 cc 猎杀四轮 #5：str "50"/float 6.5 会让比较或 seek 抛
+        # TypeError，崩在缓存重写之前 → 毒文件永不清除、每次渲染裸 cwd）：
+        # 只认 int（bool 排除），非法即全量重算并覆写。
+        old_off = old.get("offset") if isinstance(old, dict) else None
+        if (isinstance(old, dict) and old.get("path") == str(path)
+                and isinstance(old_off, int) and not isinstance(old_off, bool)
+                and 0 <= old_off <= size):
+            offset = old_off
             for k in st:
                 if k in old:
                     st[k] = old[k]
@@ -350,7 +394,7 @@ def scan_transcript(path):
         with open(path, "rb") as fh:
             fh.seek(offset)
             chunk = fh.read()
-    except OSError:
+    except (OSError, TypeError, ValueError):
         return st
 
     cut = chunk.rfind(b"\n")  # 末尾可能写了一半，留在下次
@@ -359,7 +403,10 @@ def scan_transcript(path):
     if cut < 0:
         return st
     chunk = chunk[:cut + 1]
-    for line in chunk.decode("utf-8", "ignore").splitlines():
+    # 按 \n 切而不是 splitlines()（对齐 cc 猎杀四轮 #3）：splitlines 按 Unicode
+    # 全套行界切（U+2028/2029/0085），transcript 里的 JSON 字符串含这些字符时
+    # 半行 json.loads 失败被吞 → 记录静默丢失、token 永久少记。JSONL 行界只有 \n。
+    for line in chunk.decode("utf-8", "ignore").split("\n"):
         try:
             accumulate(st, json.loads(line))
         except Exception:
@@ -412,7 +459,9 @@ def main():
 
     model_obj = data.get("model") or {}
     model_id = model_obj.get("id") or ""
-    raw_name = model_obj.get("display_name") or model_id or "no-model"
+    # one_line 先压平换行再切尾斜杠/后缀（对齐 cc 猎杀四轮 #4：注入 \n 会顶飞
+    # 2 行契约）；空则回落 no-model
+    raw_name = one_line(model_obj.get("display_name") or model_id) or "no-model"
     model_name = raw_name.split("/")[-1].replace(" Model", "").strip() or "no-model"
 
     cw = data.get("context_window") or {}
@@ -431,7 +480,9 @@ def main():
     transcript = data.get("transcript_path", "")
 
     home = str(Path.home())
-    short_cwd = cwd.replace(home, "~")
+    # 家目录折叠只锚定路径前缀（对齐 cc Bug 猎杀 #3：无锚 replace 会把
+    # /Users/spoon<x>… 的兄弟目录错折成 ~<x>…，显示不存在的路径）
+    short_cwd = ("~" + cwd[len(home):]) if cwd == home or cwd.startswith(home + "/") else cwd
 
     # ---- git: 单次 porcelain v2（branch + ahead/behind + 增/删/改） ----
     branch, ab, dmg, dmg_plain = "", "", "", ""
@@ -441,7 +492,10 @@ def main():
         for ln in stg.splitlines():
             if ln.startswith("# branch.head "):
                 head = ln[len("# branch.head "):].strip()
-                branch = "" if head.startswith("(") else head  # detached 不显示
+                # detached 判定：porcelain v2 的 detached 形态是字面 "(detached)"；
+                # 以 "(" 开头的真实分支名（合法创建）不误伤。dmg/ab 不随 branch
+                # 空而丢（对齐 cc Bug 猎杀 #2：detached 的脏树计数也是铁律）。
+                branch = "" if head == "(detached)" else head
             elif ln.startswith("# branch.ab "):
                 p = ln[len("# branch.ab "):].split()
                 if len(p) == 2:
@@ -464,14 +518,11 @@ def main():
                 parts.append(c(name, f"{mark}{count}"))
         dmg = " " + " ".join(parts) if parts else ""
         dmg_plain = " " + " ".join(plain_parts) if plain_parts else ""
-    colored_git = ""
-    if branch:
-        colored_git = c("purple", fold_branch(branch, 24)) + c("fg", ab) + dmg
 
     # ---- herdr 位置 ----
-    herdr_parts = [os.getenv("HERDR_WORKSPACE_ID"),
-                   (os.getenv("HERDR_TAB_ID") or "").split(":")[-1],
-                   (os.getenv("HERDR_PANE_ID") or "").split(":")[-1]]
+    herdr_parts = [one_line(os.getenv("HERDR_WORKSPACE_ID") or ""),
+                   one_line((os.getenv("HERDR_TAB_ID") or "").split(":")[-1]),
+                   one_line((os.getenv("HERDR_PANE_ID") or "").split(":")[-1])]
     herdr_tag = f"{':'.join(p for p in herdr_parts if p)}" if any(herdr_parts) else ""
 
     # ---- token / 压缩统计（增量解析） ----
@@ -515,27 +566,98 @@ def main():
         term_w = int(os.environ.get("COLUMNS") or 80)
     except ValueError:
         term_w = 80
-    # 行1 尾 = 徽标 · 时长（顺序写死）。时长按 9 格上界常量（dwidth(" · 99h59m")，
-    # 含分隔符）计入 rest，折叠决策不随数值抖动；超界先丢时长退裸徽标（硬约束 §1.1-1）
-    DUR_BUDGET = 9
-    rest = 0
-    if branch:
-        rest += dwidth(f" | {fold_branch(branch, 24)}{ab}{dmg_plain}")
-    if herdr_tag:
-        rest += dwidth(f" | {herdr_tag}")
-    rest += dwidth(" | qc")
-    if duration:
-        rest += DUR_BUDGET
-    if duration and rest + 16 > term_w:
-        duration = ""  # cwd 已到 16 格地板仍溢出 → 先丢时长，再走 path_budget 折叠
-        rest -= DUR_BUDGET
-    path_budget = max(16, term_w - rest)
+    # 窄档（≤55 列，与 cc 同触发；移动端 herdr 会把 pane PTY 拖成 51 列）：
+    # 宿主实绘宽 ≈ COLUMNS−5（左缩进 2 + 尾部留白/省略号），预算按实绘宽收，
+    # 否则满宽输出被宿主钝刀切尾、先丢的总是行尾徽标与身份组。窄档行1 不渲染
+    # 时长（用户裁定，与 cc 一致）；行2 短形见 build2。
+    narrow = term_w <= 55
+    if narrow:
+        # 地板不钳 24（对齐 cc：钳 24 会让 COLUMNS<29 的行按 24 格排版、实际
+        # 超终端宽。钳 4 = 段级丢段可工作的最小值）
+        term_w = max(4, term_w - 5)
+    # 行1 梯子（宽窄档统一，与 cc 同一条）：永不丢 dmg / herdr 坐标 / qc 徽标；
+    # 溢出让位顺序：ahead-behind → 分支六档（24→20→16→12→8→4）→ 时长
+    # → cwd 折叠（地板 16→8→4）。时长按 9 格上界常量计入（不随数值抖动）。
+    dur_s = f" {c('comment', '·')} {c('fg', duration)}" if duration else ""
+    dur_w = 9 if duration else 0  # dwidth(" · 99h59m")
+    herdr_w = dwidth(f" | {herdr_tag}") if herdr_tag else 0
+
+    def git_w(blen, with_ab):
+        """git 段宽度探针：按「分支折叠后真实宽度」计（虚记会把短分支多折一级）。
+        git 段各件全空时返回 0——非 git cwd 不留 3 格幻影宽，目录预算不被偷。"""
+        if not (branch or ab or dmg_plain):
+            return 0
+        return dwidth(f" | {fold_branch(branch, blen) if branch else ''}"
+                     f"{ab if with_ab else ''}{dmg_plain}")
+
+    # 让位顺序（穷举搜索，循环序表达优先级，与 cc 同构）：时长 → 分支六档
+    # → ab → cwd 地板 16→8→4。窄档 keep_duration 恒 False。
+    keep_duration = bool(duration) and not narrow
+    b_budget, drop_ab, cwd_floor = 24, False, 16
+    found = False
+    for floor in (16, 8, 4):
+        for with_dur in ([True, False] if keep_duration else [False]):
+            for blen in (24, 20, 16, 12, 8, 4):
+                for with_ab in ([True, False] if ab else [False]):
+                    w = git_w(blen, with_ab) + herdr_w + dwidth(" | qc") \
+                        + (dur_w if with_dur else 0) + floor
+                    if w <= term_w:
+                        b_budget, keep_duration, drop_ab = blen, with_dur, (not with_ab and bool(ab))
+                        cwd_floor = floor
+                        found = True
+                        break
+                if found:
+                    break
+            if found:
+                break
+        if found:
+            break
+    if not found:
+        # 物理极限区（对齐 cc）：最小配置仍放不下时逐段再丢 git 计数段
+        # （dmg 是铁律但物理不可容时最后让位）——dmg 之后才轮到 herdr 坐标，
+        # qc 徽标与坐标间至少留 " | qc" 5 格永不钝刀。
+        b_budget, drop_ab, keep_duration, cwd_floor = 4, bool(ab), False, 4
+        if git_w(b_budget, False) + herdr_w + dwidth(" | qc") + 4 > term_w:
+            dmg = dmg_plain = ""
+        if git_w(b_budget, False) + herdr_w + dwidth(" | qc") + 4 > term_w:
+            b_budget, ab = 0, ""  # git 段整体让位（空时 git_w 已返回 0）
+    if drop_ab:
+        ab = ""
+    rest = git_w(b_budget, bool(ab)) + herdr_w + dwidth(" | qc") + (dur_w if keep_duration else 0)
+    # 地板随命中的 floor 走（对齐 cc CR-B：floor=4 命中时仍顶回 8 会让赤字带
+    # 整行超宽、truncate 砍行尾 qc 徽标）
+    path_budget = max(cwd_floor, term_w - rest)
     display_cwd = fold_path(short_cwd, path_budget)
-    line1 = (c("comment", display_cwd)
-             + (f" {c('comment', '|')} {colored_git}" if colored_git else "")
-             + (f" {c('comment', '|')} {c('comment', herdr_tag)}" if herdr_tag else "")
-             + f" {c('comment', '|')} {c('comment', 'qc')}"
-             + (f" {c('comment', '·')} {c('fg', duration)}" if duration else ""))
+    # detached HEAD：分支名不显示（设计），ab/dmg 照常——dmg 是铁律
+    colored_git = ((c("purple", fold_branch(branch, b_budget)) if branch else "")
+                   + (c("fg", ab) if ab else "") + dmg)
+    colored_git = colored_git.lstrip() if colored_git.strip() else ""
+    # 悬空尾：预算内按段拼，超预算按段丢而非钝刀切字符。两遍策略：先按自然序
+    # （git→herdr→qc→dur）拼；qc 徽标没进来才换 qc 优先序重拼（铁律高于视觉）。
+    # 段对 (colored, plain) 同 build2：量宽只看 plain——dwidth 不剥 ANSI。
+    def assemble_l1(order):
+        line = c("comment", display_cwd)
+        used = dwidth(display_cwd)
+        for part, part_p in order:
+            if used + dwidth(part_p) <= term_w:
+                line += part
+                used += dwidth(part_p)
+        return line
+
+    natural = []
+    qc_part = (f" {c('comment', '|')} {c('comment', 'qc')}", " | qc")
+    if colored_git:
+        natural.append((f" {c('comment', '|')} {colored_git}", f" | {strip_ansi(colored_git)}"))
+    if herdr_tag:
+        natural.append((f" {c('comment', '|')} {c('comment', herdr_tag)}", f" | {herdr_tag}"))
+    natural.append(qc_part)
+    if keep_duration:
+        natural.append((dur_s, " · " + duration))
+    line1 = assemble_l1(natural)
+    if "qc" not in strip_ansi(line1):
+        # qc 没保住：qc 最优先重拼（herdr/git 争剩余）
+        rescue = [qc_part] + [p for p in natural if p is not qc_part]
+        line1 = assemble_l1(rescue)
 
     # ---- 行2: 账本 | 状态 | 身份 ----
     # 状态组 = ctx%/win + TTFT；身份组 = 模型 · 思考（时长已上行1）。
@@ -557,51 +679,98 @@ def main():
 
     sep = c("comment", "|")
     cp_s = f"CP{compactions}" if compactions else ""
+    # 窄档短形（用户裁定，与 cc 同款）：↑in↓out 去 ↑/↓ 前缀与空格（31.2M/643K）、
+    # CH→◈ 前缀、ctx% 整数 + 四分位块高图标（▂0-25 ▄25-50 ▆50-75 █75-100，与
+    # 三档色阈值 70/90 解耦——图标说「占了几成」，颜色说「风险等级」，两维正交；
+    # qc 的 ctx 数据源是原生 used_percentage 整数优先，图标按四分位算）、TTFT
+    # 换 ⏱ 前缀（计宽按 2 格防御 iOS 表情宽——dwidth 对 U+23F1（EAW=N）只算
+    # 1 格，预算串用 ⏱⏱ 双占位补足）、R/CP 窄档不进段表、紧分隔 |。
+    if narrow:
+        pct_icon = "▂" if pct_val < 25 else ("▄" if pct_val < 50 else ("▆" if pct_val < 75 else "█"))
+        ch_s = "◈" + ch[2:] if ch else ch
+        ctx_s = f"{pct_icon}{pct_val:.0f}%" if ctx_pct else ""
+        ttft_s_n = "⏱" + ttft_s[len("TTFT "):] if ttft_s else ""
+        ttft_budget = "⏱⏱99m59s"  # 首个 ⏱ 计真实 1 格，第二个补 iOS 表情宽的第
+        # 2 格；99m59s 是 fmt_ttft 的 6 字符上界形，iOS 实显 ⏱2格+6=8 格，
+        # 预算按最宽计（对齐 cc CR 三轮：旧 7 格漏第 8 格）
+    else:
+        ch_s, ctx_s, ttft_s_n, ttft_budget = ch, ctx_pct, ttft_s, ttft_budget_s
 
     def build2(use_ttft, use_ch, use_cp):
         """按存活段拼行2；返回 (上色串, 预算无色串)。预算串里 TTFT 用上界占位。
         预算串必须全程无色——dwidth 按 char 记宽，混入 ANSI 会让 truecolor
-        档预算虚高 ~23 格/段，梯子把不超宽的 TTFT 误丢（色档不得影响折叠）。"""
-        ledger = f"R{fmt(cache_r)}"
+        档预算虚高 ~23 格/段，梯子把不超宽的 TTFT 误丢（色档不得影响折叠）。
+        段列表 (colored, plain) 成对收集，出口统一 join——窄/宽档只差分隔符
+        与成员（窄档 R/CP 不进、账本短形、紧排 |）。"""
+        if narrow:
+            head_s = head_p = f"{fmt(input_t)}/{fmt(output_t)}"
+        else:
+            head_s = head_p = f"↑{fmt(input_t)} ↓{fmt(output_t)}"
+        segs = [(c("fg", head_s), head_p)]
+        ledger = "" if narrow else f"R{fmt(cache_r)}"
         ledger_p = ledger
-        if use_ch and ch:
-            ledger += " " + c("cyan", ch)
-            ledger_p += " " + ch
-        if use_cp and cp_s:
+        if use_ch and ch_s:
+            ledger += " " + c("cyan", ch_s) if ledger else c("cyan", ch_s)
+            ledger_p += " " + ch_s if ledger_p else ch_s
+        if use_cp and cp_s and not narrow:
             ledger += " " + c("comment", cp_s)
             ledger_p += " " + cp_s
+        if ledger:
+            segs.append((ledger, ledger_p))
         stat = stat_p = ""
-        if ctx_pct:
-            stat, stat_p = c(pct_name, ctx_pct), ctx_pct
-        if use_ttft and ttft_s:
-            t = c(ttft_color(st["ttft_ms"]), ttft_s)
+        if ctx_s:
+            stat, stat_p = c(pct_name, ctx_s), ctx_s
+        if use_ttft and ttft_s_n:
+            t = c(ttft_color(st["ttft_ms"]), ttft_s_n)
             stat = f"{stat} {t}" if stat else t
-            stat_p = f"{stat_p} {ttft_budget_s}" if stat_p else ttft_budget_s
-        line = f"{c('fg', f'↑{fmt(input_t)} ↓{fmt(output_t)}')} {sep} {ledger}"
-        plain = f"↑{fmt(input_t)} ↓{fmt(output_t)} | {ledger_p}"
+            stat_p = f"{stat_p} {ttft_budget}" if stat_p else ttft_budget
         if stat:
-            line += f" {sep} {stat}"
-            plain += f" | {stat_p}"
+            segs.append((stat, stat_p))
         ident_c = [c("pink", model_name)] + ([c("cyan", thinking)] if thinking else [])
-        line += f" {sep} " + " · ".join(ident_c)
-        plain += f" | " + (" · ".join([model_name] + ([thinking] if thinking else [])))
-        return line, plain
+        if ident_c:  # 窄档身份组也进（用户裁定：模型·思考不可丢）
+            segs.append((" · ".join(ident_c),
+                         " · ".join([model_name] + ([thinking] if thinking else []))))
+        j = "|" if narrow else f" {sep} "   # 窄档紧分隔：3 个分隔省 6 格
+        jp = "|" if narrow else " | "        # plain 用无色分隔（预算串全程无色）
+        return (j.join(s[0] for s in segs), jp.join(s[1] for s in segs))
 
-    # 折叠梯子: 溢出按 TTFT→CH→CP 丢弃（新段先丢）；再溢出 truncate_display 兜底
+    # 折叠梯子: 溢出按序丢弃（宽档 TTFT→CH→CP 新段先丢；窄档 CP→TTFT→CH，
+    # 保住独有指标——R/CP 已不进段表，CP 此处对窄档是空操作但保持同构）；
+    # 再溢出 truncate_display 兜底
     flags = dict(use_ttft=True, use_ch=True, use_cp=True)
     line2, plain2 = build2(**flags)
-    for key in ("use_ttft", "use_ch", "use_cp"):
+    order = ("use_cp", "use_ttft", "use_ch") if narrow else ("use_ttft", "use_ch", "use_cp")
+    for key in order:
         if dwidth(plain2) <= term_w:
             break
         flags[key] = False
         line2, plain2 = build2(**flags)
 
+    # 出口兜底：折叠只保证「算出来不超宽」，这里保证「输出不超宽」（truncate）。
+    # 主动 flush 把断管拉进可捕获域（对齐 cc 猎杀四轮 #6：行短时 write 只进
+    # 缓冲，断管在解释器退出 flush 阶段才炸——main 域 try 不到、RC=120）。
     sys.stdout.write(f"{truncate_display(line1, term_w)}\n{truncate_display(line2, term_w)}")
+    sys.stdout.flush()
 
 
 if __name__ == "__main__":
     try:
         main()
+    except BrokenPipeError:
+        # 下游早关（| true / >&-）：静默退出（对齐 cc 猎杀四轮 #6）。os._exit
+        # 双跳：解释器退出时还会 flush 一次 sys.stdout（再遇断管打噪音且 RC=120），
+        # 只有 os._exit 跳过解释器收尾。
+        try:
+            devnull = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(devnull, sys.stdout.fileno())
+            sys.stdout = os.fdopen(devnull, "w")  # 换掉缓冲对象，exit flush 落 devnull
+        except Exception:
+            pass
+        os._exit(0)
     except Exception:
-        # statusline 宁可退化也不能空/挂住
-        sys.stdout.write(os.getcwd().replace(str(Path.home()), "~"))
+        # statusline 宁可退化也不能空/挂住。stdout 为 None（>&-）时兜底自己别再炸
+        if sys.stdout is not None:
+            try:
+                sys.stdout.write(os.getcwd().replace(str(Path.home()), "~"))
+            except Exception:
+                pass
