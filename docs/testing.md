@@ -46,5 +46,12 @@ Total: 135  Pass: 134  Fail: 0  Skip: 1（T101 需 opencode/tmux 真机）
 
 配套守门用例：`T141`（八种边界形态下 oc 编辑必须终止）、`T142`（护栏自证——
 必须真能掐断 `while :; do :; done`）、`T143`（watchdog 自证——整体超时必须落盘
-FAIL 行并非零退出）。任一用例真挂死时，父进程会带 `suspected infinite loop`
+FAIL 行并非零退出）、`T144`（**杀整棵树**自证——超时必须连子 shell 与孙进程一起
+清掉，见下）。任一用例真挂死时，父进程会带 `suspected infinite loop`
 写进 stderr，结果文件同时记录「最后完成的用例」。
+
+**超时必须杀整棵树**：`wren` 在 `$(...)` 里 fork 子 shell 跑 heredoc、子 shell 再拉
+python。只 `kill -9` 直接子进程的话，子 shell 与 python 孙进程会双双变孤儿继续
+自旋——2026-10-12 复现时就漏出 16 个孤儿（9.3 核 × 51 分钟）。`kill_tree` 递归
+`pgrep -P` 先杀子孙再杀自身，且杀两遍（兜住遍历途中才 fork 的进程）；`run_limited`、
+`run_limited_in`、watchdog 三条超时路径都走它，`T144` 钉住这一行为。

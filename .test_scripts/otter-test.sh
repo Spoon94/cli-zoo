@@ -87,13 +87,21 @@ WD_DIR="$(mktemp -d)"
 CASE_LOG="$WD_DIR/cases.log"
 : >"$CASE_LOG"
 
+# kill_tree <pid>：先杀子孙再杀自身（-9）——tmux/claude 也会 fork 树，
+# 只杀直接子进程会留下孤儿继续跑（同 wren-test.sh 的 2026-10-12 教训）
+kill_tree() {
+    local pid="$1" k
+    for k in $(pgrep -P "$pid" 2>/dev/null); do kill_tree "$k"; done
+    kill -9 "$pid" 2>/dev/null
+}
+
 run_limited() {
     local secs="$1"; shift
     "$@" & local _pid=$!
     local _ticks=0 _lim=$((secs * 20))
     while kill -0 "$_pid" 2>/dev/null; do
         if (( _ticks++ >= _lim )); then
-            kill -9 "$_pid" 2>/dev/null
+            kill_tree "$_pid"; sleep 0.2; kill_tree "$_pid"
             wait "$_pid" 2>/dev/null
             return 124
         fi
@@ -126,7 +134,7 @@ watchdog_run() {
     } >"$RES_FILE" 2>/dev/null
     printf '\nFAIL watchdog 整体超时 %ss（最后完成的用例：%s）；已写 %s，强杀\n' \
         "$TOTAL_TIMEOUT" "$last" "$RES_FILE" >&2
-    kill -9 "$MAIN_PID" 2>/dev/null
+    kill_tree "$MAIN_PID"
 }
 MAIN_PID=$$
 watchdog_run &

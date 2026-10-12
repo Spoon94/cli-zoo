@@ -89,6 +89,16 @@ TOTAL_TIMEOUT="${WREN_TEST_TOTAL_TIMEOUT:-1200}"  # 整套上限（秒）
 CASE_LOG="$TMPROOT/cases.log"
 : >"$CASE_LOG"
 
+# kill_tree <pid>：先杀子孙再杀自身（-9）。
+# 只杀直接子进程是不够的：wren 在 `$(...)` 里 fork 子 shell 跑 heredoc，那个
+# 子 shell 再拉 python——只杀 wren 主进程的话，子 shell 与 python 孙进程双双
+# 变孤儿继续自旋（2026-10-12 实测：16 个孤儿烧掉 9.3 核 × 51 分钟）。
+kill_tree() {
+    local pid="$1" k
+    for k in $(pgrep -P "$pid" 2>/dev/null); do kill_tree "$k"; done
+    kill -9 "$pid" 2>/dev/null
+}
+
 # run_limited <秒> <命令...>：超时返回 124，其余透传命令退出码
 run_limited() {
     local secs="$1"; shift
@@ -96,7 +106,9 @@ run_limited() {
     local _ticks=0 _lim=$((secs * 20))
     while kill -0 "$_pid" 2>/dev/null; do
         if (( _ticks++ >= _lim )); then
-            kill -9 "$_pid" 2>/dev/null
+            kill_tree "$_pid"
+            sleep 0.2
+            kill_tree "$_pid"   # 二遍：兜住遍历途中才 fork 出来的子进程
             wait "$_pid" 2>/dev/null
             return 124
         fi
@@ -112,7 +124,9 @@ run_limited_in() {
     local _ticks=0 _lim=$((secs * 20))
     while kill -0 "$_pid" 2>/dev/null; do
         if (( _ticks++ >= _lim )); then
-            kill -9 "$_pid" 2>/dev/null
+            kill_tree "$_pid"
+            sleep 0.2
+            kill_tree "$_pid"
             wait "$_pid" 2>/dev/null
             return 124
         fi
@@ -147,7 +161,7 @@ watchdog_run() {
     } >"$RES_FILE" 2>/dev/null
     printf '\nFAIL watchdog 整体超时 %ss（最后完成的用例：%s）；已写 %s，强杀\n' \
         "$TOTAL_TIMEOUT" "$last" "$RES_FILE" >&2
-    kill -9 "$MAIN_PID" 2>/dev/null
+    kill_tree "$MAIN_PID"
 }
 MAIN_PID=$$
 watchdog_run &
@@ -3837,6 +3851,25 @@ if [[ $t143_rc -ne 0 ]] && [[ -f "$t143_res" ]] && grep -q "watchdog | FAIL" "$t
     pass T143 "watchdog trips on total timeout: writes FAIL row + nonzero exit in ${t143_dt}s"
 else
     fail T143 "rc=$t143_rc elapsed=${t143_dt}s res=[$(head -c 200 "$t143_res" 2>/dev/null)]"
+fi
+
+# ============================================================
+# T144: 护栏必须杀「整棵进程树」，不是只杀直接子进程
+#   2026-10-12 实测漏洞：run_limited 只 kill 直接子进程，而 wren 在 $(...) 里
+#   fork 子 shell 跑 heredoc、子 shell 再拉 python——只杀 wren 主进程，子 shell
+#   与 python 孙进程双双变孤儿继续自旋（16 个孤儿烧掉 9.3 核 × 51 分钟）。
+#   本用例起一个「bash → python 自旋」的两层结构，超时后必须一个都不剩。
+# ============================================================
+t144_marker="wren-test-treekill-$$"
+run_limited 2 bash -c "python3 -c 'import time
+while True: time.sleep(0.01)' \"$t144_marker\"" >/dev/null 2>&1
+t144_rc=$?
+sleep 0.5
+t144_left="$(pgrep -fl "$t144_marker" 2>/dev/null | tr '\n' ' ')"
+if [[ "$t144_rc" == "124" && -z "$t144_left" ]]; then
+    pass T144 "timeout guard kills the whole tree (no orphan grandchildren)"
+else
+    fail T144 "rc=$t144_rc leftover=[$t144_left]"
 fi
 
 # ---------- 汇总 ----------
