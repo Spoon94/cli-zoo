@@ -12,7 +12,7 @@ OTTER="$REPO_ROOT/zoo-scripts/otter"
 INSTALL_SH="$REPO_ROOT/cli-zoo-install.sh"
 UNINSTALL_SH="$REPO_ROOT/cli-zoo-uninstall.sh"
 RES_DIR="$REPO_ROOT/.test_res"
-RES_FILE="$RES_DIR/otter-test-res.md"
+RES_FILE="${WREN_TEST_RES_FILE:-$RES_DIR/otter-test-res.md}"
 
 mkdir -p "$RES_DIR"
 
@@ -25,6 +25,7 @@ SKIP_N=0
 
 record() {
     local id="$1" status="$2" note="${3:-}"
+    printf '%s|%s|%s\n' "$status" "$id" "$note" >>"$CASE_LOG" 2>/dev/null || true
     RESULT_ID+=("$id")
     RESULT_STATUS+=("$status")
     RESULT_NOTE+=("$note")
@@ -76,6 +77,71 @@ if ! command -v tmux >/dev/null 2>&1; then
     echo "ERROR: tmux is required to run this test suite" >&2
     exit 2
 fi
+
+# ---------- 超时保护（2026-10-12 事故口径，与 wren-test.sh 同一套）----------
+# tmux/claude 子进程卡住时，测试不能静默挂死：命令级给墙钟上限，
+# 整套再压一个总超时兜底（超时先落盘再强杀）。
+CMD_TIMEOUT="${WREN_TEST_CMD_TIMEOUT:-30}"
+TOTAL_TIMEOUT="${WREN_TEST_TOTAL_TIMEOUT:-900}"
+WD_DIR="$(mktemp -d)"
+CASE_LOG="$WD_DIR/cases.log"
+: >"$CASE_LOG"
+
+# kill_tree <pid>：先杀子孙再杀自身（-9）——tmux/claude 也会 fork 树，
+# 只杀直接子进程会留下孤儿继续跑（同 wren-test.sh 的 2026-10-12 教训）
+kill_tree() {
+    local pid="$1" k
+    for k in $(pgrep -P "$pid" 2>/dev/null); do kill_tree "$k"; done
+    kill -9 "$pid" 2>/dev/null
+}
+
+run_limited() {
+    local secs="$1"; shift
+    "$@" & local _pid=$!
+    local _ticks=0 _lim=$((secs * 20))
+    while kill -0 "$_pid" 2>/dev/null; do
+        if (( _ticks++ >= _lim )); then
+            kill_tree "$_pid"; sleep 0.2; kill_tree "$_pid"
+            wait "$_pid" 2>/dev/null
+            return 124
+        fi
+        sleep 0.05
+    done
+    wait "$_pid"
+}
+
+# FIFO 唤醒：watchdog 用 read -t 等，主流程正常结束时写一个字节让它退出。
+# 不用 `sleep` 子进程——杀子 shell 杀不到 sleep 孙进程，它会变成孤儿占住 stdout
+# （管道下游 tail/tee 永不结束，2026-10-12 实测踩到）。
+WD_FIFO="$WD_DIR/watchdog.fifo"
+mkfifo "$WD_FIFO" 2>/dev/null || true
+exec 3<>"$WD_FIFO"
+watchdog_run() {
+    if read -t "$TOTAL_TIMEOUT" -u 3 _ 2>/dev/null; then
+        exit 0   # 主流程正常收工，静默退出
+    fi
+    local last; last="$(tail -n 1 "$CASE_LOG" 2>/dev/null || echo "")"
+    {
+        printf '# otter 测试结果\n'
+        printf '执行时间：%s\n\n' "$(date '+%Y-%m-%d %H:%M:%S')"
+        printf '| ID | 状态 | 备注 |\n|----|------|------|\n'
+        local st id note
+        while IFS='|' read -r st id note; do
+            [ -n "${id:-}" ] && printf '| %s | %s | %s |\n' "$id" "$st" "${note//|/\\|}"
+        done <"$CASE_LOG"
+        printf '| watchdog | FAIL | 整体超时 %ss，最后完成的用例：%s |\n' "$TOTAL_TIMEOUT" "${last//|/ }"
+        printf '\n汇总：整体超时（watchdog 介入，结果不完整）\n'
+    } >"$RES_FILE" 2>/dev/null
+    printf '\nFAIL watchdog 整体超时 %ss（最后完成的用例：%s）；已写 %s，强杀\n' \
+        "$TOTAL_TIMEOUT" "$last" "$RES_FILE" >&2
+    kill_tree "$MAIN_PID"
+}
+MAIN_PID=$$
+watchdog_run &
+WATCHDOG_PID=$!
+# 链上原有的 cleanup_all（tmux 测试会话清理）——覆盖式 trap 会把它吞掉，
+# 残留 otter_test_* 会话会让下一轮 T07 拿不到干净 pane（2026-10-12 实测）
+trap 'printf x >&3 2>/dev/null; kill -9 "$WATCHDOG_PID" 2>/dev/null; rm -rf "$WD_DIR" 2>/dev/null; cleanup_all' EXIT
 
 if [[ ! -x "$OTTER" ]]; then
     chmod +x "$OTTER"

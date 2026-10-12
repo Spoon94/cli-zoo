@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# wren-test.sh - 自动运行 .test_task/wren-test.md 中的 106 个用例。
+# wren-test.sh - 自动运行 wren 的 143 个用例（用例书见 .test_task/wren-test.md）。
 #
 # 用法: bash .test_scripts/wren-test.sh
-# 写出: .test_res/wren-test-res.md
+# 写出: .test_res/wren-test-res.md（可用 WREN_TEST_RES_FILE 改道）
+# 超时: WREN_TEST_CMD_TIMEOUT=30 单命令 / WREN_TEST_TOTAL_TIMEOUT=1200 整套（watchdog）
 #
 # 全程在 mktemp -d 里作业：PREFIX / PI_EXT_DIR / CLAUDE_SETTINGS / QODER_CONFIG_DIR /
 # QODER_SETTINGS / OPENCODE_CONFIG_DIR / OPENCODE_TUI_CONFIG 七个变量把安装目标全部改道，
@@ -25,7 +26,7 @@ OC_CORE_PAYLOAD="$REPO_ROOT/zoo-scripts/wren/wren-oc.ts"
 INSTALL_SH="$REPO_ROOT/cli-zoo-install.sh"
 UNINSTALL_SH="$REPO_ROOT/cli-zoo-uninstall.sh"
 RES_DIR="$REPO_ROOT/.test_res"
-RES_FILE="$RES_DIR/wren-test-res.md"
+RES_FILE="${WREN_TEST_RES_FILE:-$RES_DIR/wren-test-res.md}"
 
 mkdir -p "$RES_DIR"
 
@@ -38,6 +39,8 @@ SKIP_N=0
 
 record() {
     local id="$1" status="$2" note="${3:-}"
+    # 用例日志：watchdog 超时后靠它报出「卡在哪条用例之后」（2026-10-12 事故后加）
+    printf '%s|%s|%s\n' "$status" "$id" "$note" >>"$CASE_LOG" 2>/dev/null || true
     RESULT_ID+=("$id")
     RESULT_STATUS+=("$status")
     RESULT_NOTE+=("$note")
@@ -74,14 +77,109 @@ new_box() {
 BOX_N=0
 BOX="" BIN="" PIEXT="" CLAUDE="" SETTINGS="" QODER="" QODER_SETTINGS="" OC="" OCCONF=""
 
+# ---------- 超时保护（2026-10-12 事故）----------
+# 背景：wren install oc 的 heredoc 曾在「多元素 plugin 数组」上进死循环，
+# 测试跑挂死不报错——两个 python 进程 100% CPU 白烧 8 天，没人发现。
+# 这里两层防护：
+#   1) run_limited：每次外部命令调用都带墙钟上限，超时按 124 返回（GNU timeout 同约定）
+#   2) watchdog：整体超时兜底，杀掉自己之前先把结果文件写完，绝不静默
+# macOS 没有 timeout/gtimeout（BSD userland），所以自带实现。
+CMD_TIMEOUT="${WREN_TEST_CMD_TIMEOUT:-30}"      # 单条外部命令上限（秒）
+TOTAL_TIMEOUT="${WREN_TEST_TOTAL_TIMEOUT:-1200}"  # 整套上限（秒）
+CASE_LOG="$TMPROOT/cases.log"
+: >"$CASE_LOG"
+
+# kill_tree <pid>：先杀子孙再杀自身（-9）。
+# 只杀直接子进程是不够的：wren 在 `$(...)` 里 fork 子 shell 跑 heredoc，那个
+# 子 shell 再拉 python——只杀 wren 主进程的话，子 shell 与 python 孙进程双双
+# 变孤儿继续自旋（2026-10-12 实测：16 个孤儿烧掉 9.3 核 × 51 分钟）。
+kill_tree() {
+    local pid="$1" k
+    for k in $(pgrep -P "$pid" 2>/dev/null); do kill_tree "$k"; done
+    kill -9 "$pid" 2>/dev/null
+}
+
+# run_limited <秒> <命令...>：超时返回 124，其余透传命令退出码
+run_limited() {
+    local secs="$1"; shift
+    "$@" & local _pid=$!
+    local _ticks=0 _lim=$((secs * 20))
+    while kill -0 "$_pid" 2>/dev/null; do
+        if (( _ticks++ >= _lim )); then
+            kill_tree "$_pid"
+            sleep 0.2
+            kill_tree "$_pid"   # 二遍：兜住遍历途中才 fork 出来的子进程
+            wait "$_pid" 2>/dev/null
+            return 124
+        fi
+        sleep 0.05
+    done
+    wait "$_pid"
+}
+
+# run_limited_in <秒> <目录> <命令...>：先 cd 再 exec，超时同样返回 124
+run_limited_in() {
+    local secs="$1" dir="$2"; shift 2
+    ( cd "$dir" && exec "$@" ) & local _pid=$!
+    local _ticks=0 _lim=$((secs * 20))
+    while kill -0 "$_pid" 2>/dev/null; do
+        if (( _ticks++ >= _lim )); then
+            kill_tree "$_pid"
+            sleep 0.2
+            kill_tree "$_pid"
+            wait "$_pid" 2>/dev/null
+            return 124
+        fi
+        sleep 0.05
+    done
+    wait "$_pid"
+}
+
+# watchdog：整体超时就把已有结果落盘（含 watchdog FAIL 行）+ 杀掉主进程
+# FIFO 唤醒：watchdog 用 read -t 等，主流程正常结束时写一个字节让它退出。
+# 不用 `sleep` 子进程——杀子 shell 杀不到 sleep 孙进程，它会变成孤儿占住 stdout
+# （管道下游 tail/tee 永不结束，2026-10-12 实测踩到）。
+WD_FIFO="$TMPROOT/watchdog.fifo"
+mkfifo "$WD_FIFO" 2>/dev/null || true
+exec 3<>"$WD_FIFO"
+watchdog_run() {
+    if read -t "$TOTAL_TIMEOUT" -u 3 _ 2>/dev/null; then
+        exit 0   # 主流程正常收工，静默退出
+    fi
+    local last
+    last="$(tail -n 1 "$CASE_LOG" 2>/dev/null || echo "")"
+    {
+        printf '# wren 测试结果\n'
+        printf '执行时间：%s\n\n' "$(date '+%Y-%m-%d %H:%M:%S')"
+        printf '| ID | 状态 | 备注 |\n|----|------|------|\n'
+        local line st id note
+        while IFS='|' read -r st id note; do
+            [ -n "${id:-}" ] && printf '| %s | %s | %s |\n' "$id" "$st" "${note//|/\\|}"
+        done <"$CASE_LOG"
+        printf '| watchdog | FAIL | 整体超时 %ss，最后完成的用例：%s |\n' "$TOTAL_TIMEOUT" "${last//|/ }"
+        printf '\n汇总：整体超时（watchdog 介入，结果不完整）\n'
+    } >"$RES_FILE" 2>/dev/null
+    printf '\nFAIL watchdog 整体超时 %ss（最后完成的用例：%s）；已写 %s，强杀\n' \
+        "$TOTAL_TIMEOUT" "$last" "$RES_FILE" >&2
+    kill_tree "$MAIN_PID"
+}
+MAIN_PID=$$
+watchdog_run &
+WATCHDOG_PID=$!
+trap 'printf x >&3 2>/dev/null; kill -9 "$WATCHDOG_PID" 2>/dev/null; rm -f "$WD_FIFO" 2>/dev/null; cleanup_all' EXIT
+
 # 用沙箱环境调用 wren；输出落 OUT_FILE，退出码进 WREN_EXIT
 run_wren() {
     # NO_COLOR=1：旧用例断言的是明文子串，色档统一关掉（带色断言在 T39+ 单独跑）
-    env NO_COLOR=1 PREFIX="$BIN" PI_EXT_DIR="$PIEXT" CLAUDE_CONFIG_DIR="$CLAUDE" CLAUDE_SETTINGS="$SETTINGS" \
+    run_limited "$CMD_TIMEOUT" env NO_COLOR=1 PREFIX="$BIN" PI_EXT_DIR="$PIEXT" \
+        CLAUDE_CONFIG_DIR="$CLAUDE" CLAUDE_SETTINGS="$SETTINGS" \
         QODER_CONFIG_DIR="$QODER" QODER_SETTINGS="$QODER_SETTINGS" \
         OPENCODE_CONFIG_DIR="$OC" OPENCODE_TUI_CONFIG="$OCCONF" \
         "$WREN" "$@" >"$BOX/out.txt" 2>"$BOX/err.txt"
     WREN_EXIT=$?
+    if [[ "$WREN_EXIT" == "124" ]]; then
+        printf 'wren: TIMEOUT after %ss (suspected infinite loop): %s\n' "$CMD_TIMEOUT" "$*" >>"$BOX/err.txt"
+    fi
     WREN_OUT="$(<"$BOX/out.txt")"
     WREN_ERR="$(<"$BOX/err.txt")"
 }
@@ -618,10 +716,14 @@ PI_EXIT=0
 PI_OUT_FILE="$PI_DIR/out.txt"
 run_pi() {
     local branch="$1" usage="$2" extra="${3:-}" where="${4:-$PI_DIR}"
-    (cd "$where" && env NO_COLOR=1 BRANCH="$branch" CTX_USAGE="$usage" WREN_TS="$WREN_TS" \
-        TUI_STUB="$PI_DIR/tui-stub.mjs" ${extra:+$extra} \
-        node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs") >"$PI_OUT_FILE" 2>"$PI_DIR/err.txt"
+    run_limited_in "$CMD_TIMEOUT" "$where" env NO_COLOR=1 BRANCH="$branch" CTX_USAGE="$usage" \
+        WREN_TS="$WREN_TS" TUI_STUB="$PI_DIR/tui-stub.mjs" ${extra:+$extra} \
+        node --import "$PI_DIR/register.mjs" "$PI_DIR/harness.mjs" \
+        >"$PI_OUT_FILE" 2>"$PI_DIR/err.txt"
     PI_EXIT=$?
+    if [[ "$PI_EXIT" == "124" ]]; then
+        printf 'pi harness: TIMEOUT after %ss (suspected hang)\n' "$CMD_TIMEOUT" >>"$PI_DIR/err.txt"
+    fi
     PI_OUT="$(<"$PI_OUT_FILE")"
 }
 
@@ -3458,7 +3560,10 @@ mkdir -p "$BOX/cache"
 i=0
 while [[ $i -lt 205 ]]; do
     printf '{}' >"$BOX/cache/fake$i.json"
-    touch -t "$(printf '2025010100%02d' $((i / 60)) $((i % 60)))" "$BOX/cache/fake$i.json"
+    # mtime 逐个递增（2025-01-01 00:mm:ss）：格式串只能有一个转换符——
+    # 写成 'YYYYMMDDhh%02d' 再传两个参数时，bash printf 会重复整个格式串，
+    # 拼出 24 字符 → BSD touch 全数拒收、mtime 钉死形同虚设（2026-10-12 实测）
+    touch -t "20250101$(printf '%02d' $((i / 60)))$(printf '%02d' $((i % 60)))" "$BOX/cache/fake$i.json"
     i=$((i + 1))
 done
 printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$t135_tr" \
@@ -3657,6 +3762,114 @@ if printf '%s' "$t140_l2" | grep -qF "743K/117K|◈96.34%|▄28% ⏱12s|m · xh"
     pass T140 "width probe chain: no COLUMNS + 51-col controlling tty triggers narrow tier"
 else
     fail T140 "l2=[$t140_l2] out=[$(printf '%s' "$t140_out" | tr '\n' '~')]"
+fi
+
+# ============================================================
+# T141: oc 编辑不死循环——2026-10-12 事故回归
+#   事故：find_string 的「其它字面量」分支停在逗号上不前进，外层 while 原地
+#   空转；多元素 plugin 数组（{"plugin": ["x","x",...]}）触发 install oc 卡死，
+#   python 100% CPU 空烧 8 天（父进程 bash wren install oc）。
+#   本用例把当时点名的形态全固化：任一形态再原地打转，run_limited 会在
+#   CMD_TIMEOUT 秒后返回 124 → 断言立刻 FAIL（而不是把整套测试挂死）。
+# ============================================================
+new_box
+t141_ok=1; t141_note=""
+t141_big="$(python3 -c "import json; print(json.dumps({'plugin': ['x'] * 207}))")"
+t141_case() {  # t141_case <名字> <fixture 正文> <期望: exit 码或 any>
+    local name="$1" body="$2" want="$3"
+    printf '%s\n' "$body" >"$OCCONF"
+    local before; before="$(<"$OCCONF")"
+    run_wren install oc
+    if [[ "$WREN_EXIT" == "124" ]]; then t141_ok=0; t141_note="$t141_note [$name:install 超时]"; return; fi
+    if [[ "$want" != "any" && "$WREN_EXIT" != "$want" ]]; then
+        t141_ok=0; t141_note="$t141_note [$name:rc=$WREN_EXIT≠$want]"; return
+    fi
+    if [[ "$want" == "1" ]]; then  # 拒收路径：文件必须原样
+        [[ "$(<"$OCCONF")" == "$before" ]] || { t141_ok=0; t141_note="$t141_note [$name:被改动]"; }
+        return
+    fi
+    run_wren install oc   # 幂等：第二次不得再加一条
+    if [[ "$WREN_EXIT" == "124" ]]; then t141_ok=0; t141_note="$t141_note [$name:二次 install 超时]"; return; fi
+    run_wren uninstall oc  # 卸载：同样不得原地打转
+    if [[ "$WREN_EXIT" == "124" ]]; then t141_ok=0; t141_note="$t141_note [$name:uninstall 超时]"; fi
+}
+t141_case "多元素数组207" "$t141_big" any
+t141_case "两元素(目标在第二位)" '{"plugin": ["./plugins/other.tsx", "./plugins/wren-oc.tsx"]}' any
+t141_case "尾逗号+连续逗号+首逗号" '{"plugin": [ , "./plugins/other.tsx",, ]}' any
+t141_case "纯空白+逗号段" '{"plugin": [  ,  ,  ]}' any
+t141_case "嵌套数组" '{"plugin": [["a"], "b"]}' any
+t141_case "未闭合块注释" '{"plugin": ["./plugins/other.tsx" /* oops ]}' 1
+t141_case "未闭合字符串" '{"plugin": ["./plugins/other.tsx, "y"]}' 1
+# 幂等与内容完整性：207 元素数组装完必须只多一条 spec，且原有元素不丢
+printf '%s\n' "$t141_big" >"$OCCONF"
+run_wren install oc
+t141_after="$(<"$OCCONF")"
+if [[ "$(printf '%s' "$t141_after" | grep -o '"x"' | wc -l | tr -d ' ')" != "207" ]] \
+   || [[ "$(printf '%s' "$t141_after" | grep -o -F './plugins/wren-oc.tsx' | wc -l | tr -d ' ')" != "1" ]]; then
+    t141_ok=0; t141_note="$t141_note [207 元素/幂等计数不符]"
+fi
+# 嵌套对象里的同值字符串不算「已存在」（B-4）：应另加一条顶层项
+printf '%s\n' '{"plugin": [{"src": "./plugins/wren-oc.tsx"}], "theme": "dark"}' >"$OCCONF"
+run_wren install oc
+if [[ "$WREN_EXIT" == "124" ]] || [[ "$(grep -o -F './plugins/wren-oc.tsx' "$OCCONF" | wc -l | tr -d ' ')" != "2" ]]; then
+    t141_ok=0; t141_note="$t141_note [嵌套对象 B-4 语义不符]"
+fi
+if [[ $t141_ok -eq 1 ]]; then
+    pass T141 "oc edit terminates on all shapes (multi-element / stray commas / unclosed comment+string / nesting)"
+else
+    fail T141 "$t141_note"
+fi
+
+# ============================================================
+# T142: 超时护栏自证——run_limited 必须真能掐断死循环
+#   护栏自己坏掉的话，T141 会退化成「挂死」而不是「FAIL」——
+#   2026-10-12 事故正是这么发生的（测试卡住没人发现）。
+# ============================================================
+t142_t0="$(date +%s)"
+run_limited 2 bash -c 'while :; do :; done'
+t142_rc=$?
+t142_dt=$(( $(date +%s) - t142_t0 ))
+if [[ "$t142_rc" == "124" && "$t142_dt" -lt 8 ]]; then
+    pass T142 "timeout guard kills spinning child (rc=124 in ${t142_dt}s)"
+else
+    fail T142 "rc=$t142_rc elapsed=${t142_dt}s (guard ineffective)"
+fi
+
+# ============================================================
+# T143: watchdog 自证——整体超时必须落盘 + 强杀，绝不静默
+#   嵌套跑一次本套件（总超时压到 15s，正常要 ~100s）：
+#   期望 watchdog 介入、结果文件写出 FAIL 行、退出码非 0。
+# ============================================================
+t143_res="$TMPROOT/t143-res.md"
+t143_t0="$(date +%s)"
+( WREN_TEST_TOTAL_TIMEOUT=15 WREN_TEST_RES_FILE="$t143_res" \
+    bash "$SCRIPT_DIR/wren-test.sh" >"$TMPROOT/t143.out" 2>&1 ) 2>/dev/null
+t143_rc=$?
+t143_dt=$(( $(date +%s) - t143_t0 ))
+if [[ $t143_rc -ne 0 ]] && [[ -f "$t143_res" ]] && grep -q "watchdog | FAIL" "$t143_res" \
+   && [[ "$t143_dt" -lt 90 ]]; then
+    pass T143 "watchdog trips on total timeout: writes FAIL row + nonzero exit in ${t143_dt}s"
+else
+    fail T143 "rc=$t143_rc elapsed=${t143_dt}s res=[$(head -c 200 "$t143_res" 2>/dev/null)]"
+fi
+
+# ============================================================
+# T144: 护栏必须杀「整棵进程树」，不是只杀直接子进程
+#   2026-10-12 实测漏洞：run_limited 只 kill 直接子进程，而 wren 在 $(...) 里
+#   fork 子 shell 跑 heredoc、子 shell 再拉 python——只杀 wren 主进程，子 shell
+#   与 python 孙进程双双变孤儿继续自旋（16 个孤儿烧掉 9.3 核 × 51 分钟）。
+#   本用例起一个「bash → python 自旋」的两层结构，超时后必须一个都不剩。
+# ============================================================
+t144_marker="wren-test-treekill-$$"
+run_limited 2 bash -c "python3 -c 'import time
+while True: time.sleep(0.01)' \"$t144_marker\"" >/dev/null 2>&1
+t144_rc=$?
+sleep 0.5
+t144_left="$(pgrep -fl "$t144_marker" 2>/dev/null | tr '\n' ' ')"
+if [[ "$t144_rc" == "124" && -z "$t144_left" ]]; then
+    pass T144 "timeout guard kills the whole tree (no orphan grandchildren)"
+else
+    fail T144 "rc=$t144_rc leftover=[$t144_left]"
 fi
 
 # ---------- 汇总 ----------
