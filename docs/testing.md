@@ -30,3 +30,21 @@ Total: 135  Pass: 134  Fail: 0  Skip: 1（T101 需 opencode/tmux 真机）
   `OPENCODE_CONFIG_DIR` 与 `XDG_CONFIG_HOME` 都要改道（后者不改的话宿主会把用户真实配置叠加进来，断言恒真）。
   缺 `opencode` 或 `tmux` 时 SKIP，耗时 ~25s。
 - 缺 node（或 node 不支持直接执行 `.ts`）时，上述 node 类用例整体 SKIP。
+
+## 超时保护（2026-10-12 事故后加）
+
+背景：`wren install oc` 的 heredoc 曾在「多元素 plugin 数组」上进死循环
+（`find_string` 的字面量扫描停在逗号上不前进），测试跑到那条用例就挂住、
+不报错、不退出——两个 python 进程 100% CPU 空烧 8 天没人发现。
+现在两层防护，挂死一律变成「限时 FAIL」：
+
+| 变量 | 默认 | 作用 |
+|------|------|------|
+| `WREN_TEST_CMD_TIMEOUT` | 30 | 单条外部命令（`wren` / pi harness）墙钟上限；超时按 124 返回，用例即时 FAIL |
+| `WREN_TEST_TOTAL_TIMEOUT` | 1200（wren）/ 900（otter） | 整套上限；到点 watchdog 先把已跑结果落盘（含 FAIL 行）再强杀，绝不静默 |
+| `WREN_TEST_RES_FILE` | `.test_res/<tool>-test-res.md` | 结果文件落点（自测 watchdog 时改道，避免踩真实结果） |
+
+配套守门用例：`T141`（八种边界形态下 oc 编辑必须终止）、`T142`（护栏自证——
+必须真能掐断 `while :; do :; done`）、`T143`（watchdog 自证——整体超时必须落盘
+FAIL 行并非零退出）。任一用例真挂死时，父进程会带 `suspected infinite loop`
+写进 stderr，结果文件同时记录「最后完成的用例」。

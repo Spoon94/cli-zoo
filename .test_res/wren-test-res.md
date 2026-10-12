@@ -1,5 +1,5 @@
 # wren 测试结果
-执行时间：2026-10-03 23:33:56
+执行时间：2026-10-12 11:31:25
 
 | ID | 状态 | 备注 |
 |----|------|------|
@@ -143,5 +143,8 @@
 | T138 | PASS | pi ab survives cwd-floor sacrifice at 46-52 cols (decision-2 loop order) |
 | T139 | PASS | physical-limit truecolor: no phantom separator slot after git segment cleared |
 | T140 | PASS | width probe chain: no COLUMNS + 51-col controlling tty triggers narrow tier |
+| T141 | PASS | oc edit terminates on all shapes (multi-element / stray commas / unclosed comment+string / nesting) |
+| T142 | PASS | timeout guard kills spinning child (rc=124 in 2s) |
+| T143 | PASS | watchdog trips on total timeout: writes FAIL row + nonzero exit in 15s |
 
-汇总：Total 140 / Pass 139 / Fail 0 / Skip 1
+汇总：Total 143 / Pass 142 / Fail 0 / Skip 1

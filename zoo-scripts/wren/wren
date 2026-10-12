@@ -348,8 +348,11 @@ def value_pos(s, key):
 
 
 def normalize_array_seg(seg):
-    """删掉多余逗号（首逗号 / 连续逗号 / 尾逗号），其余字节原样保留。"""
-    while True:
+    """删掉多余逗号（首逗号 / 连续逗号 / 尾逗号），其余字节原样保留。
+
+    上界显式化：每轮至少删掉 1 个字符（end > k），所以最多 len(seg) 轮。
+    用 for 写死上界，读者不必自己推导终止性（2026-10-12 事故后统一口径）。"""
+    for _ in range(len(seg) + 1):
         for k, ch in enumerate(seg):
             if ch != ",":
                 continue
@@ -366,15 +369,21 @@ def normalize_array_seg(seg):
                 break
         else:
             return seg
+    return seg
 
 
 def find_string(s, start, end, value):
     """在数组元素区间 [start, end) 里找**顶层**字符串字面量 value；返回 (起, 止) 或 None。
     只认数组顶层的字符串元素（B-4）：嵌套对象/数组里的同值字符串（如
     {"src": "./plugins/wren-oc.tsx"}）不算——旧版钻进去会让 install 判「已存在」
-    静默 no-op、uninstall 删嵌套 token 产出非法 JSON。嵌套容器整只跳过。"""
+    静默 no-op、uninstall 删嵌套 token 产出非法 JSON。嵌套容器整只跳过。
+
+    终止性（2026-10-12 事故）：推进收敛到唯一出口——每个分支只负责算出「下一步
+    可能的位置」，循环末尾统一 `i = max(下一步, i + 1)`，保证 i 每轮至少 +1。
+    上一版由各分支自己推进，其中「其它字面量」分支停在逗号上不前进，多元素数组
+    （{"plugin": ["x", "x", ...]}）会让外层 while 原地空转：install oc 卡死、
+    python 100% CPU 烧了 8 天（T88 多元素数组实测复现）。写法上不再依赖分支自觉。"""
     i = start
-    n = len(s)
     while i < end:
         i = skip_ws_comments(s, i)
         if i >= end:
@@ -384,23 +393,22 @@ def find_string(s, start, end, value):
             e = skip_string(s, i)
             if s[i + 1:e - 1] == value:
                 return (i, e)
-            i = e
+            i = max(e, i + 1)
             continue
         if ch in "{[":
             e = close_of(s, i, ch, "]" if ch == "[" else "}")
             if e < 0:
                 return None
-            i = e + 1
+            i = max(e + 1, i + 1)
             continue
-        # 其它字面量（true/false/null/数字）：吃到逗号或区间尾，逗号本身也要跨过
-        # （否则外层停在 ',' 上不再前进，多元素数组死循环）
-        while i < end and s[i] != ",":
-            if s[i] == '"':
-                i = skip_string(s, i)
+        # 其它字面量（true/false/null/数字）：扫到逗号或区间尾；再跨过那个逗号
+        j = i
+        while j < end and s[j] != ",":
+            if s[j] == '"':
+                j = skip_string(s, j)
                 continue
-            i += 1
-        if i < end:
-            i += 1
+            j += 1
+        i = max(j + 1, i + 1)
     return None
 
 
