@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# wren - 把 statusline 装到 Claude Code 与 pi 两个宿主上。
+# wren - 把两行 statusline 装到各宿主（Claude Code / pi / Qoder CLI / opencode / Antigravity CLI）。
 #
 # 布局:
-#   行1: ~/cwd | branch ↑a↓b +增 ~删 ✱改
-#   行2: ↑in ↓out R cacheR CH% CPn | ctx%/win | 模型名 · 思考等级 · 时长
+#   行1: ~/cwd | branch ↑a↓b +增 ~删 ✱改 | ws:tab:pane | 宿主徽标 · 时长
+#   行2: ↑in ↓out | R cacheR CH% CPn | ctx%/win TTFT | 模型名 · 思考等级
 #
-# 本目录内三个 payload 拷出去安装:
-#   wren-cc.py -> <settings.json 同目录>/wren-cc   并在 settings.json 写入 statusLine（绝对路径）
-#   wren-pi.ts -> $PI_EXT_DIR/wren-pi.ts        pi 自动加载该目录下的 .ts
-#   wren-qc.py -> $QODER_CONFIG_DIR/wren-qc.py 并在 ~/.qoder/settings.json 写入 statusLine（绝对路径）
-#
-# 装的是副本而不是软链：装完以后不依赖本仓库是否还在原处。
+# 本目录内的 payload 拷出去安装（装的是副本而不是软链，装完不依赖本仓库是否还在原处）:
+#   wren-cc.py  -> <settings.json 同目录>/wren-cc            并写 $CLAUDE_SETTINGS 的 statusLine（绝对路径）
+#   wren-pi.ts  -> $PI_EXT_DIR/wren-pi.ts                    pi 自动加载该目录下的 .ts
+#   wren-qc.py  -> $QODER_CONFIG_DIR/wren-qc.py              并写 $QODER_SETTINGS 的 statusLine（绝对路径）
+#   wren-agy.py -> $AGY_CONFIG_DIR/wren-agy.py               并写 $AGY_SETTINGS 的 statusLine（绝对路径，enabled:true）
+#   wren-oc.tsx + wren-oc.ts -> <tui.json 同目录>/plugins/   并在 $OPENCODE_TUI_CONFIG 的 plugin 数组里加一条
 #
 # 用法:
-#   wren install [cc|pi|all]
-#   wren uninstall [cc|pi|all]
+#   wren install [cc|pi|qc|oc|agy|all]
+#   wren uninstall [cc|pi|qc|oc|agy|all]
 #   wren -h
 
 set -u
@@ -26,11 +26,12 @@ usage() {
     cat <<'EOF'
 Usage: wren <command> [target]
 
-将本目录下的 statusline payload 装到四个宿主:
+将本目录下的 statusline payload 装到五个宿主:
 
   wren-cc.py ->  <settings.json 同目录>/wren-cc  并在 $CLAUDE_SETTINGS 写入 statusLine（绝对路径）
   wren-pi.ts ->  $PI_EXT_DIR/wren-pi.ts          pi 自动加载该目录下的 .ts
   wren-qc.py ->  $QODER_CONFIG_DIR/wren-qc.py  并在 $QODER_SETTINGS 写入 statusLine（command 写绝对路径，与 qoder 官方引导一致）
+  wren-agy.py -> <settings.json 同目录>/wren-agy.py 并在 $AGY_SETTINGS 写入 statusLine（command 写绝对路径）
   wren-oc.tsx + wren-oc.ts ->  <tui.json 同目录>/plugins/  并在 $OPENCODE_TUI_CONFIG 的 plugin 数组里加 "./plugins/wren-oc.tsx"
 
 Commands:
@@ -39,10 +40,11 @@ Commands:
   -h, --help           显示本帮助
 
 target（省略则为 all）:
-  all                  四个宿主都装（默认）
+  all                  五个宿主都装（默认）
   cc                   只装 Claude Code 侧（别名 claude）
   pi                   只装 pi 侧
   qc                   只装 Qoder CLI 侧（别名 qoder）
+  agy                  只装 Antigravity CLI 侧（别名 antigravity）
   oc                   只装 opencode 侧（别名 opencode）
 
 Environment:
@@ -51,12 +53,14 @@ Environment:
                      未设则 $HOME/.claude/settings.json)
   QODER_CONFIG_DIR   Qoder CLI 配置目录 (default: $HOME/.qoder；qoder 官方同名变量)
   QODER_SETTINGS     要改的 Qoder settings.json (default: $QODER_CONFIG_DIR/settings.json)
+  AGY_CONFIG_DIR     Antigravity CLI 配置目录 (default: $HOME/.gemini/antigravity-cli)
+  AGY_SETTINGS       要改的 agy settings.json (default: $AGY_CONFIG_DIR/settings.json)
   OPENCODE_CONFIG_DIR  opencode 配置目录 (default: $XDG_CONFIG_HOME/opencode，未设则 $HOME/.config/opencode)
   OPENCODE_TUI_CONFIG  要改的 opencode TUI 配置 (default: $OPENCODE_CONFIG_DIR/tui.json；
                      已存在的 tui.jsonc 会被优先接管)
 
 依赖:
-  装 cc / qc / oc 时需要 python3（合并写 settings.json / 补 tui.json 的 plugin 数组）；只装 pi 时不需要。
+  装 cc / qc / agy / oc 时需要 python3（合并写 settings.json / 补 tui.json 的 plugin 数组）；只装 pi 时不需要。
 
 退出码:
   0  成功
@@ -97,16 +101,19 @@ require_cmd() {
 }
 
 # 改 settings.json。mode=check 只做只读校验与可写性探针，不落任何盘。
+# enable=1（仅 agy 侧）时确保 statusLine.enabled 为 true：agy 有这个启用开关，
+# 残留 false 会让「安装」形同没装；cc/qc 不传该参数，行为不变。
 # 解析不了、或目录不可写，都在产生副作用之前退出。
 write_statusline() {
-    local mode="${1:-write}" settings="${2:-$CLAUDE_SETTINGS}" cmd="${3:-$CC_CMD}"
-    CLAUDE_SETTINGS="$settings" WREN_CC_CMD="$cmd" WREN_MODE="$mode" python3 - <<'PY'
+    local mode="${1:-write}" settings="${2:-$CLAUDE_SETTINGS}" cmd="${3:-$CC_CMD}" enable="${4:-}"
+    CLAUDE_SETTINGS="$settings" WREN_CC_CMD="$cmd" WREN_MODE="$mode" WREN_ENABLE="$enable" python3 - <<'PY'
 import json, os, shutil, sys
 
 path = os.environ["CLAUDE_SETTINGS"]
 path = os.path.realpath(path)  # B-5：settings 是 symlink（chezmoi/stow）时解引用写真实目标，保住链接（悬空同样成立）
 cmd = os.environ["WREN_CC_CMD"]
 mode = os.environ["WREN_MODE"]
+enable = os.environ.get("WREN_ENABLE", "")
 parent = os.path.dirname(path) or "."
 
 
@@ -170,6 +177,8 @@ try:
         sl = {}
     sl["type"] = "command"
     sl["command"] = cmd
+    if enable:
+        sl["enabled"] = True   # agy：显式开启，清掉用户之前留下的 false
     data["statusLine"] = sl
 
     tmp = path + ".wren-tmp"
@@ -184,15 +193,18 @@ PY
 }
 
 # 只在 statusLine 确实指向本工具时才删，避免抹掉用户自己的配置
+# agy=1（仅 agy 侧）：命令是 wren 写的时候，enabled:true 一并摘掉（等价缺省）；
+# enabled:false 是用户主动关，保留。padding/stack_with_default 等子键一律保留。
 clear_statusline() {
-    local settings="${1:-$CLAUDE_SETTINGS}" cmd="${2:-$CC_CMD}"
+    local settings="${1:-$CLAUDE_SETTINGS}" cmd="${2:-$CC_CMD}" agy="${3:-}"
     [[ -f "$settings" ]] || return 0
-    CLAUDE_SETTINGS="$settings" WREN_CC_CMD="$cmd" python3 - <<'PY'
+    CLAUDE_SETTINGS="$settings" WREN_CC_CMD="$cmd" WREN_AGY_MODE="$agy" python3 - <<'PY'
 import json, os, sys
 
 path = os.environ["CLAUDE_SETTINGS"]
 path = os.path.realpath(path)  # B-5：symlink 配置解引用再改，卸载不顶掉链接
 cmd = os.environ["WREN_CC_CMD"]
+agy_mode = os.environ.get("WREN_AGY_MODE", "")
 try:
     with open(path, "r", encoding="utf-8") as fh:
         raw = fh.read().strip()
@@ -214,6 +226,8 @@ if not isinstance(sl, dict) or sl.get("command") != cmd:
 # 摘完成空壳（本就是 wren 创建的）才整键删
 sl.pop("type", None)
 sl.pop("command", None)
+if agy_mode and sl.get("enabled") is True:
+    sl.pop("enabled", None)
 if not sl:
     del data["statusLine"]
 try:
@@ -597,11 +611,12 @@ remove_payload() {
 
 cmd_install() {
     local target="$1"
-    local dir cc_payload pi_payload qc_payload oc_payload oc_core backup
+    local dir cc_payload pi_payload qc_payload agy_payload oc_payload oc_core backup
     dir="$(script_dir)"
     cc_payload="$dir/wren-cc.py"
     pi_payload="$dir/wren-pi.ts"
     qc_payload="$dir/wren-qc.py"
+    agy_payload="$dir/wren-agy.py"
     oc_payload="$dir/wren-oc.tsx"
     oc_core="$dir/wren-oc.ts"
 
@@ -616,6 +631,12 @@ cmd_install() {
     if want_target "$target" qc; then
         require_cmd python3
         if ! write_statusline check "$QODER_SETTINGS" "$QC_CMD" >/dev/null; then
+            exit 1
+        fi
+    fi
+    if want_target "$target" agy; then
+        require_cmd python3
+        if ! write_statusline check "$AGY_SETTINGS" "$AGY_CMD" >/dev/null; then
             exit 1
         fi
     fi
@@ -677,6 +698,17 @@ cmd_install() {
         log_info "[qc] statusLine -> $QC_CMD"
     fi
 
+    if want_target "$target" agy; then
+        install_payload "$agy_payload" "$AGY_CMD" "agy" exec
+        if ! backup="$(write_statusline write "$AGY_SETTINGS" "$AGY_CMD" enable)"; then
+            exit 1
+        fi
+        if [[ -n "$backup" ]]; then
+            log_info "[agy] backed up $AGY_SETTINGS -> $backup"
+        fi
+        log_info "[agy] statusLine -> $AGY_CMD"
+    fi
+
     if want_target "$target" oc; then
         install_payload "$oc_payload" "$OC_CMD" "oc"
         install_payload "$oc_core" "$OC_CORE" "oc"
@@ -703,11 +735,12 @@ cmd_install() {
 
 cmd_uninstall() {
     local target="$1"
-    local dir cc_payload pi_payload qc_payload oc_payload oc_core sidecar oc_legacy
+    local dir cc_payload pi_payload qc_payload agy_payload oc_payload oc_core sidecar oc_legacy
     dir="$(script_dir)"
     cc_payload="$dir/wren-cc.py"
     pi_payload="$dir/wren-pi.ts"
     qc_payload="$dir/wren-qc.py"
+    agy_payload="$dir/wren-agy.py"
     oc_payload="$dir/wren-oc.tsx"
     oc_core="$dir/wren-oc.ts"
 
@@ -766,6 +799,29 @@ cmd_uninstall() {
         done
     fi
 
+    if want_target "$target" agy; then
+        remove_payload "$AGY_CMD" "$agy_payload" "agy"
+
+        if command -v python3 >/dev/null 2>&1; then
+            if [[ "$(clear_statusline "$AGY_SETTINGS" "$AGY_CMD" agy)" == "leftalone" ]]; then
+                log_info "[agy] statusLine does not point at $AGY_CMD; left alone"
+            else
+                log_info "[agy] statusLine removed"
+            fi
+        else
+            log_err "[agy] python3 not found; $AGY_SETTINGS not touched"
+        fi
+
+        for sidecar in "$AGY_SETTINGS.wren-bak" "$AGY_SETTINGS.wren-tmp"; do
+            [[ -e "$sidecar" ]] || continue
+            if rm -f "$sidecar" 2>/dev/null; then
+                log_info "[agy] removed $sidecar"
+            else
+                log_err "[agy] cannot remove $sidecar"
+            fi
+        done
+    fi
+
     if want_target "$target" cc; then
         remove_payload "$CC_CMD" "$cc_payload" "cc"
         # v8 迁移残留：老版本装过 $PREFIX/wren-cc，uninstall 一并清（指纹校验）
@@ -813,6 +869,7 @@ normalize_target() {
         cc|claude) TARGET=cc ;;
         pi) TARGET=pi ;;
         qc|qoder) TARGET=qc ;;
+        agy|antigravity) TARGET=agy ;;
         oc|opencode) TARGET=oc ;;
         *)
             log_err "unsupported target: $1"
@@ -837,11 +894,14 @@ main() {
     # qoder 同理：QODER_CONFIG_DIR 是 qoder 官方的重定向变量；statusLine.command 写绝对路径
     local qoder_cfg="${QODER_CONFIG_DIR:-$HOME/.qoder}"
     QODER_SETTINGS="${QODER_SETTINGS:-$qoder_cfg/settings.json}"
+    # Antigravity CLI：settings.json 在 ~/.gemini/antigravity-cli/（不是 ~/.gemini/）
+    local agy_cfg="${AGY_CONFIG_DIR:-$HOME/.gemini/antigravity-cli}"
+    AGY_SETTINGS="${AGY_SETTINGS:-$agy_cfg/settings.json}"
     # payload 与配置同目录（B-1）：裸相对名（无斜杠）时 dirname 取 "."，相对斜杠路径
     # 也一样跟着配置走；command 必须绝对路径（宿主按自身 cwd 解析），统一绝对化。
     # qc 同规则：QC_CMD 跟 QODER_SETTINGS 的目录（旧版只跟 QODER_CONFIG_DIR，
     # 覆盖 QODER_SETTINGS 时 payload 与 settings 分裂落点）
-    local cc_dir qc_dir
+    local cc_dir qc_dir agy_dir
     case "$CLAUDE_SETTINGS" in
         */*) cc_dir="${CLAUDE_SETTINGS%/*}" ;;
         *)   cc_dir="" ;;   # 裸文件名：配置落 CWD，payload 同去
@@ -854,6 +914,12 @@ main() {
     esac
     [[ -n "$qc_dir" && "$qc_dir" == /* ]] || qc_dir="$PWD${qc_dir:+/$qc_dir}"
     QC_CMD="$qc_dir/wren-qc.py"
+    case "$AGY_SETTINGS" in
+        */*) agy_dir="${AGY_SETTINGS%/*}" ;;
+        *)   agy_dir="" ;;
+    esac
+    [[ -n "$agy_dir" && "$agy_dir" == /* ]] || agy_dir="$PWD${agy_dir:+/$agy_dir}"
+    AGY_CMD="$agy_dir/wren-agy.py"
     # opencode 侧：OPENCODE_CONFIG_DIR 是官方重定向变量；TUI 配置是 tui.json(c)（两个文件
     # 都会被宿主读并合并）。payload 放配置文件旁的 plugins/，spec 写相对路径（宿主按声明它的
     # 配置文件解析相对路径）。已存在的 tui.jsonc 优先接管——那是用户手写的那个，

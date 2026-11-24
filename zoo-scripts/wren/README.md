@@ -2,9 +2,9 @@
 
 主 README 只留使用方法，本文收口径、原理与完整清单。
 
-## 宿主差异（cc / pi / qc / oc）
+## 宿主差异（cc / pi / qc / oc / agy）
 
-四份 payload 布局同构，段格式、折叠规则、色板都一致（qc 与 oc 的差异拆到下方小节）。剩下几处差异来自宿主本身
+五份 payload 布局同构，段格式、折叠规则、色板都一致（qc / agy 与 oc 的差异拆到下方小节）。剩下几处差异来自宿主本身
 （statusline 与 TUI footer 拿数据的路子不同），oc 还多一层形态差异（外部命令 vs 进程内 TUI 插件）：
 
 | 位置 | `wren-cc.py`（Claude Code） | `wren-pi.ts`（pi） | `wren-oc.tsx`（opencode） |
@@ -40,8 +40,96 @@ payload 文档 + 构造器静态核对 + 真会话抓包，由 T48-T58 守门）
 
 另有三处降级/工具行为差异：`WREN_DEBUG_DUMP` 写 stdin 原始字节（cc 侧重排 JSON）；
 非法 JSON 走空对象降级出两行（cc 侧只出裸 cwd）；模型名去 `" Model"` 后缀归一化。
+调试钩子：`WREN_DEBUG_DUMP=<path>` 把 stdin 原始字节落盘（qc / agy 侧；cc 侧同名变量写重排后的 JSON），用于未来 schema 变化时对齐。
 
-调试钩子：`WREN_DEBUG_DUMP=<path>` 把 stdin 原始字节落盘（qc 侧；cc 侧同名变量写重排后的 JSON），用于未来 schema 变化时对齐。
+### agy（Antigravity CLI）侧数据源
+
+`wren-agy.py` 以 qc 为基底（`workspace.current_dir` 优先、两行输出），数据源改为 agy 的 statusline
+payload + Gemini 格式 transcript（结论来自 agy 1.5.13 官方文档 + 真实语料核对 + 真机探针，由 T145-T176 守门）：
+
+| 位置 | 来源 |
+|------|------|
+| stdin | 带 1s 超时读取（上限 8 MiB）；空/超时回退 `{}`（idle），避免 runner 不关 stdin 时挂死 |
+| cwd | `workspace.current_dir` 优先，回退 `cwd`，最后 `os.getcwd()`；经 `_clean_text()` 净化 |
+| ↑in/↓out/R | transcript 累计（`PLANNER_RESPONSE` 的 `input_tokens` / `output_tokens` / `cache_read_tokens`）；无 transcript 时回退 payload `context_window.total_input_tokens` / `total_output_tokens`、`current_usage.cache_read_input_tokens` |
+| ctx% | 原生 `used_percentage` 优先 → `current_usage`（in+read+write）→ transcript 末次请求；`context_window_size` 缺失时只显示 `xx.xx%`，不猜 200K |
+| CH | `current_usage` 的 `cache_read / (input + read + write)` → transcript 末次；**`input_tokens` 不含 cache**（见下） |
+| TTFT | 最近一次 `USER_INPUT` → 其后首条 `PLANNER_RESPONSE`（同轮多步不覆盖；`source` 非 `USER_EXPLICIT` 不开窗）。`created_at` 是**秒级精度** → TTFT 量化到 1s（格式沿用 `fmt_ttft`） |
+| 时长 | transcript 首条 `created_at` → now；负值/异常不显示（payload 没有时长字段） |
+| 压缩 | agy transcript **没有压缩标记** → `compactions` 恒 0，CPn 段不显示 |
+| 思考等级 | `model.effort`（`low..max`，仅多档模型有）；缺失不显示 |
+| cost | `cost.total_usd` → `total_cost_usd` 回退；中性色；`estimated` 加 `~` 前缀；`subagent_usd>0` 显示 `\| sub:$x`；`(0,0.005)` 显示 `<$0.01` |
+| 宽度 | `COLUMNS` → 控制终端（`ctermid`）→ payload `terminal_width` → 80（见下方探针表） |
+
+transcript 是 JSONL，只有 5 种记录：`USER_INPUT`（source=`USER_EXPLICIT`）、
+`PLANNER_RESPONSE`（source=`MODEL`，带 token 字段）、`GENERIC` / `SYSTEM_MESSAGE` /
+`ERROR_MESSAGE`。
+
+- **token 口径与 Claude 相同，`input_tokens` 不含 cache**。真实会话里
+  `cache_read[2]=8256` ≈ `input[0]+cache_read[0]=8272`，后续每轮 `cache_read ≈ 上一轮 input+cache_read`，
+  所以 CH 公式 `cache_read/(input+cache_read)` 成立；`↑in`/`R` 按 transcript 累计（与 cc/qc 同口径），payload totals 只作回退。
+- **文件形态**：`transcript.jsonl` 是裁剪版（长字段截断，token 字段完整）；
+  `chunks/transcript/*.jsonl` 只是同内容副本，不会滚动截断。
+- **读取纪律**：缓存键 `agy-<sha1(path)[:16]>.json`，按字节 offset 增量读，与 cc/qc 共用 `$WREN_CACHE_DIR` 也不串味。
+  只接受普通文件，目录 / 设备 / FIFO / socket 按空 transcript 处理（`/dev/zero` 不会挂死、FIFO 不会阻塞）。
+  单行超过 **8 MiB** 整行跳过、后续行照常聚合；跳过上限 64 MiB，超过则本次停止、offset 不前进。
+
+宽度链（真机三通道实测）：
+
+| 场景 | COLUMNS | payload `terminal_width` | 控制终端列数 |
+|------|---------|--------------------------|--------------|
+| 全宽 tab（51 列） | 未设置 | 50 | 50 |
+| 窄 pane（13 列）首次调用 | 未设置 | **80（陈旧）** | **10（正确）** |
+| 同 pane 稳定后 | 未设置 | 10 | 10 |
+
+agy 的 `sh -c` 不导出 `COLUMNS`；payload 的 `terminal_width` 在启动首帧可能是陈旧的 80；
+`os.ctermid()` + `os.get_terminal_size` 从第一帧就准。所以探测链把控制终端放在
+`terminal_width` **之前**，否则窄 pane 首帧会按 80 列排版、换行错位。
+
+宿主有两条硬约束，取自 agy 1.5.13 二进制与真机探针：statusline runner 在约 **4.7s** 后 SIGKILL 脚本
+并计一次失败（`statusline: command failed: signal: killed (stderr: ) (failure 1/30)`），失败后立即重跑、
+无退避；连续 **30 次**失败自动禁用自定义状态栏
+（`Statusline disabled after %d consecutive failures.`，要 `/statusline enable` 才恢复）。
+
+**容灾**：任何路径都必须 rc=0、stderr 为空、恰好两行。`BrokenPipeError` 静默退出；其余 `BaseException`
+走 `emit_fallback()`（短 cwd + `agy`，两行、不查 git/网络）；stdout 启动时 best-effort
+`reconfigure(encoding="utf-8", errors="replace")`；payload 各字段按类型净化；缓存目录只读/损坏不影响渲染。
+
+**运行时预算**：总预算压在 4.7s 硬线之下。
+
+| 常量 | 值 | 说明 |
+|------|----|------|
+| `TOTAL_BUDGET_S` | 3.5s | 自 `main()` 第一行起算的墙钟总预算 |
+| `GIT_TIMEOUT_S` | 1.5s | 单次 `git status`；cc/qc 用 3s，但 agy 的 4.7s 硬杀 + 失败计数不允许 |
+| `SCAN_BUDGET_S` | 1.0s | transcript 增量扫描；每处理完一行检查耗时，超时 break，offset 只记到完整行尾，下次续读收敛 |
+
+`WREN_AGY_SCAN_BUDGET`（秒）可覆盖扫描预算并钳在 `[0.01, 5.0]`，非法值回落 1.0
+（测试专用，正常用户不设）。stdin 超时取 `min(1.0, 剩余预算)`，git 超时取
+`min(1.5, max(0.05, 剩余预算))`；总预算耗尽时直接用缓存状态、不再读新字节。
+实测最坏路径（管道不关 + git 挂起）约 2.6s，低于宿主 4.7s 硬杀线。
+
+git 以**独立会话**（`start_new_session`）启动：超时与进程被 `SIGTERM` / `SIGHUP` / `SIGINT`
+打断时都按进程组 `killpg` **整棵杀**（对齐 2026-10-12 测试护栏事故的教训——只杀直接
+子进程会漏孤儿）。被打断时先清 git 进程树，再输出兜底两行并 `rc=0`，既不漏进程，
+也不以信号死亡（agy 不记一次失败）。
+
+**文本净化**：`model.display_name` / `model.id` / `model.effort` / cwd /
+herdr 环境变量 / **git 分支名**统一走 `_clean_text()`——剥除 CSI（`\x1b[…final`）、OSC（`\x1b]…BEL|ST`）
+和其它两字符 ESC 序列，去掉 Unicode Cc、bidi 控制符（U+202A–202E / U+2066–2069）、
+U+200B，压平 Unicode 行界后 `strip()`；**保留** ZWNJ/ZWJ（U+200C/200D，复杂文字
+模型名与路径要用）。所有进入 stdout 的文本字段都先净化，不可信 ESC 不会流出到宿主；
+注入的 ESC 也不会影响本进程的着色。正常文本（空格、括号、连字符、CJK）逐字不变。
+
+**token 取整**：transcript 与 payload 回退的 token 计数统一 `int()` 截断
+（`output_tokens: 2.0` → `↓2`，`1234.7` → 按 1234 计）；`used_percentage`、cost、
+时长、`ttft_ms` 保持原数值/小数语义。
+
+接入形态与 cc/qc 相同：`~/.gemini/antigravity-cli/settings.json` 的 `statusLine` 写
+`{type:"command", command:"<绝对路径>/wren-agy.py", enabled:true}`；宿主 `sh -c` 执行，
+stdin JSON → stdout 两行，支持多行 + ANSI。`wren install agy` 会把残留的 `enabled:false`
+改回 `true`（否则安装形同没装）；`wren uninstall agy` 只摘 wren 写入的 `type`/`command`
+和等价缺省的 `enabled:true`，用户的 `padding` / `stack_with_default` / `enabled:false` 保留。
+`/statusline` 可切换/删除。
 
 ### oc（opencode）侧：进程内插件，不是 statusline 命令
 
@@ -65,7 +153,7 @@ opencode 没有 statusline 命令协议也没有 `statusLine` 配置键，接入
 
 - **slot**：v1（1.18.x）没有 statusline 专用 slot，用 `session_prompt` / `home_prompt` 的 **replace 模式**：把宿主自带的 `<api.ui.Prompt>` 原样重渲染（透传 `session_id/visible/disabled/on_submit/ref`），只多传 `hint`——宿主源码里 prompt 框下方那一行的左半是 `props.hint ?? cwd`，给了 hint 就顶掉 cwd，wren 两行落进那一格（多行会把该行撑高一行，不占 transcript）。slot 回调的第一参数是 `{theme}`，契约 props 在**第二参数**。契约意外变化时退回裸 Prompt（不给 hint），输入框仍在。
 - **宽度预算（双预算）**：行1 与宿主那一行的右半（usage `162.4K (16%)` + `ctrl+p commands`）共处一行，预算 = 容器宽 − 右半实宽（按宿主 usage 同口径动态算）；行2 独占整行，预算 = 容器宽。行1 放不下时级联丢段（git 计数 → ahead-behind → cwd，分支有 14 格紧凑折叠档）、行2 梯子丢段（TTFT → CH → CP → ctx%，ctx% 有 `16%` 短形兜底）。home 路由的容器宽是 `prompt.max_width`（默认 75），不是终端宽。
-- **去重**：oc 侧不渲染模型 · 思考（宿主 prompt 框内左侧同一行已有 `agent · model · variant`）；cwd 恢复显示——wren 行1 正好占了宿主原来显示 cwd 的那一格。其余三宿主无此依赖。
+- **去重**：oc 侧不渲染模型 · 思考（宿主 prompt 框内左侧同一行已有 `agent · model · variant`）；cwd 恢复显示——wren 行1 正好占了宿主原来显示 cwd 的那一格。其余宿主无此依赖。
 - **崩溃隔离**：slot 渲染里抛异常会直接把整个 TUI 打到崩溃页（1.18.33 实测），因此取数与排版全包在 try/catch 里，失败时降级成一行裸 cwd + 徽标。
 - **色档**：不做 256 档转换，直接给 RGB 十六进制（`<text fg>`），由宿主/终端决定降档；`NO_COLOR` 非空时逐行单色输出（不靠宿主配合）。
 - **相对路径 spec**：payload 拷到 `<tui.json 同目录>/plugins/`，配置里写 `./plugins/wren-oc.tsx`（宿主按声明它的配置文件解析相对路径）。核心与适配层是两个文件，卸载时一并处理。
@@ -79,13 +167,19 @@ opencode 没有 statusline 命令协议也没有 `statusLine` 配置键，接入
 卸载只删自己的东西。目标链接不是指向本工具 payload 的、`statusLine` 不指向 `wren-cc` 的，只提示
 `left alone` 不动。`install` 和 `uninstall` 重复执行都退出 0。
 
-`install cc` 与 `install pi` 各只动一侧，`install qc`（别名 `qoder`）只动 Qoder 侧，`install oc`（别名 `opencode`）只动 opencode 侧；只装 pi 时不需要 python3。qc 的 `statusLine.command` 写绝对路径（`$QODER_CONFIG_DIR/wren-qc.py`，与 qoder 官方引导一致）。装机前若目标位置已有内容不同的
+`install cc` 与 `install pi` 各只动一侧，`install qc`（别名 `qoder`）只动 Qoder 侧，`install agy`（别名 `antigravity`）只动 Antigravity 侧，`install oc`（别名 `opencode`）只动 opencode 侧；装 cc/qc/agy/oc 时需要 python3，只装 pi 时不需要。qc 的 `statusLine.command` 写绝对路径（`$QODER_CONFIG_DIR/wren-qc.py`，与 qoder 官方引导一致）。装机前若目标位置已有内容不同的
 同名文件（含软链，解引用后比较），先告警再覆盖。`$PI_EXT_DIR` 里若还留着旧的手工副本 `odo.ts`，
 会提示 pi 会把两个 footer 都装上，不会替你删。
 
 qc 侧：`install qc` 拷 payload 到 `$QODER_CONFIG_DIR/wren-qc.py` 并写 `$QODER_SETTINGS`；
 卸载反向操作（同样只删自己的东西）。前置校验对所有要写配置的宿主先行：任一 settings
 读不懂或写不进，连一个 payload 都不装（T67 守门）。
+
+agy 侧：`install agy` 拷 payload 到 `$AGY_CONFIG_DIR/wren-agy.py`（默认 `~/.gemini/antigravity-cli/`，
+settings 在该目录的 `settings.json`，**不是** `~/.gemini/settings.json`）并写 `$AGY_SETTINGS` 的
+绝对路径 `statusLine`，同时确保 `statusLine.enabled = true`（残留 false 会让安装形同没装）。
+卸载只摘 `type`/`command` 与等价缺省的 `enabled:true`，保留用户的 `enabled:false` / `padding` /
+`stack_with_default`（T160-T163 守门）。
 
 oc 侧：`install oc` 拷两个 payload（`wren-oc.tsx` + `wren-oc.ts`）到 `<tui 配置同目录>/plugins/`，
 并在 `tui.json` / `tui.jsonc` 的 `plugin` 数组里加一条 `./plugins/wren-oc.tsx`。因为宿主只把 TUI 插件当 npm 包安装
@@ -95,7 +189,7 @@ oc 侧：`install oc` 拷两个 payload（`wren-oc.tsx` + `wren-oc.ts`）到 `<t
 宿主两个文件都读并分层合并，所以只改其中一个不会跟另一个打架。卸载后可能留下空的 `"plugin": []`（宿主视为无插件）。
 
 `wren` 自己经 `cli-zoo-install.sh` 软链到 `$PREFIX` 后，仍能定位同目录的 payload。行 1 尾部有一个
-灰字宿主徽标 ` | cc`、` | pi`、` | qc` 或 ` | oc`，同屏开多个 agent 时一眼能区分。
+灰字宿主徽标 ` | cc`、` | pi`、` | qc`、` | agy` 或 ` | oc`，同屏开多个 agent 时一眼能区分。
 
 ## 环境变量与退出码
 
@@ -107,11 +201,13 @@ oc 侧：`install oc` 拷两个 payload（`wren-oc.tsx` + `wren-oc.ts`）到 `<t
 | `CLAUDE_SETTINGS` | `$CLAUDE_CONFIG_DIR/settings.json` | 要改的 settings 文件（显式设置时优先级最高） |
 | `QODER_CONFIG_DIR` | `$HOME/.qoder` | Qoder CLI 配置目录（qoder 官方同名重定向变量，wren 跟随它定位 settings 与 payload 落点） |
 | `QODER_SETTINGS` | `$QODER_CONFIG_DIR/settings.json` | qc 侧要改的 settings 文件（显式设置时优先级最高） |
+| `AGY_CONFIG_DIR` | `$HOME/.gemini/antigravity-cli` | Antigravity CLI 配置目录（settings 在这里的 `settings.json`，**不是** `~/.gemini/settings.json`） |
+| `AGY_SETTINGS` | `$AGY_CONFIG_DIR/settings.json` | agy 侧要改的 settings 文件（显式设置时优先级最高）；payload 落点 = 它同目录的 `wren-agy.py` |
 | `OPENCODE_CONFIG_DIR` | `${XDG_CONFIG_HOME:-$HOME/.config}/opencode` | opencode 配置目录（opencode 官方同名重定向变量） |
 | `OPENCODE_TUI_CONFIG` | `$OPENCODE_CONFIG_DIR/tui.json`（存在 `tui.jsonc` 时优先接管） | oc 侧要改的 TUI 配置文件；payload 落点 = 它同目录的 `plugins/` |
 
 退出码：`0` 成功 / `1` 写入失败 / `2` 参数错误 / `3` 依赖缺失（python3 或 payload）。
-装 cc / qc / oc 都要 python3（cc/qc 用它合并写 settings.json，oc 用它做 JSONC 定向编辑）；只装 pi 不需要。
+装 cc / qc / agy / oc 都要 python3（cc/qc/agy 用它合并写 settings.json，oc 用它做 JSONC 定向编辑）；只装 pi 不需要。
 
 ## `wren-pi.ts` 相对 pi 上游的有意修改
 
@@ -136,7 +232,7 @@ oc 侧：`install oc` 拷两个 payload（`wren-oc.tsx` + `wren-oc.ts`）到 `<t
   CC 用 `COLUMNS` 有则用、无则 80 兜底（T42/T43/T45/T46）。整行出口再各做一次硬截断
   （pi 的 `truncateToWidth` / CC 侧等价实现），公式算偏也不会溢出。
 
-## Dracula 主题（v5 起，四侧同款色板）
+## Dracula 主题（v5 起，五侧同款色板）
 
 | 元素 | 色 | 色值 |
 |------|------|------|
@@ -157,10 +253,11 @@ oc 侧：`install oc` 拷两个 payload（`wren-oc.tsx` + `wren-oc.ts`）到 `<t
 - CC 侧：`COLORTERM ∈ {truecolor, 24bit}` → truecolor 精确色值；否则 256 色近似。
   statusline 的 stdout 不是 tty，不能拿 `isatty()` 判，只有这两级。qc 与 CC 同判定（同为
   statusline stdout）；真会话实测 truecolor 码原样透传，仅叠加宿主 dim（见上文渲染差异）。
+  agy 同判定，真机 truecolor 透传正常。
 - pi 侧：色档取 `theme.getColorMode()`（宿主公开 API，主题热切换时随 footer 工厂重求值）；`NO_COLOR` 优先于宿主判定。
 - oc 侧：不做 256 档转换，直接给 RGB 十六进制（`<text fg>`），由宿主/终端决定降档；
   因此只有 truecolor 一级（现代终端都能显示），旧终端由宿主自己近似。
-- 两档色值都离线预计算硬编码（256 档按 pi 宿主的 `rgbTo256` 算法算好，两侧同一张表）。
+- 两档色值都离线预计算硬编码（256 档按 pi 宿主的 `rgbTo256` 算法算好，cc / qc / agy 同一张表）。
 - **假定深色终端底色**：Dracula 为暗底设计（白底下黄/前景/绿/青的 WCAG 对比度 <1.5:1 基本不可读），
   光背景需求请用官方 Alucard 色板，此处不支持。
 - 已知降级：tmux 默认不透传 `COLORTERM`，tmux 内 CC 侧会落在 256 色档，属预期行为。

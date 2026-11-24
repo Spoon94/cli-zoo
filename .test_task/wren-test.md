@@ -13,7 +13,8 @@
 
 ## 隔离手段
 
-测试沙箱里五个目录 + 七个环境变量，**真实配置一个都不碰**：
+测试沙箱把安装目标全部改道（九个变量），另有 `XDG_CONFIG_HOME` 与 `WREN_CACHE_DIR` 两个运行期隔离变量，
+**真实配置一个都不碰**：
 
 | 变量 | 指向 |
 |---|---|
@@ -21,8 +22,10 @@
 | `PI_EXT_DIR` | `$BOX/piext` |
 | `CLAUDE_SETTINGS` | `$BOX/claude/settings.json` |
 | `QODER_CONFIG_DIR` / `QODER_SETTINGS` | `$BOX/qoder` 及其 `settings.json` |
+| `AGY_CONFIG_DIR` / `AGY_SETTINGS` | `$BOX/agy` 及其 `settings.json` |
 | `OPENCODE_CONFIG_DIR` / `OPENCODE_TUI_CONFIG` | `$BOX/opencode` 及其 `tui.json` |
 | `XDG_CONFIG_HOME` | `$BOX/xdg`（opencode 会把默认全局配置目录叠加进来，T101 必须隔离） |
+| `WREN_CACHE_DIR` | `$BOX/c<ID>`（直接跑 payload 的用例各自独立，避免污染 `~/.cache/wren`） |
 
 ## 测试用例
 
@@ -125,7 +128,7 @@
 | T92 | oc 安装 | 配置目录 `chmod 555` 后 `install oc` | exit 1，目录零新增文件（**预检先行、不留半装状态**；root 下 SKIP） |
 | T93 | oc 安装 | `tui.json` 顶层是数组 / `plugin` 数组未闭合 | exit 1，文件字节未变、payload 未装 |
 | T94 | 参数 | `install opencode`（别名）与 `install oc9`（非法） | 别名与 `oc` 等价；非法 target exit 2 + stderr `unsupported target` |
-| T95 | 安装 | `install all` → `uninstall all` | 四个宿主全部接线（cc 绝对路径 command、qc 绝对路径 command、pi payload、oc payload + spec），再全部摘干净 |
+| T95 | 安装 | `install all` → `uninstall all` | 五个宿主全部接线（cc / qc / agy 绝对路径 command，agy 另置 `enabled:true`；pi payload；oc payload + spec），再全部摘干净 |
 | T96 | oc 渲染 | 最小夹具（无会话、无 git、无窗口） | 两行；行1 `… \| oc`，行2 `↑0 ↓0 \| R0 \| <model>`（不无中生有） |
 | T97 | oc 渲染 | 满配夹具（git 脏 + herdr + 时长 + token/缓存/压缩 + 窗口） + `999_500` 边界夹具 | 行1/行2 与 cc/pi 逐字同构；`999_500` → `1.0M` 且不出现 `1000K` |
 | T98 | oc 渲染 | 宽度 120→30 扫描记录各段首次消失的宽度 | 丢序 `TTFT(76) → CH(64) → CP(55)`；`↑in↓out`/`R`/ctx%/模型名在梯子区间内不消失（**梯子顺序守门**） |
@@ -152,11 +155,13 @@
 | T123 | qc | transcript assistant 记录 content 含 U+2028（ensure_ascii=False 落盘） | 行2 含 `↑52K`/`R47K`（记录完整解析；**split→splitlines 变异存活**：回退后 `↑0` 红） |
 | T124 | qc | `COLUMNS∈{20,10,6}` + 长路径满配 | 恰 2 行、显示宽 ≤COLUMNS；≥20 列时 qc 徽标在场（6 列实绘 4 格为物理极限区只钉结构；**max(4)→max(24) 变异存活**） |
 | T125 | qc | 四分位换档值 25/50/75 双源（原生 `used_percentage` + postTokens 回落） | `▄25%`/`▆50%`/`█75%` 六组合全中（**阈值 off-by-one 变异存活**：`<=25` 注入后 25→▂ 红） |
+| T126 | cc | 徽标两遍锁定：cwd=`$BOX/acc`（折叠后含 `cc` 子串）+ herdr + `COLUMNS=24` | 行1 仍含 `\| cc`（自然序尾部被 herdr 吃掉时 rescue 重拼；**入选索引判定守门**：拿子串猜会跳过 rescue 丢徽标） |
 | T127 | qc | cwd=`/tmp/xqc`（折叠后含 qc 子串）+ `COLUMNS=24` 带 herdr；51 列 + 38 格 herdr 同款 | 行1 两场景都含 `\| qc` 徽标段（**徽标保住判定用入选索引非子串守门**：删 rescue 分支变异下 24 列丢徽标红，对齐 cc T126） |
 | T128 | qc | 同一 transcript cc 先跑、qc 后跑（同 `WREN_CACHE_DIR`；input=10000/cache_read=8000） | qc 显 `CH80.00%` 不显 `CH44.44%`（**跨宿主缓存键不碰撞守门**：键掺 `qc-` 前缀） |
 | T129 | qc | `message.content=""` 的 user + 5s 后 assistant；对照 `content="a"` | 空 content 不显 TTFT、对照显 `TTFT 5.0s`（**空串不开窗守门**，对齐 cc F2） |
 | T134 | qc | 带上游 ahead=1 的干净 repo + 12 格 herdr，`COLUMNS∈{46,48,50,52}` | 行1 四档 `↑1↓0` 恒在且 `\| qc` 在场（**ab 优先于 cwd 地板守门**：旧序 floor 外层在 46-51 带非单调丢 ab） |
 | T135 | qc | `WREN_CACHE_DIR` 预置 205 个递增 mtime 假缓存 → 渲染一次 | `.json` 数 ≤200、最旧 `fake0` 被删、本次 `qc-<sha1>` 键与最新假件存活（**mtime 清扫守门**） |
+| T136 | cc | 物理极限区幻影分隔符：真 repo（脏树）+ 26/30 列 truecolor | 剥色后无 `\|  \|` 空槽、无尾悬空 `\|`（**colored_git 空判用 strip_ansi 守门**；纯 ANSI 空串 .strip() 掩不住） |
 | T116 | pi | herdr env 注入：harness 注 `HERDR_TAB_ID=$'t1\nEVIL'`、纯 `\n`、`\n`+WS/PANE 三探针（`env -u` 隔离真实 herdr env） | 换行压平进段（行1 `w9:t1EVIL:p1`）且总行数=2；纯 `\n` 且无他段→herdr 段消失；空段被 `filter(Boolean)` 拆掉无 `::`（**pi herdr env 压平守门**；非空转已证：回退旧代码 n=3 红） |
 | T117 | pi | 窄档四分位边界 25/50/75 + 半值 .5 六探针 + cc 交叉（tokens=149000/200000 → 74.5% 精确） | `▄25%`/`▆50%`/`█75%`（边界归上档）；.5 归偶：24.5→▂24、25.5→▄26、49.5→▄50、50.5→▆50、74.5→▆74、75.5→█76；cc 同值 `▆74%`（**pi 半偶舍入守门**；变异已杀：`<50`→`<=50`、roundHalfEven→toFixed(0) 均红） |
 | T118 | pi | 预算地板：`WIDTH∈{20,10,6}`（预算 15/5/4）满配夹具 | 逐格钉形 `743K/117K\|▄28% `（第 15 格为 ⏱ 前空格，十轮裁定 ⏱ 铁律后的截断形）、`743K/`、`743K`（**max(4,W−5) 守门**；变异已杀：max(4)→max(24) 三档全变形红） |
@@ -168,6 +173,43 @@
 | T133 | oc | foldBranch 档位契约：直调 24/12/8/4/0 档 + CJK 13 码点 26 格 + 短名不折 + 行1 级联 30/26/22 | 24 档整名直过；12 档 `ver…chname-x` 恰 12 格（旧公式 14 格）；8 档带 `…`（旧丢标记）；4 档 `…e-x`（三侧公式 max(2,·−1)）；0 档空串；级联 26 列命中新 4 档 `…e-x`、三档宽度全在预算内（**决策落地守门**；回退旧单公式红；T106 期望随 folds 补档更新：级联按优先级保 cwd 折分支到 4 档） |
 | T137 | pi | 幻影分隔符：真 repo + 40 格分支（BRANCHNAME+porcelain 真 head）W=30 truecolor/none 双帧 + W=37 路径展开探针 | 剥色无空槽/无尾悬空 `\| `、herdr+徽标在场、双帧剥色逐字相同；W=37 路径展开到 `…hostrepo`（修前 3 格幻影宽偷预算缩成 `…trepo`）（**终审九轮 #1 守门**；truthy 空判回退→尾悬空 `\| ` 红、gitW 回退→`…trepo` 红） |
 | T138 | pi | 决策 2：真 repo + bare remote ahead=1，WIDTH 46/48/50/52 | `↑1↓0` 与 `\| pi` 四档恒在（**穷举序翻转守门**；旧序 floor 最外→46-50 丢 ab 红） |
+| T139 | qc | 物理极限区幻影分隔符（qc 侧）：26/30 列 truecolor + 长 herdr | 剥色后 `\| qc` 在场、无 `\| *\|` 空槽、无尾悬空 `\|`（**终审 9-1 同款守门**） |
+| T141 | oc | 编辑终止性：207 元素数组 / 两元素（目标在第二位）/ 杂散逗号 / 纯逗号段 / 嵌套数组 / 未闭合注释 / 未闭合字符串 | 任一形态都不得原地打转（`run_limited` 超时返回 124 即 FAIL）；install 幂等、207 元素不丢；嵌套对象同值字符串不算已存在（**2026-10-12 死循环事故回归**） |
+| T142 | oc | 超时护栏自证：`run_limited 2` 跑 `while :; do :; done` | rc=124 且 <8s（**护栏必须真能掐断死循环**，否则 T141 会退化成挂死） |
+| T143 | oc | watchdog 自证：嵌套跑整套、`WREN_TEST_TOTAL_TIMEOUT=15` | 结果文件写出 `watchdog \| FAIL` 行、退出码非 0、<90s（**整体超时绝不静默**） |
+| T144 | oc | 杀整棵树自证：bash → python 两层自旋，超时后按 marker 扫孤儿 | rc=124 且无残留孙进程（**只杀直接子进程会漏 python 孙进程**） |
+| T145 | agy | 宽档精确两行：1 USER + 3 PLANNER，累计 4000/400/4000、末次 prompt 3000；cost 含 estimated/subagent；fixed 90s 前时间戳 | 行1 `/tmp \| agy · 1m`；行2 `↑4K ↓400 \| R4K CH66.67% \| 1.50%/200K TTFT 1.0s \| m · high \| ~$0.03 \| sub:$0.01`（**两行契约/全段守门**） |
+| T146 | agy | `COLUMNS=51` 同形夹具 | 行2 `4K/400\|◈66.67%\|▂2% ⏱1.0s\|m · hi`，两行宽 ≤46，cost 按丢序先让位 |
+| T147 | agy | 同形夹具 truecolor vs `NO_COLOR=1` | 纯文本 == 带色输出剥 ANSI；无色档无 ESC；truecolor 必含 `38;2;`（**色档不改变内容**） |
+| T148 | agy | TTFT 四段：同轮多步 / 新 USER 等待 / 新轮首片 / `source=SYSTEM` 的 USER | `1.0s`（多步不覆盖）→ `1.0s`（存量）→ `3.0s`（新轮）→ `3.0s`（非 USER_EXPLICIT 不开窗） |
+| T149 | agy | 首条记录 1h 前 / 首条记录 1h 后 | 行1 含 ` · 1h0m`；未来时间戳 → 行1 无 `·`（不渲染负时长） |
+| T150 | agy | 无 transcript：payload totals/current_usage / 仅 used_percentage 且无 win | `↑43K ↓5K \| R3K CH75.00% \| 2.00%/200K \| m`；win 未知 → `22.00%` 不带 `/win` |
+| T151 | agy | 两行 transcript 渲染后追加一行；另建同内容冷缓存对照 | 热追加输出 == 冷扫；缓存 offset 两次都等于文件大小；CH/ctx 随末次请求更新 |
+| T152 | agy | transcript 故障 9 类：缺失/空/二进制/非法行/半行/截断/offset 毒型/非 dict/状态字段毒型 | 全部 rc0、2 行、语义正确；offset 自愈成 int==size；状态毒型不产生幻影时长 |
+| T153 | agy | stdin：EOF / 写端保持打开 3s / 非法 UTF-8 / 截断 JSON / 顶层数组 / 9MiB | EOF idle 两行；打开管道 ≤1.2s（实测 ~1.1s）；其余均 2 行 rc0；9MiB 截断读取不崩 |
+| T154 | agy | 故障矩阵 39 例：类型 null/str/array/bool、NaN/±Infinity/1e999、"V500"、负数、BOM、bidi/ANSI/OSC 注入、cost 变体、terminal_width 1e9/float | 每例 rc0、stderr 空、恰好 2 行、宽 ≤80、无控制字符/ESC |
+| T155 | agy | 宽度链：COLUMNS 压 tty(120)→51；tty=51 + terminal_width=80；无 tty → terminal_width=51；全缺 → 80 | 四个场景分别命中窄/窄/窄/宽（默认 80 行长 79 格）（**控制终端压过陈旧的 payload 宽度**） |
+| T156 | agy | `LC_ALL=C LANG=C PYTHONCOERCECLOCALE=0` | 合法 UTF-8 两行，含 `↑43K`；stdout reconfigure 生效 |
+| T157 | agy | 长分支 + 长 CJK 路径，COLUMNS 80/60/40/30 | 两行宽 ≤ 有效宽度（≤55 时 −5）；徽标 `agy` 四档都在 |
+| T158 | agy | 非 git cwd | 行1 `<cwd> \| agy`，行2 `↑0 ↓0 \| R0 \| m`，无错误 |
+| T159 | agy↔cc | 等价 payload+各自格式 transcript；宽/窄/NO_COLOR；长模型名溢出丢序 | 除 `cc`/`agy` 徽标与 cost 段外逐字相同；溢出时 cost 先让位、TTFT→CH→身份组与 cc 同序（**一致性守门**） |
+| T160 | 安装 | `wren install agy`，预置 `enabled:false`+padding+stack_with_default | payload 是 exec 副本；`enabled:true`、其它子键保留；备份=原始字节；二次安装幂等 |
+| T161 | 卸载 | 安装后用户设 `enabled:false`；干净安装；用户改 command 三种 | 前两种摘 type/command、保留 false/padding/stack（或整键删）；用户改过的 command left alone |
+| T162 | 安装 | `$AGY_SETTINGS` 非法 JSON | exit 1；settings 未变、未装 payload、无 bak/tmp（零副作用） |
+| T163 | 安装 | `statusLine: true` + `install antigravity` | 归一化成对象（type/command/enabled）；`uninstall agy` 后整键删除（**别名互通**） |
+| T164 | 性能 | 标准夹具热运行 3 次 | 最慢 <1.5s（防灾难性回归） |
+| T165 | 缓存 | 同 transcript 先跑 agy，再跑 cc/qc，再跑 agy | 目录里 `agy-`/`cc-`/`qc-` 各一份；agy 输出前后一致（**键隔离**） |
+| T166 | agy | 文本净化：ANSI/OSC/CSI/bidi/零宽空格注入 model/effort/cwd/herdr；ZWNJ；正常文本 | 注入的转义被剥掉、本进程着色保留（`38;2;` 仍在、无注入的裸 `ESC[31m`），剥色后 == NO_COLOR；`Gemevil`/`abcdef · hi`/`abcdef · medium`/`w1:t2:p3` 保留；ZWNJ 保留；正常文本逐字不变 |
+| T167 | agy | token 取整：transcript 999.9/2.0/3.9；payload 回退 float；旧缓存全 float | `↑999 ↓2 \| R3`（无 `.0`/`.9`）；缓存 float 状态被 int 化 |
+| T168 | agy | PATH 放 `sleep 10` 的假 git | rc0/2 行/stderr 空，<2.2s（GIT_TIMEOUT_S=1.5） |
+| T169 | agy | stdin 不关 + 慢 git 同时发生 | rc0/2 行/stderr 空，<3.8s（实测 ~2.6s） |
+| T170 | agy | 5.7MB transcript + `WREN_AGY_SCAN_BUDGET=0.02` | 首次 <1.5s 且 0<offset<size；反复续读 offset==size；最终输出 == 默认预算冷扫（`↑1M ↓100K`）；`WREN_AGY_SCAN_BUDGET=abc` 回落不崩 |
+| T171 | agy | transcript 指向 `/dev/zero` / FIFO / 目录 | 均 <2s、rc0、两行、stderr 空、token 回退 payload `↑88K ↓61K \| R21K`（**非普通文件守门**：不打开、不阻塞） |
+| T172 | agy | 9MiB 合法 JSON 单行 + 后续正常 PLANNER（7/2/3） | 输出 == 只含后续行的冷扫（`↑7 ↓2 \| R3`）、缓存 `offset==size`（**超长单行整行跳过**） |
+| T173 | agy | git 分支名 `feature<U+202E>evil` | 行1 不含 U+202E、显示 `featureevil`、徽标仍在（**分支名 bidi 净化**） |
+| T174 | agy | 模型名注入 `Gem<ESC>[31mevil<ESC>[0m`；truecolor vs NO_COLOR | truecolor 码 `38;2;` 仍在、无注入的裸 `ESC[31m`、剥色后 == NO_COLOR、`Gemevil` 在场（**注入的 ESC 不干掉本进程着色**） |
+| T175 | agy | 假 git（包装脚本 fork 出带标记孙进程）超时 | rc0、两行、<2.4s、1s 内无带标记进程存活（**超时杀整棵树**） |
+| T176 | agy | 同样的假 git 挂住时依次 SIGTERM / SIGHUP / SIGINT | 发信号前确认进程树活着；每次 rc0、stderr 空、恰好两行、无存活进程（**信号打断杀整棵树**） |
 
 ## 条件用例（不满足条件时 SKIP，不算 FAIL）
 
