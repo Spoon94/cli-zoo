@@ -4,7 +4,7 @@
 # 用法: ./cli-zoo-uninstall.sh <tool>
 # 当前支持的 tool: otter wren
 #
-# 注意：这里只摘掉 $PREFIX/wren 本身。两个宿主上的接线请先跑 `wren uninstall`。
+# 注意：这里只摘掉 $PREFIX/wren 本身。各宿主上的接线请先跑 `wren uninstall`。
 
 set -u
 

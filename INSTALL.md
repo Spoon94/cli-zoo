@@ -7,7 +7,7 @@
 | 依赖 | 用在哪 | 检查 |
 |------|--------|------|
 | bash | 安装脚本、测试 | `command -v bash` |
-| python3 | wren 的 python payload（`wren-cc.py` / `wren-qc.py`）、opencode 侧 `tui.json(c)` 的 JSONC 定向编辑、wren 测试的 JSON 断言 | `command -v python3` |
+| python3 | wren 的 python payload（`wren-cc.py` / `wren-qc.py` / `wren-agy.py`）、opencode 侧 `tui.json(c)` 的 JSONC 定向编辑、wren 测试的 JSON 断言 | `command -v python3` |
 | claude | otter 测试 T06+ 前置检查（缺则 otter 测试 exit 2） | `command -v claude` |
 | git | otter 布局里的 lazygit window、wren 的 statusline git 段（oc 侧自己跑 `git status`） | `command -v git` |
 | node ≥ 22.18（或 23.6） | 仅 wren 测试里依赖 node 的 23 条用例（T27-T32/T38/T40/T43/T46/T69-T73/T77-T78/T80/T96-T100、T105、T106，需不带 flag 直接执行 `.ts` 的版本；22.6-22.17 要显式 flag，probe 不加，会 SKIP）；wren 运行本身不需要 | `node -v`（缺时测试 SKIP，不算 FAIL） |
@@ -15,7 +15,7 @@
 | tmux | otter 全部功能；wren 测试 T101（真机 e2e） | `command -v tmux` |
 
 缺 node 只导致 wren 那 23 条用例 SKIP，缺 opencode 或 tmux 只导致 T101 SKIP，都不算 FAIL；缺 python3 时 wren 测试脚本自身 exit 2，
-而 `wren install cc` / `wren install qc` / `wren install oc` 会 exit 3（`wren install pi` 不需要 python3）。
+而 `wren install cc` / `wren install qc` / `wren install agy` / `wren install oc` 会 exit 3（`wren install pi` 不需要 python3）。
 
 ## 安装
 
@@ -30,10 +30,16 @@
 wren 装完本体后还需一步接线（装的是文件副本，幂等）：
 
 ```bash
-wren install            # 四个宿主都装；或 wren install cc / pi / qc / oc 分侧装（别名 claude / qoder / opencode）
+wren install            # 五个宿主都装；或 wren install cc / pi / qc / agy / oc 分侧装（别名 claude / qoder / antigravity / opencode）
 ```
 
 该步会写 `$CLAUDE_SETTINGS` 的 `statusLine` 键（只动这一个键，首次自动备份到 `<settings>.wren-bak`），并把 payload 拷到 **settings.json 同目录的 `wren-cc`** 与 `$PI_EXT_DIR/wren-pi.ts`。默认落 `~/.claude/wren-cc` 与 `~/.pi/agent/extensions/wren-pi.ts`，可用 `CLAUDE_SETTINGS` / `PI_EXT_DIR` 改道（改 settings 路径即改 payload 落点）。qc 侧同理：payload 拷到 `$QODER_CONFIG_DIR/wren-qc.py`（默认 `~/.qoder`，可用 `QODER_CONFIG_DIR` / `QODER_SETTINGS` 改道），`statusLine.command` 写该绝对路径。
+
+agy 侧：payload 拷到 `$AGY_CONFIG_DIR/wren-agy.py`（默认 `~/.gemini/antigravity-cli/`，可用 `AGY_CONFIG_DIR` / `AGY_SETTINGS` 改道；
+注意 settings 在 `~/.gemini/antigravity-cli/settings.json`，**不是** `~/.gemini/settings.json`），并在 `$AGY_SETTINGS` 写绝对路径的
+`statusLine`。agy 有启用开关，`wren install agy` 会确保 `statusLine.enabled = true`（残留 `false` 会让安装形同没装）；
+用户原有的 `padding` / `stack_with_default` 等子键保留。卸载只摘 wren 写入的 `type` / `command` 与等价缺省的
+`enabled:true`，`enabled:false`（用户主动关）保留。
 
 oc 侧形态不同（opencode 没有 statusline 命令协议）：两个 payload（`wren-oc.tsx` + `wren-oc.ts`）拷到 **`<tui 配置同目录>/plugins/`**，
 并在 `tui.json` / `tui.jsonc` 的 `plugin` 数组里加一条 `./plugins/wren-oc.tsx`。默认落在 `~/.config/opencode`，
@@ -47,7 +53,7 @@ oc 侧形态不同（opencode 没有 statusline 命令协议）：两个 payload
 otter -h                                # otter 装好
 wren -h                                 # wren 本体装好
 bash .test_scripts/otter-test.sh        # expect: Total: 25  Pass: 25
-bash .test_scripts/wren-test.sh         # expect: Total: 106  Pass: 106（缺 node 时 23 条 SKIP，缺 opencode/tmux 时 T101 SKIP）
+bash .test_scripts/wren-test.sh         # expect: Total: 176  Pass: 175  Fail: 0  Skip: 1（缺 node 时 23 条 SKIP，缺 opencode/tmux 时 T101 SKIP）
 ```
 
 wren 装好后可再喂一份 statusline JSON 冒烟：
@@ -57,6 +63,8 @@ printf '{"cwd":"/tmp","model":{"display_name":"m"}}' | NO_COLOR=1 ~/.claude/wren
 # expect: 两行输出，行1 以 "| cc" 结尾，exit 0
 printf '{"cwd":"/tmp","model":{"display_name":"m"}}' | NO_COLOR=1 python3 zoo-scripts/wren/wren-qc.py
 # expect: 两行输出，行1 以 "| qc" 结尾，exit 0
+printf '{"cwd":"/tmp","workspace":{"current_dir":"/tmp"},"model":{"display_name":"m"}}' | NO_COLOR=1 python3 zoo-scripts/wren/wren-agy.py
+# expect: 两行输出，行1 以 "| agy" 结尾，exit 0
 ```
 
 oc 侧没有 stdin/stdout 冒烟（是 TUI 插件）：用隔离配置验证接线，或直接看 prompt 框下方那一行：
@@ -78,12 +86,12 @@ P=zoo-scripts/wren/wren-oc.ts node -e 'import(process.env.P).then(m=>console.log
 ## 卸载
 
 ```bash
-wren uninstall                          # 先拆四个宿主的接线（幂等）
+wren uninstall                          # 先拆五个宿主的接线（幂等）
 ./cli-zoo-uninstall.sh wren             # 再摘 wren 本体
 ./cli-zoo-uninstall.sh otter            # otter 直接卸
 ```
 
-顺序重要：`cli-zoo-uninstall.sh wren` 摘掉 `$PREFIX/wren` 软链后，`wren uninstall` 就没入口了，会留下 `~/.claude/wren-cc`、两份 settings 里的 `statusLine`、`~/.pi/agent/extensions/wren-pi.ts`、`~/.qoder/wren-qc.py`、`~/.config/opencode/plugins/wren-oc.{tsx,core.ts}` 与 `tui.json(c)` 里的 `plugin` 条目。uninstall 只删 wren 自己装的文件；内容被改过的目标会 `left alone` 不动。
+顺序重要：`cli-zoo-uninstall.sh wren` 摘掉 `$PREFIX/wren` 软链后，`wren uninstall` 就没入口了，会留下 `~/.claude/wren-cc`、三份 settings 里的 `statusLine`、`~/.pi/agent/extensions/wren-pi.ts`、`~/.qoder/wren-qc.py`、`~/.gemini/antigravity-cli/wren-agy.py` 与其 `settings.json` 的 `statusLine`、`~/.config/opencode/plugins/wren-oc.{tsx,core.ts}` 与 `tui.json(c)` 里的 `plugin` 条目。uninstall 只删 wren 自己装的文件；内容被改过的目标会 `left alone` 不动。
 oc 侧卸载可能留下空的 `"plugin": []`（宿主视为无插件）——有意取舍：宁可留一个空数组，也不删用户配置里的键。
 
 ## 退出码（wren）

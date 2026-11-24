@@ -4,7 +4,7 @@
 # 用法: ./cli-zoo-install.sh <tool>
 # 当前支持的 tool: otter wren
 #
-# wren 装的是一个安装器；两个宿主的接线由 `wren install` 自己完成。
+# wren 装的是一个安装器；各宿主的接线由 `wren install` 自己完成。
 
 set -u
 

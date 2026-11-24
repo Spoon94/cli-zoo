@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# wren-test.sh - 自动运行 wren 的 143 个用例（用例书见 .test_task/wren-test.md）。
+# wren-test.sh - 自动运行 wren 的 176 个用例（用例书见 .test_task/wren-test.md）。
 #
 # 用法: bash .test_scripts/wren-test.sh
 # 写出: .test_res/wren-test-res.md（可用 WREN_TEST_RES_FILE 改道）
 # 超时: WREN_TEST_CMD_TIMEOUT=30 单命令 / WREN_TEST_TOTAL_TIMEOUT=1200 整套（watchdog）
 #
 # 全程在 mktemp -d 里作业：PREFIX / PI_EXT_DIR / CLAUDE_SETTINGS / QODER_CONFIG_DIR /
-# QODER_SETTINGS / OPENCODE_CONFIG_DIR / OPENCODE_TUI_CONFIG 七个变量把安装目标全部改道，
-# 不会碰到真实的 /usr/local/bin、~/.pi、~/.claude、~/.qoder、~/.config/opencode。
+# QODER_SETTINGS / AGY_CONFIG_DIR / AGY_SETTINGS / OPENCODE_CONFIG_DIR / OPENCODE_TUI_CONFIG
+# 九个变量把安装目标全部改道，不会碰到真实的 /usr/local/bin、~/.pi、~/.claude、~/.qoder、
+# ~/.gemini/antigravity-cli、~/.config/opencode。
 
 set -u
 
@@ -21,6 +22,7 @@ WREN="$REPO_ROOT/zoo-scripts/wren/wren"
 CC_PAYLOAD="$REPO_ROOT/zoo-scripts/wren/wren-cc.py"
 PI_PAYLOAD="$REPO_ROOT/zoo-scripts/wren/wren-pi.ts"
 QC_PAYLOAD="$REPO_ROOT/zoo-scripts/wren/wren-qc.py"
+AGY_PAYLOAD="$REPO_ROOT/zoo-scripts/wren/wren-agy.py"
 OC_PAYLOAD="$REPO_ROOT/zoo-scripts/wren/wren-oc.tsx"
 OC_CORE_PAYLOAD="$REPO_ROOT/zoo-scripts/wren/wren-oc.ts"
 INSTALL_SH="$REPO_ROOT/cli-zoo-install.sh"
@@ -70,12 +72,14 @@ new_box() {
     SETTINGS="$CLAUDE/settings.json"
     QODER="$BOX/qoder"
     QODER_SETTINGS="$QODER/settings.json"
+    AGY="$BOX/agy"
+    AGY_SETTINGS="$AGY/settings.json"
     OC="$BOX/opencode"
     OCCONF="$OC/tui.json"
-    mkdir -p "$BIN" "$PIEXT" "$CLAUDE" "$QODER" "$OC"
+    mkdir -p "$BIN" "$PIEXT" "$CLAUDE" "$QODER" "$AGY" "$OC"
 }
 BOX_N=0
-BOX="" BIN="" PIEXT="" CLAUDE="" SETTINGS="" QODER="" QODER_SETTINGS="" OC="" OCCONF=""
+BOX="" BIN="" PIEXT="" CLAUDE="" SETTINGS="" QODER="" QODER_SETTINGS="" AGY="" AGY_SETTINGS="" OC="" OCCONF=""
 
 # ---------- 超时保护（2026-10-12 事故）----------
 # 背景：wren install oc 的 heredoc 曾在「多元素 plugin 数组」上进死循环，
@@ -174,6 +178,7 @@ run_wren() {
     run_limited "$CMD_TIMEOUT" env NO_COLOR=1 PREFIX="$BIN" PI_EXT_DIR="$PIEXT" \
         CLAUDE_CONFIG_DIR="$CLAUDE" CLAUDE_SETTINGS="$SETTINGS" \
         QODER_CONFIG_DIR="$QODER" QODER_SETTINGS="$QODER_SETTINGS" \
+        AGY_CONFIG_DIR="$AGY" AGY_SETTINGS="$AGY_SETTINGS" \
         OPENCODE_CONFIG_DIR="$OC" OPENCODE_TUI_CONFIG="$OCCONF" \
         "$WREN" "$@" >"$BOX/out.txt" 2>"$BOX/err.txt"
     WREN_EXIT=$?
@@ -197,6 +202,7 @@ strip_tag() {
     seg="${seg% | pi}"
     seg="${seg% | qc}"
     seg="${seg% | oc}"
+    seg="${seg% | agy}"
     printf '%s' "$seg"
 }
 
@@ -214,7 +220,7 @@ if ! command -v python3 >/dev/null 2>&1; then
     exit 2
 fi
 
-for f in "$WREN" "$CC_PAYLOAD" "$PI_PAYLOAD" "$QC_PAYLOAD" "$OC_PAYLOAD" "$OC_CORE_PAYLOAD"; do
+for f in "$WREN" "$CC_PAYLOAD" "$PI_PAYLOAD" "$QC_PAYLOAD" "$AGY_PAYLOAD" "$OC_PAYLOAD" "$OC_CORE_PAYLOAD"; do
     if [[ ! -f "$f" ]]; then
         echo "ERROR: $f not found" >&2
         exit 2
@@ -481,6 +487,9 @@ fi
 # T21: 从软链入口跑 install → 仍能定位到 payload（多文件目录的关键）
 # ============================================================
 env PREFIX="$BIN" PI_EXT_DIR="$PIEXT" CLAUDE_SETTINGS="$SETTINGS" \
+    QODER_CONFIG_DIR="$QODER" QODER_SETTINGS="$QODER_SETTINGS" \
+    AGY_CONFIG_DIR="$AGY" AGY_SETTINGS="$AGY_SETTINGS" \
+    OPENCODE_CONFIG_DIR="$OC" OPENCODE_TUI_CONFIG="$OCCONF" \
     "$BIN/wren" install >/dev/null 2>&1
 rc=$?
 if [[ $rc -eq 0 ]] \
@@ -499,6 +508,8 @@ printf '{}\n' >"$SETTINGS"
 NOPY="$BOX/nopy"
 mkdir -p "$NOPY"
 out=$(env PATH="$NOPY" PREFIX="$BIN" PI_EXT_DIR="$PIEXT" CLAUDE_SETTINGS="$SETTINGS" \
+    QODER_CONFIG_DIR="$QODER" QODER_SETTINGS="$QODER_SETTINGS" \
+    AGY_CONFIG_DIR="$AGY" AGY_SETTINGS="$AGY_SETTINGS" \
     OPENCODE_CONFIG_DIR="$OC" OPENCODE_TUI_CONFIG="$OCCONF" \
     /bin/bash "$WREN" install 2>&1 >/dev/null; printf 'EXIT:%s' "$?")
 exit_code="${out##*EXIT:}"
@@ -519,6 +530,9 @@ mkdir -p "$FAKE_DIR"
 cp "$WREN" "$FAKE_DIR/wren"
 printf '{}\n' >"$SETTINGS"
 out=$(env PREFIX="$BIN" PI_EXT_DIR="$PIEXT" CLAUDE_SETTINGS="$SETTINGS" \
+    QODER_CONFIG_DIR="$QODER" QODER_SETTINGS="$QODER_SETTINGS" \
+    AGY_CONFIG_DIR="$AGY" AGY_SETTINGS="$AGY_SETTINGS" \
+    OPENCODE_CONFIG_DIR="$OC" OPENCODE_TUI_CONFIG="$OCCONF" \
     /bin/bash "$FAKE_DIR/wren" install 2>&1 >/dev/null; printf 'EXIT:%s' "$?")
 exit_code="${out##*EXIT:}"
 stderr_out="${out%EXIT:*}"
@@ -1647,7 +1661,8 @@ else
     printf '{"model":"opus"}\n' >"$SETTINGS"
     cp "$SETTINGS" "$BOX/before68"
     env NO_COLOR=1 PREFIX="$BIN" PI_EXT_DIR="$PIEXT" CLAUDE_SETTINGS="$SETTINGS" \
-        QODER_CONFIG_DIR="$RO/qoder/nested" OPENCODE_CONFIG_DIR="$OC" OPENCODE_TUI_CONFIG="$OCCONF" \
+        QODER_CONFIG_DIR="$RO/qoder/nested" AGY_CONFIG_DIR="$AGY" AGY_SETTINGS="$AGY_SETTINGS" \
+        OPENCODE_CONFIG_DIR="$OC" OPENCODE_TUI_CONFIG="$OCCONF" \
         "$WREN" install >"$BOX/out68.txt" 2>"$BOX/err68.txt"
     E68=$?
     if [[ "$E68" == "1" ]] \
@@ -2362,7 +2377,7 @@ else
 fi
 
 # ============================================================
-# T95: install all / uninstall all 把四个宿主都接上、都摘干净
+# T95: install all / uninstall all 把五个宿主都接上、都摘干净
 # ============================================================
 new_box
 run_wren install all
@@ -2370,19 +2385,22 @@ inst_all=1
 [[ -f "$CLAUDE/wren-cc" ]] || inst_all=0
 [[ -f "$PIEXT/wren-pi.ts" ]] || inst_all=0
 [[ -f "$QODER/wren-qc.py" ]] || inst_all=0
+[[ -f "$AGY/wren-agy.py" ]] || inst_all=0
 [[ -f "$OC/plugins/wren-oc.tsx" ]] || inst_all=0
 [[ "$(json_field "$SETTINGS" "d['statusLine']['command']")" == "$CLAUDE/wren-cc" ]] || inst_all=0
 [[ "$(json_field "$QODER_SETTINGS" "d['statusLine']['command']")" == "$QODER/wren-qc.py" ]] || inst_all=0
+[[ "$(json_field "$AGY_SETTINGS" "d['statusLine']['command']")" == "$AGY/wren-agy.py" ]] || inst_all=0
 grep -qF '"./plugins/wren-oc.tsx"' "$OCCONF" || inst_all=0
 run_wren uninstall all
 un_all=1
-[[ -e "$CLAUDE/wren-cc" || -e "$PIEXT/wren-pi.ts" || -e "$QODER/wren-qc.py" || -e "$OC/plugins/wren-oc.tsx" ]] && un_all=0
+[[ -e "$CLAUDE/wren-cc" || -e "$PIEXT/wren-pi.ts" || -e "$QODER/wren-qc.py" || -e "$AGY/wren-agy.py" || -e "$OC/plugins/wren-oc.tsx" ]] && un_all=0
 grep -qF 'wren-oc.tsx' "$OCCONF" && un_all=0
 [[ "$(json_field "$SETTINGS" "d.get('statusLine')")" == "None" ]] || un_all=0
+[[ "$(json_field "$AGY_SETTINGS" "d.get('statusLine')")" == "None" ]] || un_all=0
 if [[ $inst_all -eq 1 && $un_all -eq 1 ]]; then
-    pass T95 "install all wires 4 hosts; uninstall all unwires them"
+    pass T95 "install all wires 5 hosts; uninstall all unwires them"
 else
-    fail T95 "install_all=$inst_all uninstall_all=$un_all claude=[$(ls -A "$CLAUDE" | tr '\n' ' ')] oc=[$(ls -A "$OC" | tr '\n' ' ')] conf=[$(cat "$OCCONF" 2>/dev/null)]"
+    fail T95 "install_all=$inst_all uninstall_all=$un_all claude=[$(ls -A "$CLAUDE" | tr '\n' ' ')] agy=[$(ls -A "$AGY" | tr '\n' ' ')] oc=[$(ls -A "$OC" | tr '\n' ' ')] conf=[$(cat "$OCCONF" 2>/dev/null)]"
 fi
 
 # ============================================================
@@ -3870,6 +3888,1259 @@ if [[ "$t144_rc" == "124" && -z "$t144_left" ]]; then
     pass T144 "timeout guard kills the whole tree (no orphan grandchildren)"
 else
     fail T144 "rc=$t144_rc leftover=[$t144_left]"
+fi
+
+# ============================================================
+# agy（wren-agy.py）—— 从 T145 起。夹具全部手工脱敏构造（结构同真实
+# transcript：USER_INPUT / PLANNER_RESPONSE / GENERIC…，content 用占位
+# 文本），不拷贝任何真实会话数据。
+# ============================================================
+
+# agy_ts <秒偏移>：UTC 秒级时间戳（agy transcript 的 created_at 精度）
+agy_ts() {
+    python3 -c "import datetime,sys;print((datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(seconds=int(sys.argv[1]))).strftime('%Y-%m-%dT%H:%M:%SZ'))" "$1"
+}
+
+# agy_out <cache_dir> <columns> <none|truecolor> <payload> → 两行 stdout
+agy_out() {
+    local cache="$1" cols="$2" mode="$3" payload="$4"
+    if [[ "$mode" == "truecolor" ]]; then
+        printf '%s' "$payload" | env -u NO_COLOR COLORTERM=truecolor COLUMNS="$cols" \
+            WREN_CACHE_DIR="$cache" python3 "$AGY_PAYLOAD" 2>/dev/null
+    else
+        printf '%s' "$payload" | env NO_COLOR=1 COLUMNS="$cols" \
+            WREN_CACHE_DIR="$cache" python3 "$AGY_PAYLOAD" 2>/dev/null
+    fi
+}
+
+# agy_lines <text>：行数（命令替换已剥尾换行，两行输出 → 2）
+agy_lines() { printf '%s' "$1" | awk 'END{printf "%d", NR}'; }
+
+# agy_w <text>：单行显示宽（剥 ANSI、CJK 计 2）
+agy_w() {
+    python3 -c '
+import sys, re, unicodedata
+s = re.sub(r"\x1b\[[0-9;]*m", "", sys.stdin.read())
+print(sum(2 if unicodedata.east_asian_width(c) in ("W", "F") else 1 for c in s))
+'
+}
+
+# agy_plain：剥 ANSI
+agy_plain() {
+    python3 -c '
+import sys, re
+sys.stdout.write(re.sub(r"\x1b\[[0-9;]*m", "", sys.stdin.read()))
+'
+}
+
+# agy_strip_cost：去掉行尾 cost 段（宽档 " | ~$x" / 窄档 "|~$x"，含 sub:）
+agy_strip_cost() {
+    sed -E 's/ ?\| ?~?(\$[0-9]+\.[0-9]+|<\$0\.01)( ?\| ?sub:(\$[0-9]+\.[0-9]+|<\$0\.01))?$//'
+}
+
+# agy_cache_file <cache_dir> <transcript>：agy 缓存键（与实现同式）
+agy_cache_file() {
+    python3 -c 'import hashlib,sys;print(sys.argv[1]+"/agy-"+hashlib.sha1(sys.argv[2].encode()).hexdigest()[:16]+".json")' "$1" "$2"
+}
+
+# agy_base_fixture <out>：标准脱敏 transcript。固定旧时间戳 → 时长恒 99h+
+# （不随测试时钟抖动）；TTFT 1.0s；三条 PLANNER_RESPONSE 同轮多步，
+# token 累计 4000/400/4000，末次 prompt 3000（CH 66.67%，ctx 1.50%/200K）。
+agy_base_fixture() {
+    cat >"$1" <<'EOF2'
+{"step_index":1,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-01-01T00:00:00Z","content":"hello"}
+{"step_index":2,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-01-01T00:00:01Z","model":"m","input_tokens":1000,"output_tokens":100,"cache_read_tokens":500,"content":"a"}
+{"step_index":3,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-01-01T00:00:02Z","model":"m","input_tokens":2000,"output_tokens":200,"cache_read_tokens":1500,"content":"b"}
+{"step_index":4,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-01-01T00:00:03Z","model":"m","input_tokens":1000,"output_tokens":100,"cache_read_tokens":2000,"content":"c"}
+EOF2
+}
+
+# agy_fault_check <name> <out> <err> <rc> [want-substr...]
+# 契约断言：rc=0、stderr 空、恰好 2 行、两行宽 ≤ COLUMNS=80。
+agy_fault_check() {
+    local name="$1" out="$2" err="$3" rc="$4"; shift 4
+    local n w1 w2 want
+    n="$(agy_lines "$out")"
+    w1="$(printf '%s' "${out%%$'\n'*}" | agy_w)"
+    w2="$(printf '%s' "${out##*$'\n'}" | agy_w)"
+    if [[ "$rc" != "0" || -n "$err" || "$n" != "2" || "$w1" -gt 80 || "$w2" -gt 80 ]]; then
+        printf 'agy fault[%s]: rc=%s err=[%s] lines=%s w=%s/%s\n' "$name" "$rc" "$err" "$n" "$w1" "$w2" >&2
+        return 1
+    fi
+    for want in "$@"; do
+        if ! printf '%s' "$out" | grep -qF -- "$want"; then
+            printf 'agy fault[%s]: missing [%s] in [%s]\n' "$name" "$want" "$out" >&2
+            return 1
+        fi
+    done
+    return 0
+}
+
+# ============================================================
+# T145: agy 宽档两行精确断言——transcript 累计 ↑in/↓out/R、CH、ctx、effort、
+#       cost（~ 前缀 + sub）、TTFT（秒级、只配首条）、时长段。
+# ============================================================
+new_box
+t145_tr="$BOX/t145.jsonl"
+python3 - "$t145_tr" <<'T145PY'
+import datetime, json, sys
+base = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=90)
+def ts(off):
+    return (base + datetime.timedelta(seconds=off)).strftime("%Y-%m-%dT%H:%M:%SZ")
+recs = [
+    {"step_index": 1, "source": "USER_EXPLICIT", "type": "USER_INPUT", "status": "DONE", "created_at": ts(0), "content": "hello"},
+    {"step_index": 2, "source": "MODEL", "type": "PLANNER_RESPONSE", "status": "DONE", "created_at": ts(1), "model": "m", "input_tokens": 1000, "output_tokens": 100, "cache_read_tokens": 500, "content": "a"},
+    {"step_index": 3, "source": "MODEL", "type": "PLANNER_RESPONSE", "status": "DONE", "created_at": ts(2), "model": "m", "input_tokens": 2000, "output_tokens": 200, "cache_read_tokens": 1500, "content": "b"},
+    {"step_index": 4, "source": "MODEL", "type": "PLANNER_RESPONSE", "status": "DONE", "created_at": ts(3), "model": "m", "input_tokens": 1000, "output_tokens": 100, "cache_read_tokens": 2000, "content": "c"},
+]
+with open(sys.argv[1], "w", encoding="utf-8") as fh:
+    for r in recs:
+        fh.write(json.dumps(r) + "\n")
+T145PY
+t145_p="$(printf '{"cwd":"/tmp","model":{"id":"m","display_name":"m","effort":"high"},"context_window":{"context_window_size":200000},"transcript_path":"%s","cost":{"total_usd":0.03,"subagent_usd":0.01,"estimated":true}}' "$t145_tr")"
+t145_out="$(agy_out "$BOX/c145" 120 none "$t145_p")"
+t145_l1="${t145_out%%$'\n'*}"; t145_l2="${t145_out##*$'\n'}"
+if [[ "$(agy_lines "$t145_out")" == "2" \
+   && "$t145_l1" == "/tmp | agy · 1m" \
+   && "$t145_l2" == "↑4K ↓400 | R4K CH66.67% | 1.50%/200K TTFT 1.0s | m · high | ~\$0.03 | sub:\$0.01" ]]; then
+    pass T145 "agy wide: exact 2 lines (totals/CH/ctx/TTFT/effort/cost/duration)"
+else
+    fail T145 "l1=[$t145_l1] l2=[$t145_l2]"
+fi
+
+# ============================================================
+# T146: agy 窄档（COLUMNS=51）——紧凑形、R 不进段表、cost 先让位、行宽 ≤ 46
+# ============================================================
+new_box
+agy_base_fixture "$BOX/t146.jsonl"
+t146_p="$(printf '{"cwd":"/tmp","model":{"id":"m","display_name":"m","effort":"high"},"context_window":{"context_window_size":200000},"transcript_path":"%s"}' "$BOX/t146.jsonl")"
+t146_out="$(agy_out "$BOX/c146" 51 none "$t146_p")"
+t146_l1="${t146_out%%$'\n'*}"; t146_l2="${t146_out##*$'\n'}"
+t146_w1="$(printf '%s' "$t146_l1" | agy_w)"; t146_w2="$(printf '%s' "$t146_l2" | agy_w)"
+if [[ "$t146_l1" == "/tmp | agy" \
+   && "$t146_l2" == "4K/400|◈66.67%|▂2% ⏱1.0s|m · hi" \
+   && "$t146_w1" -le 46 && "$t146_w2" -le 46 ]]; then
+    pass T146 "agy narrow: compact form, width $t146_w1/$t146_w2 <= 46"
+else
+    fail T146 "l1=[$t146_l1] l2=[$t146_l2] w=$t146_w1/$t146_w2"
+fi
+
+# ============================================================
+# T147: agy NO_COLOR=1 纯文本；且等于「带色输出剥 ANSI」（色档不改变内容）
+# ============================================================
+new_box
+agy_base_fixture "$BOX/t147.jsonl"
+t147_p="$(printf '{"cwd":"/tmp","model":{"display_name":"m","effort":"low"},"context_window":{"context_window_size":200000},"transcript_path":"%s"}' "$BOX/t147.jsonl")"
+t147_tc="$(agy_out "$BOX/c147" 120 truecolor "$t147_p")"
+t147_nc="$(agy_out "$BOX/c147" 120 none "$t147_p")"
+t147_ok=1
+printf '%s' "$t147_nc" | grep -q $'\x1b\[' && t147_ok=0
+printf '%s' "$t147_tc" | grep -qF '38;2;' || t147_ok=0
+[[ "$(printf '%s' "$t147_tc" | agy_plain)" == "$t147_nc" ]] || t147_ok=0
+if [[ $t147_ok -eq 1 ]]; then
+    pass T147 "agy NO_COLOR: plain output equals ANSI-stripped colour output"
+else
+    fail T147 "nc=[$(printf '%s' "$t147_nc" | head -c 120)] tc=[$(printf '%s' "$t147_tc" | head -c 120)]"
+fi
+
+# ============================================================
+# T148: agy TTFT 语义——同轮多步只配首条；新 USER_INPUT 后保留旧值直到
+#       首条响应；非 USER_EXPLICIT 的 USER_INPUT 不开窗（不重配）。
+# ============================================================
+new_box
+t148_tr="$BOX/t148.jsonl"
+cat >"$t148_tr" <<'EOF2'
+{"source":"USER_EXPLICIT","type":"USER_INPUT","created_at":"2026-01-01T00:00:00Z","content":"q1"}
+{"source":"MODEL","type":"PLANNER_RESPONSE","created_at":"2026-01-01T00:00:01Z","input_tokens":100,"output_tokens":10,"cache_read_tokens":0}
+{"source":"MODEL","type":"PLANNER_RESPONSE","created_at":"2026-01-01T00:00:02Z","input_tokens":100,"output_tokens":10,"cache_read_tokens":0}
+EOF2
+t148_p="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$t148_tr")"
+t148_a="$(agy_out "$BOX/c148" 120 none "$t148_p" | tail -1)"
+printf '{"source":"USER_EXPLICIT","type":"USER_INPUT","created_at":"2026-01-01T00:00:10Z","content":"q2"}\n' >>"$t148_tr"
+t148_b="$(agy_out "$BOX/c148" 120 none "$t148_p" | tail -1)"
+printf '{"source":"MODEL","type":"PLANNER_RESPONSE","created_at":"2026-01-01T00:00:13Z","input_tokens":100,"output_tokens":10,"cache_read_tokens":0}\n' >>"$t148_tr"
+t148_c="$(agy_out "$BOX/c148" 120 none "$t148_p" | tail -1)"
+printf '{"source":"SYSTEM","type":"USER_INPUT","created_at":"2026-01-01T00:00:20Z","content":"injected"}\n{"source":"MODEL","type":"PLANNER_RESPONSE","created_at":"2026-01-01T00:00:23Z","input_tokens":100,"output_tokens":10,"cache_read_tokens":0}\n' >>"$t148_tr"
+t148_d="$(agy_out "$BOX/c148" 120 none "$t148_p" | tail -1)"
+if printf '%s' "$t148_a" | grep -qF "TTFT 1.0s" \
+   && printf '%s' "$t148_b" | grep -qF "TTFT 1.0s" \
+   && printf '%s' "$t148_c" | grep -qF "TTFT 3.0s" \
+   && printf '%s' "$t148_d" | grep -qF "TTFT 3.0s"; then
+    pass T148 "agy TTFT: first response only, stock value while waiting, SYSTEM input ignored"
+else
+    fail T148 "a=[$t148_a] b=[$t148_b] c=[$t148_c] d=[$t148_d]"
+fi
+
+# ============================================================
+# T149: agy 时长——行1 出现 ` · <时长>`；created_at 在未来（时钟异常）
+#       不显示负值
+# ============================================================
+new_box
+printf '{"source":"MODEL","type":"GENERIC","created_at":"%s","content":"x"}\n' "$(agy_ts -3600)" >"$BOX/t149.jsonl"
+t149_p="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$BOX/t149.jsonl")"
+t149_l1="$(agy_out "$BOX/c149" 120 none "$t149_p" | head -1)"
+printf '{"source":"MODEL","type":"GENERIC","created_at":"%s","content":"x"}\n' "$(agy_ts 3600)" >"$BOX/t149f.jsonl"
+t149_pf="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$BOX/t149f.jsonl")"
+t149_l1f="$(agy_out "$BOX/c149f" 120 none "$t149_pf" | head -1)"
+if [[ "$t149_l1" == "/tmp | agy · 1h0m" && "$t149_l1f" == "/tmp | agy" ]]; then
+    pass T149 "agy duration on line1; future clock anomaly shows no negative duration"
+else
+    fail T149 "l1=[$t149_l1] future=[$t149_l1f]"
+fi
+
+# ============================================================
+# T150: agy 无 transcript → payload totals / current_usage 回退；
+#       win 未知时 ctx 只显示 xx.xx%（不带 /win，不猜 200K）
+# ============================================================
+new_box
+t150_p1='{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":200000,"total_input_tokens":43138,"total_output_tokens":5200,"current_usage":{"input_tokens":1000,"cache_read_input_tokens":3000,"cache_creation_input_tokens":0}}}'
+t150_l2a="$(agy_out "$BOX/c150" 120 none "$t150_p1" | tail -1)"
+t150_p2='{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"used_percentage":22}}'
+t150_l2b="$(agy_out "$BOX/c150" 120 none "$t150_p2" | tail -1)"
+if [[ "$t150_l2a" == "↑43K ↓5K | R3K CH75.00% | 2.00%/200K | m" \
+   && "$t150_l2b" == "↑0 ↓0 | R0 | 22.00% | m" ]]; then
+    pass T150 "agy payload fallback: totals/current_usage; unknown win renders pct only"
+else
+    fail T150 "a=[$t150_l2a] b=[$t150_l2b]"
+fi
+
+# ============================================================
+# T151: agy 增量缓存——追加行后二次渲染 == 对完整文件冷扫；offset 前进
+# ============================================================
+new_box
+t151_tr="$BOX/t151.jsonl"
+cat >"$t151_tr" <<'EOF2'
+{"source":"USER_EXPLICIT","type":"USER_INPUT","created_at":"2026-01-01T00:00:00Z","content":"q"}
+{"source":"MODEL","type":"PLANNER_RESPONSE","created_at":"2026-01-01T00:00:01Z","input_tokens":1000,"output_tokens":100,"cache_read_tokens":500}
+EOF2
+t151_p="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":200000},"transcript_path":"%s"}' "$t151_tr")"
+t151_a="$(agy_out "$BOX/c151" 120 none "$t151_p")"
+t151_cf="$(agy_cache_file "$BOX/c151" "$t151_tr")"
+t151_ok=1; t151_note=""
+[[ "$(json_field "$t151_cf" 'd["offset"]')" == "$(wc -c <"$t151_tr" | tr -d ' ')" ]] \
+    || { t151_ok=0; t151_note="$t151_note [offset-after-first]"; }
+printf '%s' "$t151_a" | grep -qF "↑1K ↓100" || { t151_ok=0; t151_note="$t151_note [first-totals]"; }
+printf '%s' "$t151_a" | grep -qF "CH33.33%" || { t151_ok=0; t151_note="$t151_note [first-ch]"; }
+printf '{"source":"MODEL","type":"PLANNER_RESPONSE","created_at":"2026-01-01T00:00:02Z","input_tokens":2000,"output_tokens":200,"cache_read_tokens":1500}\n' >>"$t151_tr"
+t151_b="$(agy_out "$BOX/c151" 120 none "$t151_p")"
+cp "$t151_tr" "$BOX/t151-full.jsonl"
+t151_pcold="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":200000},"transcript_path":"%s"}' "$BOX/t151-full.jsonl")"
+t151_c="$(agy_out "$BOX/c151cold" 120 none "$t151_pcold")"
+[[ "$t151_b" == "$t151_c" ]] || { t151_ok=0; t151_note="$t151_note [warm!=cold]"; }
+[[ "$(json_field "$t151_cf" 'd["offset"]')" == "$(wc -c <"$t151_tr" | tr -d ' ')" ]] \
+    || { t151_ok=0; t151_note="$t151_note [offset-after-append]"; }
+printf '%s' "$t151_b" | grep -qF "↑3K ↓300" || { t151_ok=0; t151_note="$t151_note [appended-totals]"; }
+printf '%s' "$t151_b" | grep -qF "CH42.86%" || { t151_ok=0; t151_note="$t151_note [appended-ch]"; }
+if [[ $t151_ok -eq 1 ]]; then
+    pass T151 "agy incremental cache: warm append == cold full scan, offset advances"
+else
+    fail T151 "$t151_note"
+fi
+
+# ============================================================
+# T152: agy transcript 故障矩阵——缺失/空/二进制垃圾/非法 JSON 行/末尾半行/
+#       文件被截断（offset>size 重扫）/毒缓存（offset 毒型/非 dict/JSON 损坏/
+#       状态字段毒型）→ 输出正确且缓存自愈。
+# ============================================================
+new_box
+t152_ok=1; t152_note=""
+t152_chk() {  # <name> <out> [want...]
+    local name="$1" out="$2"; shift 2
+    local want n
+    n="$(agy_lines "$out")"
+    if [[ "$n" != "2" ]]; then t152_ok=0; t152_note="$t152_note [$name:lines=$n]"; return; fi
+    for want in "$@"; do
+        printf '%s' "$out" | grep -qF -- "$want" || { t152_ok=0; t152_note="$t152_note [$name:missing $want]"; }
+    done
+}
+t152_p() { printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":200000},"transcript_path":"%s"}' "$1"; }
+t152_chk missing "$(agy_out "$BOX/c152-miss" 120 none "$(t152_p "$BOX/nope.jsonl")")" "↑0 ↓0"
+: >"$BOX/t152-empty.jsonl"
+t152_chk empty "$(agy_out "$BOX/c152-empty" 120 none "$(t152_p "$BOX/t152-empty.jsonl")")" "↑0 ↓0"
+printf '\x00\xff\xfe\x1b\x02garbage\n' >"$BOX/t152-bin.jsonl"
+t152_chk binary "$(agy_out "$BOX/c152-bin" 120 none "$(t152_p "$BOX/t152-bin.jsonl")")" "↑0 ↓0"
+printf 'not json at all\n{"source":"MODEL","type":"PLANNER_RESPONSE","created_at":"2026-01-01T00:00:01Z","input_tokens":1000,"output_tokens":100,"cache_read_tokens":500}\n' >"$BOX/t152-mixed.jsonl"
+t152_chk mixed "$(agy_out "$BOX/c152-mixed" 120 none "$(t152_p "$BOX/t152-mixed.jsonl")")" "↑1K ↓100" "R500"
+# 末尾半行：只喂完整行，offset 停在半行起点；补齐 + \n 后计入
+printf '{"source":"MODEL","type":"PLANNER_RESPONSE","created_at":"2026-01-01T00:00:01Z","input_tokens":1000,"output_tokens":100,"cache_read_tokens":500}\n{"source":"MODEL","type":"PLANNER_RESPONSE"' >"$BOX/t152-half.jsonl"
+t152_chk half "$(agy_out "$BOX/c152-half" 120 none "$(t152_p "$BOX/t152-half.jsonl")")" "↑1K"
+t152_line1_len="$(python3 -c 'import sys;d=open(sys.argv[1],"rb").read();print(d.index(b"\n")+1)' "$BOX/t152-half.jsonl")"
+[[ "$(json_field "$(agy_cache_file "$BOX/c152-half" "$BOX/t152-half.jsonl")" 'd["offset"]')" == "$t152_line1_len" ]] \
+    || { t152_ok=0; t152_note="$t152_note [half:offset]"; }
+printf ',"input_tokens":2000,"output_tokens":200,"cache_read_tokens":1500}\n' >>"$BOX/t152-half.jsonl"
+t152_chk half2 "$(agy_out "$BOX/c152-half" 120 none "$(t152_p "$BOX/t152-half.jsonl")")" "↑3K"
+# 文件被截断到 cached offset 以下 → 全量重扫
+printf '{"source":"MODEL","type":"PLANNER_RESPONSE","created_at":"2026-01-01T00:00:01Z","input_tokens":1000,"output_tokens":100,"cache_read_tokens":500}\n{"source":"MODEL","type":"PLANNER_RESPONSE","created_at":"2026-01-01T00:00:02Z","input_tokens":2000,"output_tokens":200,"cache_read_tokens":1500}\n' >"$BOX/t152-trunc.jsonl"
+t152_chk trunc-a "$(agy_out "$BOX/c152-trunc" 120 none "$(t152_p "$BOX/t152-trunc.jsonl")")" "↑3K"
+printf '{"source":"MODEL","type":"PLANNER_RESPONSE","created_at":"2026-01-01T00:00:01Z","input_tokens":1000,"output_tokens":100,"cache_read_tokens":500}\n' >"$BOX/t152-trunc.jsonl"
+t152_chk trunc-b "$(agy_out "$BOX/c152-trunc" 120 none "$(t152_p "$BOX/t152-trunc.jsonl")")" "↑1K"
+# 毒缓存：每种形态渲染正确 + 缓存被覆写成健康状态（offset = 文件大小）
+printf '{"source":"MODEL","type":"PLANNER_RESPONSE","created_at":"2026-01-01T00:00:01Z","input_tokens":1000,"output_tokens":100,"cache_read_tokens":500}\n' >"$BOX/t152-poison.jsonl"
+t152_pp="$(t152_p "$BOX/t152-poison.jsonl")"
+t152_cf="$(agy_cache_file "$BOX/c152-poison" "$BOX/t152-poison.jsonl")"
+t152_sz="$(wc -c <"$BOX/t152-poison.jsonl" | tr -d ' ')"
+mkdir -p "$BOX/c152-poison"
+t152_poisons=(
+    '{"path":"%s","offset":"50"}'
+    '{"path":"%s","offset":6.5}'
+    '{"path":"%s","offset":true}'
+    '{"path":"%s","offset":-1}'
+    '{"path":"%s","offset":999999}'
+    '[]'
+    '{oops'
+    '{"path":"%s","offset":0,"input_t":-5,"first_ts":"x","ttft_ms":"y"}'
+    '{"path":"wrong","offset":1}'
+)
+for t152_tmpl in "${t152_poisons[@]}"; do
+    if [[ "$t152_tmpl" == *"%s"* ]]; then
+        # shellcheck disable=SC2059
+        printf "$t152_tmpl" "$BOX/t152-poison.jsonl" >"$t152_cf"
+    else
+        printf '%s' "$t152_tmpl" >"$t152_cf"
+    fi
+    t152_out="$(agy_out "$BOX/c152-poison" 120 none "$t152_pp")"
+    t152_chk "poison:$t152_tmpl" "$t152_out" "↑1K ↓100" "R500"
+    if [[ "$(json_field "$t152_cf" "type(d.get('offset')).__name__ == 'int' and d.get('offset') == $t152_sz")" != "True" ]]; then
+        t152_ok=0; t152_note="$t152_note [poison:$t152_tmpl:not-healed]"
+    fi
+done
+# 状态字段毒型：first_ts/ttft_ms 非数值、input_t 负数。文件本身没有 created_at
+# → 合法结果不得出现时长；line2 必须与健康状态逐字一致。
+printf '{"source":"MODEL","type":"PLANNER_RESPONSE","input_tokens":1000,"output_tokens":100,"cache_read_tokens":500}\n' >"$BOX/t152-nosan.jsonl"
+t152_nsan_p="$(t152_p "$BOX/t152-nosan.jsonl")"
+t152_nsan_cf="$(agy_cache_file "$BOX/c152-nosan" "$BOX/t152-nosan.jsonl")"
+mkdir -p "$BOX/c152-nosan"
+printf '{"path":"%s","offset":0,"input_t":-5,"first_ts":"x","ttft_ms":"y","turn_user_ts":"z"}' \
+    "$BOX/t152-nosan.jsonl" >"$t152_nsan_cf"
+t152_nsan_out="$(agy_out "$BOX/c152-nosan" 120 none "$t152_nsan_p")"
+t152_chk sanitize "$t152_nsan_out" "↑1K ↓100 | R500 CH33.33% | 0.75%/200K | m"
+[[ "${t152_nsan_out%%$'\n'*}" == "/tmp | agy" ]] \
+    || { t152_ok=0; t152_note="$t152_note [sanitize:duration]"; }
+if [[ $t152_ok -eq 1 ]]; then
+    pass T152 "agy transcript faults: missing/empty/garbage/bad-line/half-line/truncation/poison cache all safe"
+else
+    fail T152 "$t152_note"
+fi
+
+# ============================================================
+# T153: agy stdin 容灾——EOF→idle 两行；管道保持打开 3s→≤1.2s 返回；
+#       非法 UTF-8 / 截断 JSON / 顶层数组 / 超 8MiB 均不崩。
+# ============================================================
+new_box
+t153_eof="$(env NO_COLOR=1 COLUMNS=120 WREN_CACHE_DIR="$BOX/c153" python3 "$AGY_PAYLOAD" </dev/null 2>"$BOX/e153a")"
+t153_eof_rc=$?
+t153_eof_err="$(<"$BOX/e153a")"
+t153_open="$(python3 - "$AGY_PAYLOAD" "$BOX/c153-open" <<'T153PY'
+import os, subprocess, sys, threading, time
+env = {k: v for k, v in os.environ.items() if k != "NO_COLOR"}
+env.update({"NO_COLOR": "1", "COLUMNS": "120", "WREN_CACHE_DIR": sys.argv[2]})
+p = subprocess.Popen([sys.executable, sys.argv[1]], stdin=subprocess.PIPE,
+                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+t0 = time.monotonic()
+buf = {}
+def _read():
+    buf["out"] = p.stdout.read()
+th = threading.Thread(target=_read)
+th.start()
+th.join(timeout=5)          # 读取线程兜底：真挂死时杀进程并按 99s 报 FAIL，不拖住整套
+if th.is_alive():
+    p.kill()
+    sys.stdout.write("99.00 1 0 0")
+    raise SystemExit(0)
+dt = time.monotonic() - t0
+rc = p.wait()
+err = p.stderr.read()
+# 宿主迟迟不关 stdin 的姿态：写端保持打开满 3s 再关（子进程早已返回）
+remain = 3.0 - (time.monotonic() - t0)
+if remain > 0:
+    time.sleep(remain)
+p.stdin.close()
+lines = buf["out"].decode("utf-8", "replace").rstrip("\n").count("\n") + 1 if buf["out"].strip() else 0
+sys.stdout.write("%.2f %d %d %d" % (dt, rc, lines, len(err)))
+T153PY
+)"
+read -r t153_dt t153_rc t153_lines t153_errlen <<<"$t153_open"
+t153_ok=1; t153_note=""
+[[ "$t153_eof_rc" == "0" && -z "$t153_eof_err" && "$(agy_lines "$t153_eof")" == "2" ]] \
+    || { t153_ok=0; t153_note="$t153_note [eof]"; }
+[[ "$t153_rc" == "0" && "$t153_lines" == "2" && "$t153_errlen" == "0" ]] \
+    || { t153_ok=0; t153_note="$t153_note [open:rc=$t153_rc lines=$t153_lines err=$t153_errlen]"; }
+awk "BEGIN{exit !($t153_dt <= 1.2)}" || { t153_ok=0; t153_note="$t153_note [open:dt=$t153_dt]"; }
+t153_bad="$(printf '\xff\xfe{"cwd":"/tmp"}\n' | env NO_COLOR=1 COLUMNS=120 WREN_CACHE_DIR="$BOX/c153b" python3 "$AGY_PAYLOAD" 2>/dev/null)"
+[[ "$(agy_lines "$t153_bad")" == "2" ]] || { t153_ok=0; t153_note="$t153_note [bad-utf8]"; }
+t153_trunc="$(printf '{"cwd":"/tmp"' | env NO_COLOR=1 COLUMNS=120 WREN_CACHE_DIR="$BOX/c153t" python3 "$AGY_PAYLOAD" 2>/dev/null)"
+[[ "$(agy_lines "$t153_trunc")" == "2" ]] || { t153_ok=0; t153_note="$t153_note [truncated-json]"; }
+t153_arr="$(printf '[]' | env NO_COLOR=1 COLUMNS=120 WREN_CACHE_DIR="$BOX/c153a" python3 "$AGY_PAYLOAD" 2>/dev/null)"
+[[ "$(agy_lines "$t153_arr")" == "2" ]] || { t153_ok=0; t153_note="$t153_note [array]"; }
+t153_t0="$(date +%s)"
+t153_big="$( (python3 -c 'import sys; sys.stdout.write("{\"cwd\":\"/tmp\",\"model\":{\"display_name\":\"m\"}}" + " " * 9000000)' 2>/dev/null) \
+    | env NO_COLOR=1 COLUMNS=120 WREN_CACHE_DIR="$BOX/c153big" python3 "$AGY_PAYLOAD" 2>/dev/null )"
+t153_big_rc=$?
+t153_big_dt=$(( $(date +%s) - t153_t0 ))
+[[ "$t153_big_rc" == "0" && "$(agy_lines "$t153_big")" == "2" && "$t153_big_dt" -lt 5 ]] \
+    || { t153_ok=0; t153_note="$t153_note [8MiB:rc=$t153_big_rc dt=$t153_big_dt]"; }
+if [[ $t153_ok -eq 1 ]]; then
+    pass T153 "agy stdin: EOF idle, open pipe returns in ${t153_dt}s, bad bytes/JSON/array/8MiB safe"
+else
+    fail T153 "$t153_note"
+fi
+
+# ============================================================
+# T154: agy 故障矩阵——字段类型/NaN/Infinity/负数注入；每个用例契约：
+#       rc=0、stderr 空、恰好 2 行、行宽 ≤ 有效宽度（COLUMNS=80）
+# ============================================================
+new_box
+t154_cases=(
+    '{"cwd":"/tmp","model":null}'
+    '{"cwd":"/tmp","model":"x"}'
+    '{"cwd":"/tmp","context_window":null,"transcript_path":null}'
+    '{"cwd":"/tmp","context_window":[]}'
+    '{"cwd":"/tmp","context_window":{"current_usage":null}}'
+    '{"cwd":"/tmp","context_window":{"current_usage":[1,2]}}'
+    '{"cwd":"/tmp","context_window":{"context_window_size":200000,"used_percentage":NaN}}'
+    '{"cwd":"/tmp","context_window":{"context_window_size":200000,"used_percentage":Infinity}}'
+    '{"cwd":"/tmp","context_window":{"context_window_size":200000,"used_percentage":"500"}}'
+    '{"cwd":"/tmp","context_window":{"context_window_size":200000,"used_percentage":-5}}'
+    '{"cwd":"/tmp","context_window":{"context_window_size":200000,"current_usage":{"input_tokens":NaN,"cache_read_input_tokens":Infinity,"cache_creation_input_tokens":-3}}}'
+    '{"cwd":"/tmp","cost":"abc"}'
+    '{"cwd":"/tmp","cost":{"total_usd":NaN}}'
+    '{"cwd":"/tmp","cost":{"total_usd":0.5,"estimated":"true"}}'
+    '{"cwd":"/tmp","cost":{"total_usd":-1}}'
+    '{"cwd":"/tmp","terminal_width":0}'
+    '{"cwd":"/tmp","terminal_width":"80"}'
+    '{"cwd":"/tmp","terminal_width":true}'
+    '{"cwd":"/tmp","terminal_width":-1}'
+    '{"cwd":123}'
+    '{"cwd":""}'
+    '{"cwd":"/tmp/evil\nname"}'
+    '{"cwd":"/tmp","transcript_path":5}'
+    '{"workspace":true,"cwd":"/tmp","model":{"display_name":"m"}}'
+    '{"workspace":{"current_dir":7},"cwd":"/tmp"}'
+    '{"cwd":"/tmp","model":{"display_name":"Gem\u001b[31mevil\u001b[0m"}}'
+    '{"cwd":"/tmp/a\u202eb","model":{"display_name":"ab\u202ecdef","effort":"hi\u2066"}}'
+    '{"cwd":"/tmp","model":{"display_name":"ab\u001b]0;title\u0007cdef","effort":"me\u001b[2Jdium"}}'
+    '{"cwd":"/tmp","context_window":{"context_window_size":200000,"used_percentage":-Infinity}}'
+    '{"cwd":"/tmp","context_window":{"context_window_size":200000,"used_percentage":1e999}}'
+    '{"cwd":"/tmp","context_window":{"context_window_size":200000,"current_usage":{"input_tokens":-Infinity,"cache_read_input_tokens":NaN,"cache_creation_input_tokens":1e999}}}'
+    '{"cwd":"/tmp","cost":{"total_cost_usd":1.5}}'
+    '{"cwd":"/tmp","cost":{"total_usd":1e-9}}'
+    '{"cwd":"/tmp","cost":{"total_usd":null}}'
+    '{"cwd":"/tmp","cost":{"total_usd":0.5,"estimated":1}}'
+    '{"cwd":"/tmp","terminal_width":1000000000}'
+    '{"cwd":"/tmp","terminal_width":51.5}'
+)
+t154_ok=1; t154_i=0
+for t154_case in "${t154_cases[@]}"; do
+    t154_i=$((t154_i + 1))
+    t154_out="$(printf '%s' "$t154_case" | env NO_COLOR=1 COLUMNS=80 WREN_CACHE_DIR="$BOX/c154" \
+        python3 "$AGY_PAYLOAD" 2>"$BOX/e154")"
+    t154_rc=$?
+    t154_err="$(<"$BOX/e154")"
+    agy_fault_check "case$t154_i" "$t154_out" "$t154_err" "$t154_rc" || t154_ok=0
+    printf '%s' "$t154_out" | grep -q $'\x1b\[' && { t154_ok=0; printf 'case%s: ANSI under NO_COLOR\n' "$t154_i" >&2; }
+    printf '%s' "$t154_out" | python3 -c 'import sys
+d = sys.stdin.read()
+sys.exit(0 if not any((ord(c) < 32 and c != "\n") or ord(c) == 127 for c in d) else 1)' \
+        || { t154_ok=0; printf 'case%s: control chars\n' "$t154_i" >&2; }
+done
+# BOM JSON（UTF-8 BOM 开头）：解析失败按空 payload 降级，契约不变
+t154_bom_out="$(printf '\xef\xbb\xbf{"cwd":"/tmp","model":{"display_name":"m"}}' \
+    | env NO_COLOR=1 COLUMNS=80 WREN_CACHE_DIR="$BOX/c154b" python3 "$AGY_PAYLOAD" 2>"$BOX/e154b")"
+t154_bom_rc=$?
+agy_fault_check BOM "$t154_bom_out" "$(<"$BOX/e154b")" "$t154_bom_rc" || t154_ok=0
+if [[ $t154_ok -eq 1 ]]; then
+    pass T154 "agy fault matrix: 39 malformed payloads (incl. BOM/NaN/bidi/ANSI/OSC/cost) -> rc0, stderr empty, 2 lines, width<=80"
+else
+    fail T154 "one or more fault cases violated the contract (see stderr)"
+fi
+
+# ============================================================
+# T155: agy 宽度链——COLUMNS 优先；无 COLUMNS + 控制终端 51 列（payload
+#       terminal_width=80 陈旧值）→ 用 51；无 tty → terminal_width；都没有 → 80
+# ============================================================
+new_box
+t155_ab="$(python3 - "$AGY_PAYLOAD" "$BOX/c155ab" <<'T155ABPY'
+import fcntl, os, pty, select, struct, subprocess, sys, termios
+
+def run_pty(cols, extra, payload):
+    m, s = pty.openpty()
+    fcntl.ioctl(s, termios.TIOCSWINSZ, struct.pack("HHHH", 24, cols, 0, 0))
+    env = {k: v for k, v in os.environ.items() if k != "COLUMNS"}
+    env.update({"NO_COLOR": "1", "WREN_CACHE_DIR": sys.argv[2] + str(cols)})
+    env.update(extra)
+    def preexec():
+        os.setsid()
+        fcntl.ioctl(s, termios.TIOCSCTTY, 0)
+    p = subprocess.Popen([sys.executable, sys.argv[1]], stdin=subprocess.PIPE, stdout=s, stderr=s,
+                         env=env, preexec_fn=preexec)
+    os.close(s)
+    p.stdin.write(payload.encode())
+    p.stdin.close()
+    out = b""
+    while True:
+        r, _, _ = select.select([m], [], [], 5)
+        if not r:
+            break
+        try:
+            chunk = os.read(m, 4096)
+        except OSError:
+            break
+        if not chunk:
+            break
+        out += chunk
+    os.close(m)
+    p.wait(timeout=10)
+    return out.decode("utf-8", "ignore")
+
+# A：COLUMNS=51 压过 120 列控制终端 → 窄档
+a = run_pty(120, {"COLUMNS": "51"}, '{"cwd":"/tmp","model":{"display_name":"m"}}')
+# B：无 COLUMNS，控制终端 51 列 + 陈旧 terminal_width=80 → 用 tty 的 51（关键验收）
+b = run_pty(51, {}, '{"cwd":"/tmp","model":{"display_name":"m"},"terminal_width":80}')
+sys.stdout.write(a.rstrip("\n") + "@@" + b.rstrip("\n"))
+T155ABPY
+)"
+t155_a="${t155_ab%%@@*}"; t155_b="${t155_ab##*@@}"
+t155_cd="$(python3 - "$AGY_PAYLOAD" "$BOX/c155cd" <<'T155CDPY'
+import os, subprocess, sys
+
+def run(payload, cache):
+    env = {k: v for k, v in os.environ.items() if k != "COLUMNS"}
+    env.update({"NO_COLOR": "1", "WREN_CACHE_DIR": cache})
+    p = subprocess.run([sys.executable, sys.argv[1]], input=payload.encode(), capture_output=True,
+                       env=env, preexec_fn=os.setsid)   # setsid：无控制终端
+    return p.returncode, p.stdout.decode("utf-8", "replace"), p.stderr.decode("utf-8", "replace")
+
+rc, c, err = run('{"cwd":"/tmp","model":{"display_name":"m"},"terminal_width":51}', sys.argv[2] + "c")
+assert rc == 0 and not err, (rc, err)
+rc2, d, err2 = run('{"cwd":"/tmp/%s","model":{"display_name":"m"}}' % ("x" * 200), sys.argv[2] + "d")
+assert rc2 == 0 and not err2, (rc2, err2)
+sys.stdout.write(c.rstrip("\n") + "@@" + d.rstrip("\n"))
+T155CDPY
+)"
+t155_c="${t155_cd%%@@*}"; t155_d="${t155_cd##*@@}"
+t155_ok=1
+[[ "${t155_a##*$'\n'}" == "0/0|m" ]] || t155_ok=0      # COLUMNS 优先（tty=120 也不影响）
+[[ "${t155_b##*$'\n'}" == "0/0|m" ]] || t155_ok=0      # tty=51 压过 terminal_width=80
+[[ "${t155_c##*$'\n'}" == "0/0|m" ]] || t155_ok=0      # 无 tty → terminal_width=51
+[[ "${t155_d##*$'\n'}" == "↑0 ↓0 | R0 | m" ]] || t155_ok=0   # 都没有 → 默认 80（宽档）
+t155_dw="$(printf '%s' "${t155_d%%$'\n'*}" | agy_w)"
+# 默认 80：200 字符 cwd 被折到 74 格预算（"…"+72 格），加 " | agy" 共 79。
+# 若默认值不是 80（例如 100/120），这行会是 99/119——区间断言足够钉住。
+[[ "$t155_dw" -ge 78 && "$t155_dw" -le 80 ]] || t155_ok=0
+if [[ $t155_ok -eq 1 ]]; then
+    pass T155 "agy width chain: COLUMNS > ctty (51 beats stale terminal_width=80) > payload > 80"
+else
+    fail T155 "a=[${t155_a##*$'\n'}] b=[${t155_b##*$'\n'}] c=[${t155_c##*$'\n'}] d=[${t155_d##*$'\n'}] dw=$t155_dw"
+fi
+
+# ============================================================
+# T156: agy 编码——LC_ALL=C LANG=C PYTHONCOERCECLOCALE=0 下仍输出合法
+#       UTF-8 两行（含 ↑），不因 locale 抛 UnicodeEncodeError
+# ============================================================
+new_box
+t156_p='{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":200000,"total_input_tokens":43138,"total_output_tokens":5200}}'
+t156_out="$(printf '%s' "$t156_p" | env LC_ALL=C LANG=C PYTHONCOERCECLOCALE=0 NO_COLOR=1 COLUMNS=120 \
+    WREN_CACHE_DIR="$BOX/c156" python3 "$AGY_PAYLOAD" 2>"$BOX/e156")"
+t156_rc=$?
+t156_err="$(<"$BOX/e156")"
+printf '%s' "$t156_out" | python3 -c 'import sys; sys.stdin.buffer.read().decode("utf-8")' 2>/dev/null
+t156_utf8=$?
+if [[ "$t156_rc" == "0" && -z "$t156_err" && "$t156_utf8" == "0" \
+   && "$(agy_lines "$t156_out")" == "2" ]] && printf '%s' "$t156_out" | grep -qF "↑43K"; then
+    pass T156 "agy LC_ALL=C: valid UTF-8 two lines with ↑ (stdout reconfigured)"
+else
+    fail T156 "rc=$t156_rc utf8=$t156_utf8 err=[$t156_err] out=[$t156_out]"
+fi
+
+# ============================================================
+# T157: agy 长分支 + 长 CJK 路径在 80/60/40/30 列不溢出；徽标尽量保住
+# ============================================================
+new_box
+T157DIR="$BOX/中文项目目录名称很长的十六个汉字/另一个很长的中文目录名称十六个汉字/最后一级超长中文目录名称十六个字"
+mkdir -p "$T157DIR"
+(cd "$T157DIR" && git -c init.defaultBranch=main init -q && git config user.email t@e.com && git config user.name t \
+    && : >f && git add -A && git commit -qm i >/dev/null 2>&1 \
+    && git checkout -q -b feat/very-long-branch-name-for-wren-agy-width-test \
+    && printf 'x\n' >>f) >/dev/null 2>&1
+t157_p="$(printf '{"cwd":"%s","model":{"display_name":"m"},"context_window":{"context_window_size":200000}}' "$T157DIR")"
+t157_ok=1; t157_note=""
+for t157_cols in 80 60 40 30; do
+    t157_out="$(agy_out "$BOX/c157-$t157_cols" "$t157_cols" none "$t157_p")"
+    t157_l1="${t157_out%%$'\n'*}"; t157_l2="${t157_out##*$'\n'}"
+    t157_budget="$t157_cols"
+    [[ "$t157_cols" -le 55 ]] && t157_budget=$((t157_cols - 5))
+    t157_w1="$(printf '%s' "$t157_l1" | agy_w)"; t157_w2="$(printf '%s' "$t157_l2" | agy_w)"
+    [[ "$t157_w1" -le "$t157_budget" && "$t157_w2" -le "$t157_budget" ]] \
+        || { t157_ok=0; t157_note="$t157_note [$t157_cols:w=$t157_w1/$t157_w2>budget$t157_budget]"; }
+    printf '%s' "$t157_l1" | grep -qF "agy" || { t157_ok=0; t157_note="$t157_note [$t157_cols:badge]"; }
+done
+if [[ $t157_ok -eq 1 ]]; then
+    pass T157 "agy long branch + CJK path fits 80/60/40/30, badge kept"
+else
+    fail T157 "$t157_note"
+fi
+
+# ============================================================
+# T158: agy 非 git cwd——无分支段、不报错
+# ============================================================
+new_box
+mkdir -p "$BOX/plain"
+t158_p="$(printf '{"cwd":"%s","model":{"display_name":"m"}}' "$BOX/plain")"
+t158_out="$(agy_out "$BOX/c158" 120 none "$t158_p")"
+t158_l1="${t158_out%%$'\n'*}"; t158_l2="${t158_out##*$'\n'}"
+if [[ "$t158_l1" == "$BOX/plain | agy" && "$t158_l2" == "↑0 ↓0 | R0 | m" ]]; then
+    pass T158 "agy non-git cwd: no branch segment, no error"
+else
+    fail T158 "l1=[$t158_l1] l2=[$t158_l2]"
+fi
+
+# ============================================================
+# T159: agy ↔ cc 一致性——同一逻辑状态分别喂两个 payload（各自格式的
+#       transcript），宽档/窄档/NO_COLOR 下除宿主徽标与 cost 段外逐字相同
+# ============================================================
+new_box
+R159="$BOX/r159"; mkdir -p "$R159"
+(cd "$R159" && git -c init.defaultBranch=main init -q && git config user.email t@e.com && git config user.name t \
+    && printf 'a\n' >a.txt && git add -A && git commit -qm i >/dev/null 2>&1 && printf 'b\n' >>a.txt) >/dev/null 2>&1
+cat >"$BOX/cc159.jsonl" <<'EOF2'
+{"type":"user","timestamp":"2026-01-01T00:00:00Z","message":{"content":"hi"}}
+{"type":"assistant","timestamp":"2026-01-01T00:00:01Z","message":{"usage":{"input_tokens":1000,"output_tokens":100,"cache_read_input_tokens":500}}}
+{"type":"assistant","timestamp":"2026-01-01T00:00:02Z","message":{"usage":{"input_tokens":2000,"output_tokens":200,"cache_read_input_tokens":1500}}}
+EOF2
+cat >"$BOX/agy159.jsonl" <<'EOF2'
+{"source":"USER_EXPLICIT","type":"USER_INPUT","created_at":"2026-01-01T00:00:00Z","content":"hi"}
+{"source":"MODEL","type":"PLANNER_RESPONSE","created_at":"2026-01-01T00:00:01Z","input_tokens":1000,"output_tokens":100,"cache_read_tokens":500}
+{"source":"MODEL","type":"PLANNER_RESPONSE","created_at":"2026-01-01T00:00:02Z","input_tokens":2000,"output_tokens":200,"cache_read_tokens":1500}
+EOF2
+t159_cc_p="$(printf '{"cwd":"%s","model":{"display_name":"m"},"effort":{"level":"high"},"context_window":{"context_window_size":200000,"current_usage":{"input_tokens":1000,"cache_read_input_tokens":3000,"cache_creation_input_tokens":0}},"transcript_path":"%s"}' "$R159" "$BOX/cc159.jsonl")"
+t159_agy_p="$(printf '{"cwd":"%s","model":{"id":"m","display_name":"m","effort":"high"},"context_window":{"context_window_size":200000,"current_usage":{"input_tokens":1000,"cache_read_input_tokens":3000,"cache_creation_input_tokens":0}},"transcript_path":"%s","cost":{"total_usd":0.03,"subagent_usd":0.01,"estimated":true}}' "$R159" "$BOX/agy159.jsonl")"
+t159_ok=1; t159_note=""
+for t159_mode in wide narrow; do
+    if [[ "$t159_mode" == "wide" ]]; then t159_cols=120; else t159_cols=51; fi
+    t159_cc="$(printf '%s' "$t159_cc_p" | env NO_COLOR=1 COLUMNS="$t159_cols" WREN_CACHE_DIR="$BOX/c159cc$t159_cols" python3 "$CC_PAYLOAD" 2>/dev/null)"
+    t159_agy="$(agy_out "$BOX/c159agy$t159_cols" "$t159_cols" none "$t159_agy_p")"
+    t159_cc_l1="${t159_cc%%$'\n'*}"; t159_cc_l2="${t159_cc##*$'\n'}"
+    t159_agy_l1="${t159_agy%%$'\n'*}"; t159_agy_l2="${t159_agy##*$'\n'}"
+    t159_cc_l1s="$(strip_tag "$t159_cc_l1")"; t159_agy_l1s="$(strip_tag "$t159_agy_l1")"
+    t159_agy_l2s="$(printf '%s' "$t159_agy_l2" | agy_strip_cost)"
+    [[ "$t159_cc_l1s" == "$t159_agy_l1s" ]] \
+        || { t159_ok=0; t159_note="$t159_note [$t159_mode:l1 cc=[$t159_cc_l1s] agy=[$t159_agy_l1s]]"; }
+    [[ "$t159_cc_l2" == "$t159_agy_l2s" ]] \
+        || { t159_ok=0; t159_note="$t159_note [$t159_mode:l2 cc=[$t159_cc_l2] agy=[$t159_agy_l2s]]"; }
+done
+t159_agy_tc="$(agy_out "$BOX/c159tc" 120 truecolor "$t159_agy_p")"
+t159_agy_nc="$(agy_out "$BOX/c159nc" 120 none "$t159_agy_p")"
+[[ "$(printf '%s' "$t159_agy_tc" | agy_plain)" == "$t159_agy_nc" ]] \
+    || { t159_ok=0; t159_note="$t159_note [NO_COLOR!=stripped]"; }
+# 行2 溢出丢序：超长模型名压到两档宽度——agy 的 cost 必须先让位，其余段
+# （TTFT→CH→身份组）与 cc 同序；丢错序会在这里分叉。
+t159_long="$(python3 -c 'print("Model-" + "M" * 90)')"
+t159_cc_p2="$(printf '{"cwd":"%s","model":{"display_name":"%s"},"effort":{"level":"high"},"context_window":{"context_window_size":200000,"current_usage":{"input_tokens":1000,"cache_read_input_tokens":3000,"cache_creation_input_tokens":0}},"transcript_path":"%s"}' "$R159" "$t159_long" "$BOX/cc159.jsonl")"
+t159_agy_p2="$(printf '{"cwd":"%s","model":{"id":"%s","display_name":"%s","effort":"high"},"context_window":{"context_window_size":200000,"current_usage":{"input_tokens":1000,"cache_read_input_tokens":3000,"cache_creation_input_tokens":0}},"transcript_path":"%s","cost":{"total_usd":0.03,"subagent_usd":0.01,"estimated":true}}' "$R159" "$t159_long" "$t159_long" "$BOX/agy159.jsonl")"
+for t159_cols in 120 51; do
+    t159_cc2="$(printf '%s' "$t159_cc_p2" | env NO_COLOR=1 COLUMNS="$t159_cols" WREN_CACHE_DIR="$BOX/c159cc$t159_cols" python3 "$CC_PAYLOAD" 2>/dev/null)"
+    t159_agy2="$(agy_out "$BOX/c159agy$t159_cols" "$t159_cols" none "$t159_agy_p2")"
+    t159_cc2_l2="${t159_cc2##*$'\n'}"
+    t159_agy2_l2="$(printf '%s' "${t159_agy2##*$'\n'}" | agy_strip_cost)"
+    [[ "$t159_cc2_l2" == "$t159_agy2_l2" ]] \
+        || { t159_ok=0; t159_note="$t159_note [overflow@$t159_cols:cc=[$t159_cc2_l2] agy=[$t159_agy2_l2]]"; }
+done
+if [[ $t159_ok -eq 1 ]]; then
+    pass T159 "agy line1/line2 identical to cc after badge+cost strip (wide/narrow/NO_COLOR)"
+else
+    fail T159 "$t159_note"
+fi
+
+# ============================================================
+# T160: install agy——enabled:true + 其他键（padding/stack_with_default）保留 +
+#       幂等 + 备份是最原始字节 + payload 是 exec 副本
+# ============================================================
+new_box
+printf '{\n  "model": "m",\n  "statusLine": { "type": "command", "command": "old-thing", "padding": 0, "stack_with_default": true, "enabled": false },\n  "env": {"A": "1"}\n}\n' >"$AGY_SETTINGS"
+cp "$AGY_SETTINGS" "$BOX/before160"
+run_wren install agy
+t160_rc1="$WREN_EXIT"
+t160_cmd="$(json_field "$AGY_SETTINGS" 'd["statusLine"]["command"]')"
+t160_type="$(json_field "$AGY_SETTINGS" 'd["statusLine"]["type"]')"
+t160_en="$(json_field "$AGY_SETTINGS" 'd["statusLine"]["enabled"]')"
+t160_pad="$(json_field "$AGY_SETTINGS" 'd["statusLine"]["padding"]')"
+t160_stack="$(json_field "$AGY_SETTINGS" 'd["statusLine"]["stack_with_default"]')"
+t160_env="$(json_field "$AGY_SETTINGS" 'd["env"]["A"]')"
+cp "$AGY_SETTINGS" "$BOX/after160a"
+run_wren install agy
+t160_rc2="$WREN_EXIT"
+t160_ok=1
+[[ "$t160_rc1" == "0" && "$t160_rc2" == "0" ]] || t160_ok=0
+[[ "$t160_cmd" == "$AGY/wren-agy.py" && "$t160_type" == "command" && "$t160_en" == "True" ]] || t160_ok=0
+[[ "$t160_pad" == "0" && "$t160_stack" == "True" && "$t160_env" == "1" ]] || t160_ok=0
+[[ -f "$AGY/wren-agy.py" && -x "$AGY/wren-agy.py" ]] && cmp -s "$AGY/wren-agy.py" "$AGY_PAYLOAD" || t160_ok=0
+diff -q "$BOX/before160" "$AGY_SETTINGS.wren-bak" >/dev/null || t160_ok=0
+diff -q "$BOX/after160a" "$AGY_SETTINGS" >/dev/null || { t160_ok=0; t160_note="not idempotent"; }
+if [[ $t160_ok -eq 1 ]]; then
+    pass T160 "install agy: enabled true, other keys kept, idempotent, payload copy + original backup"
+else
+    fail T160 "cmd=[$t160_cmd] type=[$t160_type] en=[$t160_en] pad=[$t160_pad] stack=[$t160_stack] note=${t160_note:-}"
+fi
+
+# ============================================================
+# T161: uninstall agy——对称；enabled:true 一并摘；enabled:false 保留；
+#       padding 等用户子键保留；command 被用户改过 → left alone
+# ============================================================
+new_box
+printf '{\n  "statusLine": { "type": "command", "command": "old", "padding": 2, "stack_with_default": false }\n}\n' >"$AGY_SETTINGS"
+run_wren install agy
+# 用户主动关掉
+python3 - "$AGY_SETTINGS" <<'PY'
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d["statusLine"]["enabled"] = False
+with open(p, "w", encoding="utf-8") as fh:
+    json.dump(d, fh, indent=2)
+    fh.write("\n")
+PY
+run_wren uninstall agy
+t161_ok=1
+[[ "$(json_field "$AGY_SETTINGS" 'd["statusLine"].get("type")')" == "None" ]] || t161_ok=0
+[[ "$(json_field "$AGY_SETTINGS" 'd["statusLine"].get("command")')" == "None" ]] || t161_ok=0
+[[ "$(json_field "$AGY_SETTINGS" 'd["statusLine"].get("enabled")')" == "False" ]] || t161_ok=0
+[[ "$(json_field "$AGY_SETTINGS" 'd["statusLine"]["padding"]')" == "2" ]] || t161_ok=0
+[[ "$(json_field "$AGY_SETTINGS" 'd["statusLine"]["stack_with_default"]')" == "False" ]] || t161_ok=0
+[[ ! -e "$AGY/wren-agy.py" ]] || t161_ok=0
+# 干净安装 → 卸载后 statusLine 整键消失
+new_box
+run_wren install agy
+run_wren uninstall agy
+[[ "$(json_field "$AGY_SETTINGS" '("statusLine" in d)')" == "False" ]] || t161_ok=0
+[[ ! -e "$AGY/wren-agy.py" ]] || t161_ok=0
+# 用户改过 command → 不碰用户配置
+run_wren install agy
+python3 - "$AGY_SETTINGS" <<'PY'
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d["statusLine"]["command"] = "/usr/local/bin/user-statusline"
+with open(p, "w", encoding="utf-8") as fh:
+    json.dump(d, fh, indent=2)
+    fh.write("\n")
+PY
+run_wren uninstall agy
+[[ "$(json_field "$AGY_SETTINGS" 'd["statusLine"]["command"]')" == "/usr/local/bin/user-statusline" ]] || t161_ok=0
+if [[ $t161_ok -eq 1 ]]; then
+    pass T161 "uninstall agy: symmetric; enabled:true dropped, enabled:false/padding kept, foreign command left alone"
+else
+    fail T161 "sl=[$(cat "$AGY_SETTINGS")] payload=$([[ -e $AGY/wren-agy.py ]] && echo y || echo n)"
+fi
+
+# ============================================================
+# T162: install agy 遇非法 settings JSON → exit 1 且零副作用
+# ============================================================
+new_box
+printf '{ this is not json\n' >"$AGY_SETTINGS"
+cp "$AGY_SETTINGS" "$BOX/before162"
+run_wren install agy
+if [[ "$WREN_EXIT" == "1" ]] \
+   && diff -q "$BOX/before162" "$AGY_SETTINGS" >/dev/null \
+   && [[ "$(ls -A "$AGY")" == "settings.json" ]] \
+   && [[ ! -e "$AGY_SETTINGS.wren-bak" && ! -e "$AGY_SETTINGS.wren-tmp" ]]; then
+    pass T162 "install agy invalid JSON -> exit 1, zero side effects"
+else
+    fail T162 "exit=$WREN_EXIT files=[$(ls -A "$AGY" | tr '\n' ' ')]"
+fi
+
+# ============================================================
+# T163: statusLine 非对象（true）→ 归一化成对象；agy/antigravity 别名互通
+# ============================================================
+new_box
+printf '{"statusLine": true, "model": "m"}\n' >"$AGY_SETTINGS"
+run_wren install antigravity
+t163_ok=1
+[[ "$WREN_EXIT" == "0" ]] || t163_ok=0
+[[ "$(json_field "$AGY_SETTINGS" 'type(d["statusLine"]).__name__')" == "dict" ]] || t163_ok=0
+[[ "$(json_field "$AGY_SETTINGS" 'd["statusLine"].get("type")')" == "command" ]] || t163_ok=0
+[[ "$(json_field "$AGY_SETTINGS" 'd["statusLine"].get("command")')" == "$AGY/wren-agy.py" ]] || t163_ok=0
+[[ "$(json_field "$AGY_SETTINGS" 'd["statusLine"].get("enabled")')" == "True" ]] || t163_ok=0
+run_wren uninstall agy
+[[ "$(json_field "$AGY_SETTINGS" '("statusLine" in d)')" == "False" ]] || t163_ok=0
+if [[ $t163_ok -eq 1 ]]; then
+    pass T163 "install antigravity normalizes non-object statusLine; agy/antigravity aliases"
+else
+    fail T163 "settings=[$(cat "$AGY_SETTINGS")] exit=$WREN_EXIT"
+fi
+
+# ============================================================
+# T164: 性能护栏——标准夹具下单次热运行 < 1.5s（防灾难性回归，阈值放宽）
+# ============================================================
+new_box
+agy_base_fixture "$BOX/t164.jsonl"
+t164_p="$(printf '{"cwd":"/tmp","model":{"display_name":"m","effort":"high"},"context_window":{"context_window_size":200000},"transcript_path":"%s","cost":{"total_usd":0.03}}' "$BOX/t164.jsonl")"
+t164_s="$(python3 - "$AGY_PAYLOAD" "$BOX/c164" "$t164_p" <<'T164PY'
+import os, subprocess, sys, time
+env = dict(os.environ, NO_COLOR="1", COLUMNS="120", WREN_CACHE_DIR=sys.argv[2])
+env.pop("HERDR_WORKSPACE_ID", None)
+times = []
+for _ in range(3):
+    t0 = time.monotonic()
+    r = subprocess.run([sys.executable, sys.argv[1]], input=sys.argv[3].encode(), capture_output=True, env=env)
+    times.append(time.monotonic() - t0)
+    assert r.returncode == 0 and not r.stderr, (r.returncode, r.stderr)
+print("%.3f" % max(times))
+T164PY
+)"
+if awk "BEGIN{exit !($t164_s < 1.5)}"; then
+    pass T164 "agy warm run ${t164_s}s < 1.5s (3-run max)"
+else
+    fail T164 "warm run ${t164_s}s >= 1.5s"
+fi
+
+# ============================================================
+# T165: 缓存键隔离——agy 用 agy- 前缀；同 transcript 被 cc/qc 扫过后
+#       agy 输出不变（不串味）
+# ============================================================
+new_box
+agy_base_fixture "$BOX/t165.jsonl"
+t165_p="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":200000},"transcript_path":"%s"}' "$BOX/t165.jsonl")"
+t165_a="$(agy_out "$BOX/c165" 120 none "$t165_p")"
+t165_cf="$(agy_cache_file "$BOX/c165" "$BOX/t165.jsonl")"
+printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$BOX/t165.jsonl" \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/c165" python3 "$CC_PAYLOAD" >/dev/null 2>&1
+printf '{"cwd":"/tmp","model":{"display_name":"m"},"transcript_path":"%s"}' "$BOX/t165.jsonl" \
+    | NO_COLOR=1 WREN_CACHE_DIR="$BOX/c165" python3 "$QC_PAYLOAD" >/dev/null 2>&1
+t165_b="$(agy_out "$BOX/c165" 120 none "$t165_p")"
+t165_nagy="$(ls "$BOX/c165" | grep -c '^agy-')"
+t165_ncc="$(ls "$BOX/c165" | grep -c '^cc-')"
+t165_nqc="$(ls "$BOX/c165" | grep -c '^qc-')"
+if [[ -f "$t165_cf" && "$t165_a" == "$t165_b" && "$t165_nagy" == "1" \
+   && "$t165_ncc" == "1" && "$t165_nqc" == "1" ]]; then
+    pass T165 "agy cache key isolated: agy- prefix, no cross-host contamination"
+else
+    fail T165 "agy-files=$t165_nagy cc=$t165_ncc qc=$t165_nqc same=$([[ "$t165_a" == "$t165_b" ]] && echo y || echo n)"
+fi
+
+# ============================================================
+# T166: 文本净化（R2-1/R3-3）——ANSI/OSC/CSI/bidi/零宽空格注入不得进入 stdout；
+#       ZWNJ 保留；正常文本逐字不变；注入 ESC 不得干掉本进程着色（R3-3 移除
+#       fail-safe 后：彩色模式仍有 38;2; 码，且不含注入的裸 SGR）。
+# ============================================================
+new_box
+t166_ok=1; t166_note=""
+# A) ANSI in model.display_name（NO_COLOR 被摘掉、COLORTERM 开启）
+t166_ap='{"cwd":"/tmp","model":{"display_name":"Gem\u001b[31mevil\u001b[0m","effort":"medium"},"context_window":{}}'
+t166_a="$(printf '%s' "$t166_ap" \
+    | env -u NO_COLOR COLORTERM=truecolor COLUMNS=120 WREN_CACHE_DIR="$BOX/c166a" python3 "$AGY_PAYLOAD" 2>"$BOX/e166a")"
+t166_arc=$?
+t166_an="$(printf '%s' "$t166_ap" \
+    | env NO_COLOR=1 COLUMNS=120 WREN_CACHE_DIR="$BOX/c166an" python3 "$AGY_PAYLOAD" 2>/dev/null)"
+[[ "$t166_arc" == "0" && -z "$(cat "$BOX/e166a")" ]] || { t166_ok=0; t166_note="$t166_note [ansi:rc/err]"; }
+printf '%s' "$t166_a" | grep -qF "38;2;" || { t166_ok=0; t166_note="$t166_note [ansi:truecolor]"; }
+printf '%s' "$t166_a" | grep -qF $'\x1b[31m' && { t166_ok=0; t166_note="$t166_note [ansi:bare-sgr]"; }
+[[ "$(printf '%s' "$t166_a" | agy_plain)" == "$t166_an" ]] || { t166_ok=0; t166_note="$t166_note [ansi:text]"; }
+printf '%s' "$t166_a" | grep -qF "Gemevil" || { t166_ok=0; t166_note="$t166_note [ansi:name]"; }
+# B) bidi（RLO/LRI）注入 model / effort / cwd
+t166_b="$(printf '%s' '{"cwd":"/tmp/a\u202eb","workspace":{"current_dir":"/tmp/a\u202eb"},"model":{"display_name":"ab\u202ecdef","effort":"hi\u2066"},"context_window":{}}' \
+    | env NO_COLOR=1 COLUMNS=120 WREN_CACHE_DIR="$BOX/c166b" python3 "$AGY_PAYLOAD" 2>/dev/null)"
+printf '%s' "$t166_b" | grep -q $'\u202e' && { t166_ok=0; t166_note="$t166_note [bidi:202E]"; }
+printf '%s' "$t166_b" | grep -q $'\u2066' && { t166_ok=0; t166_note="$t166_note [bidi:2066]"; }
+printf '%s' "$t166_b" | grep -qF "abcdef · hi" || { t166_ok=0; t166_note="$t166_note [bidi:text]"; }
+[[ "${t166_b%%$'\n'*}" == "/tmp/ab | agy" ]] || { t166_ok=0; t166_note="$t166_note [bidi:cwd]"; }
+# C) OSC（BEL 结尾）/ CSI（ED）注入
+t166_c="$(printf '%s' '{"cwd":"/tmp","model":{"display_name":"ab\u001b]0;title\u0007cdef","effort":"me\u001b[2Jdium"},"context_window":{}}' \
+    | env NO_COLOR=1 COLUMNS=120 WREN_CACHE_DIR="$BOX/c166c" python3 "$AGY_PAYLOAD" 2>/dev/null)"
+printf '%s' "$t166_c" | grep -q $'\x1b' && { t166_ok=0; t166_note="$t166_note [osc:ESC]"; }
+printf '%s' "$t166_c" | grep -qF ";title" && { t166_ok=0; t166_note="$t166_note [osc:title]"; }
+printf '%s' "$t166_c" | grep -qF "[2J" && { t166_ok=0; t166_note="$t166_note [csi:2J]"; }
+printf '%s' "$t166_c" | grep -qF "abcdef · medium" || { t166_ok=0; t166_note="$t166_note [osc:text]"; }
+# D) ZWNJ 保留（波斯文模型名）
+t166_d="$(printf '%s' '{"cwd":"/tmp","model":{"display_name":"ف\u200cب"},"context_window":{}}' \
+    | env NO_COLOR=1 COLUMNS=120 WREN_CACHE_DIR="$BOX/c166d" python3 "$AGY_PAYLOAD" 2>/dev/null)"
+printf '%s' "$t166_d" | grep -q $'\u200c' || { t166_ok=0; t166_note="$t166_note [zwnj]"; }
+# E) 正常文本（空格/括号/连字符/CJK）逐字不变
+t166_e="$(printf '%s' '{"cwd":"/tmp","model":{"display_name":"Gemini 4 Neon (Medium) — 测试 ×2"},"context_window":{}}' \
+    | env NO_COLOR=1 COLUMNS=120 WREN_CACHE_DIR="$BOX/c166e" python3 "$AGY_PAYLOAD" 2>/dev/null)"
+printf '%s' "$t166_e" | grep -qF "Gemini 4 Neon (Medium) — 测试 ×2" || { t166_ok=0; t166_note="$t166_note [normal]"; }
+# F) herdr env 注入（ESC + bidi）：着色不受影响，注入的裸 SGR 被剥掉
+t166_f="$(printf '%s' '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{}}' \
+    | env -u NO_COLOR COLORTERM=truecolor COLUMNS=120 WREN_CACHE_DIR="$BOX/c166f" \
+        HERDR_WORKSPACE_ID=$'w\x1b[31m1' HERDR_TAB_ID=$'t\u202e2' HERDR_PANE_ID='p3' \
+        python3 "$AGY_PAYLOAD" 2>/dev/null)"
+printf '%s' "$t166_f" | grep -qF "38;2;" || { t166_ok=0; t166_note="$t166_note [herdr:truecolor]"; }
+printf '%s' "$t166_f" | grep -qF $'\x1b[31m' && { t166_ok=0; t166_note="$t166_note [herdr:bare-sgr]"; }
+printf '%s' "$t166_f" | grep -qF "w1:t2:p3" || { t166_ok=0; t166_note="$t166_note [herdr:text]"; }
+if [[ $t166_ok -eq 1 ]]; then
+    pass T166 "agy text sanitize: ANSI/OSC/CSI/bidi stripped, colour kept, ZWNJ kept, plain text unchanged"
+else
+    fail T166 "$t166_note"
+fi
+
+# ============================================================
+# T167: token 取整（R2-2）——transcript 与 payload 回退的 token 计数统一 int
+#       （999.9→999、2.0→2、3.9→3）；旧缓存里的 float 状态同样截断。
+# ============================================================
+new_box
+cat >"$BOX/t167.jsonl" <<'EOF2'
+{"source":"MODEL","type":"PLANNER_RESPONSE","created_at":"2026-01-01T00:00:01Z","input_tokens":999.9,"output_tokens":2.0,"cache_read_tokens":3.9}
+EOF2
+t167_p="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":200000},"transcript_path":"%s"}' "$BOX/t167.jsonl")"
+t167_a="$(agy_out "$BOX/c167" 120 none "$t167_p" | tail -1)"
+t167_p2='{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":200000,"total_input_tokens":999.9,"total_output_tokens":2.0,"current_usage":{"input_tokens":100.9,"cache_read_input_tokens":3.9,"cache_creation_input_tokens":0.9}}}'
+t167_b="$(agy_out "$BOX/c167b" 120 none "$t167_p2" | tail -1)"
+# 旧缓存 float 状态：空 transcript + 全 float 状态 → int 后渲染
+: >"$BOX/t167-empty.jsonl"
+t167_cf="$(agy_cache_file "$BOX/c167c" "$BOX/t167-empty.jsonl")"
+mkdir -p "$BOX/c167c"
+printf '{"path":"%s","offset":0,"input_t":5.9,"output_t":1.2,"cache_r":3.7,"last_prompt_tokens":7.9,"last_cache_r":2.2}' \
+    "$BOX/t167-empty.jsonl" >"$t167_cf"
+t167_c="$(agy_out "$BOX/c167c" 120 none "$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":200000},"transcript_path":"%s"}' "$BOX/t167-empty.jsonl")" | tail -1)"
+t167_ok=1
+[[ "$t167_a" == "↑999 ↓2 | R3 CH0.30% | 0.50%/200K | m" ]] || { t167_ok=0; t167_note="a=[$t167_a]"; }
+[[ "$t167_b" == "↑999 ↓2 | R3 CH3.69% | 0.05%/200K | m" ]] || { t167_ok=0; t167_note="$t167_note b=[$t167_b]"; }
+[[ "$t167_c" == "↑5 ↓1 | R3 CH28.57% | 0.00%/200K | m" ]] || { t167_ok=0; t167_note="$t167_note c=[$t167_c]"; }
+if [[ $t167_ok -eq 1 ]]; then
+    pass T167 "agy token ints: transcript/payload fallback/cached floats truncate (2.0 -> 2)"
+else
+    fail T167 "$t167_note"
+fi
+
+# ============================================================
+# T168: git 运行时预算（R2-3）——PATH 里放 sleep 10 的假 git，总时长 < 2.2s
+# ============================================================
+new_box
+mkdir -p "$BOX/slowbin"
+printf '#!/bin/sh\nsleep 10\n' >"$BOX/slowbin/git"
+chmod +x "$BOX/slowbin/git"
+t168="$(python3 - "$AGY_PAYLOAD" "$BOX/slowbin" "$BOX/c168" <<'T168PY'
+import json, os, subprocess, sys, time
+env = dict(os.environ, NO_COLOR="1", COLUMNS="120", WREN_CACHE_DIR=sys.argv[3],
+           PATH=sys.argv[2] + ":" + os.environ["PATH"])
+payload = json.dumps({"cwd": "/tmp", "model": {"display_name": "m"}}).encode()
+t0 = time.monotonic()
+r = subprocess.run([sys.executable, sys.argv[1]], input=payload, capture_output=True, env=env)
+print("%.2f %d %d %d" % (time.monotonic() - t0, r.returncode,
+                         len(r.stdout.rstrip(b"\n").split(b"\n")), len(r.stderr)))
+T168PY
+)"
+read -r t168_dt t168_rc t168_lines t168_errlen <<<"$t168"
+if [[ "$t168_rc" == "0" && "$t168_lines" == "2" && "$t168_errlen" == "0" ]] \
+   && awk "BEGIN{exit !($t168_dt < 2.2)}"; then
+    pass T168 "agy git budget: hanging git returns in ${t168_dt}s < 2.2s (GIT_TIMEOUT_S=1.5)"
+else
+    fail T168 "dt=$t168_dt rc=$t168_rc lines=$t168_lines err=$t168_errlen"
+fi
+
+# ============================================================
+# T169: 最坏路径（R2-3）——stdin 保持打开 + 慢 git 同时发生，总时长 < 3.8s
+#       （stdin 1.0s + git 1.5s + 启动，期望 ~2.6s）
+# ============================================================
+new_box
+mkdir -p "$BOX/slowbin"
+printf '#!/bin/sh\nsleep 10\n' >"$BOX/slowbin/git"
+chmod +x "$BOX/slowbin/git"
+t169="$(python3 - "$AGY_PAYLOAD" "$BOX/slowbin" "$BOX/c169" <<'T169PY'
+import os, subprocess, sys, time
+env = dict(os.environ, NO_COLOR="1", COLUMNS="120", WREN_CACHE_DIR=sys.argv[3],
+           PATH=sys.argv[2] + ":" + os.environ["PATH"])
+p = subprocess.Popen([sys.executable, sys.argv[1]], stdin=subprocess.PIPE,
+                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+t0 = time.monotonic()
+out = p.stdout.read()      # 父进程始终不写、不关 stdin（模拟宿主不关管道）
+dt = time.monotonic() - t0
+rc = p.wait()
+err = p.stderr.read()
+p.stdin.close()
+print("%.2f %d %d %d" % (dt, rc, len(out.rstrip(b"\n").split(b"\n")), len(err)))
+T169PY
+)"
+read -r t169_dt t169_rc t169_lines t169_errlen <<<"$t169"
+if [[ "$t169_rc" == "0" && "$t169_lines" == "2" && "$t169_errlen" == "0" ]] \
+   && awk "BEGIN{exit !($t169_dt < 3.8)}"; then
+    pass T169 "agy worst case: stdin open + hanging git returns in ${t169_dt}s < 3.8s"
+else
+    fail T169 "dt=$t169_dt rc=$t169_rc lines=$t169_lines err=$t169_errlen"
+fi
+
+# ============================================================
+# T170: 扫描时间盒（R2-3）——大 transcript + WREN_AGY_SCAN_BUDGET=0.02：
+#       首次 < 1.5s 且 0<offset<size；反复运行 offset 收敛到 size，最终输出
+#       与默认预算冷扫一致；非法预算回落 1.0 不崩。
+# ============================================================
+new_box
+t170_tr="$BOX/t170.jsonl"
+python3 - "$t170_tr" <<'T170PY'
+import json, sys
+line = {"source": "MODEL", "type": "PLANNER_RESPONSE", "created_at": "2026-01-01T00:00:01Z",
+        "input_tokens": 100, "output_tokens": 10, "cache_read_tokens": 50, "content": "x" * 400}
+with open(sys.argv[1], "w", encoding="utf-8") as fh:
+    for _ in range(10000):
+        fh.write(json.dumps(line) + "\n")
+T170PY
+t170_p="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":200000},"transcript_path":"%s"}' "$t170_tr")"
+t170="$(python3 - "$AGY_PAYLOAD" "$BOX/c170" "$t170_p" "$t170_tr" <<'T170PY'
+import glob, json, os, subprocess, sys, time
+script, cache, payload, tr = sys.argv[1], sys.argv[2], sys.argv[3].encode(), sys.argv[4]
+env = dict(os.environ, NO_COLOR="1", COLUMNS="120", WREN_CACHE_DIR=cache,
+           WREN_AGY_SCAN_BUDGET="0.02")
+def run(e=None):
+    r = subprocess.run([sys.executable, script], input=payload, capture_output=True, env=e or env)
+    assert r.returncode == 0 and not r.stderr, (r.returncode, r.stderr)
+    return r.stdout.decode("utf-8", "replace")
+def off():
+    cf = glob.glob(os.path.join(cache, "agy-*.json"))[0]
+    return json.load(open(cf)).get("offset")
+size = os.path.getsize(tr)
+t0 = time.monotonic(); run(); dt = time.monotonic() - t0
+o_first = off()
+runs = 0
+while o_first is not None and o_first < size and runs < 120:
+    run(); o_first = off(); runs += 1
+full = run({**env, "WREN_AGY_SCAN_BUDGET": ""})          # 空 → 默认 1.0
+cold_dir = cache + "-cold"
+cold = run({**env, "WREN_CACHE_DIR": cold_dir, "WREN_AGY_SCAN_BUDGET": ""})
+bad = run({**env, "WREN_CACHE_DIR": cache + "-bad", "WREN_AGY_SCAN_BUDGET": "abc"})
+print("%.2f %d %d %d %d %d" % (dt, o_first, size, runs,
+      int("↑1M ↓100K" in full and full == cold), int("↑1M" in bad)))
+T170PY
+)"
+read -r t170_dt t170_off t170_size t170_runs t170_full t170_bad <<<"$t170"
+if awk "BEGIN{exit !($t170_dt < 1.5)}" \
+   && [[ "$t170_off" == "$t170_size" && "$t170_runs" -ge 1 \
+      && "$t170_full" == "1" && "$t170_bad" == "1" ]]; then
+    pass T170 "agy scan timebox: first ${t170_dt}s, converged in ${t170_runs} resumes == full scan; bogus budget falls back"
+else
+    fail T170 "dt=$t170_dt off=$t170_off/$t170_size runs=$t170_runs full=$t170_full bad=$t170_bad"
+fi
+
+# ============================================================
+# T171: transcript 非普通文件（R3-1）——/dev/zero、FIFO、目录都不能打开/阻塞；
+#       快速返回两行，token 回退 payload totals。
+# ============================================================
+new_box
+mkdir -p "$BOX/t171dir"
+mkfifo "$BOX/t171.fifo" 2>/dev/null || true
+t171_p() { printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"total_input_tokens":88244,"total_output_tokens":61074,"current_usage":{"cache_read_input_tokens":20857}},"transcript_path":"%s"}' "$1"; }
+t171_ok=1; t171_note=""
+for t171_spec in "zero:/dev/zero" "fifo:$BOX/t171.fifo" "dir:$BOX/t171dir"; do
+    t171_name="${t171_spec%%:*}"; t171_path="${t171_spec#*:}"
+    t171_meta="$(python3 - "$AGY_PAYLOAD" "$t171_path" "$BOX/c171-$t171_name" "$(t171_p "$t171_path")" "$BOX/o171-$t171_name" <<'T171PY'
+import os, subprocess, sys, time
+script, path, cache, payload, outpath = sys.argv[1:6]
+env = dict(os.environ, NO_COLOR="1", COLUMNS="120", WREN_CACHE_DIR=cache)
+t0 = time.monotonic()
+r = subprocess.run([sys.executable, script], input=payload.encode(), capture_output=True, env=env, timeout=8)
+open(outpath, "wb").write(r.stdout)
+print("%.2f %d %d %d" % (time.monotonic() - t0, r.returncode,
+                         len(r.stdout.rstrip(b"\n").split(b"\n")), len(r.stderr)))
+T171PY
+)"
+    read -r t171_dt t171_rc t171_lines t171_errlen <<<"$t171_meta"
+    t171_out="$(<"$BOX/o171-$t171_name")"
+    [[ "$t171_rc" == "0" && "$t171_lines" == "2" && "$t171_errlen" == "0" ]] \
+        || { t171_ok=0; t171_note="$t171_note [$t171_name:rc=$t171_rc lines=$t171_lines err=$t171_errlen]"; }
+    awk "BEGIN{exit !($t171_dt < 2.0)}" || { t171_ok=0; t171_note="$t171_note [$t171_name:dt=$t171_dt]"; }
+    printf '%s' "$t171_out" | grep -qF "↑88K ↓61K | R21K" \
+        || { t171_ok=0; t171_note="$t171_note [$t171_name:fallback]"; }
+done
+if [[ $t171_ok -eq 1 ]]; then
+    pass T171 "agy non-regular transcript: /dev/zero, FIFO, dir -> fast two-line payload fallback"
+else
+    fail T171 "$t171_note"
+fi
+
+# ============================================================
+# T172: 超长单行（>8MiB）（R3-1）——整行跳过、后续行照常聚合、offset==size；
+#       输出等于「只有后续正常行」的文件冷扫。
+# ============================================================
+new_box
+python3 - "$BOX/t172.jsonl" "$BOX/t172-ref.jsonl" <<'T172PY'
+import json, sys
+tail = {"source": "MODEL", "type": "PLANNER_RESPONSE", "created_at": "2026-01-01T00:00:05Z",
+        "input_tokens": 7, "output_tokens": 2, "cache_read_tokens": 3}
+big = dict(tail)
+big.update({"input_tokens": 5, "output_tokens": 1, "cache_read_tokens": 2,
+            "content": "x" * (9 * 1024 * 1024)})
+with open(sys.argv[1], "w", encoding="utf-8") as fh:
+    fh.write(json.dumps(big) + "\n")
+    fh.write(json.dumps(tail) + "\n")
+with open(sys.argv[2], "w", encoding="utf-8") as fh:
+    fh.write(json.dumps(tail) + "\n")
+T172PY
+t172_p="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":200000},"transcript_path":"%s"}' "$BOX/t172.jsonl")"
+t172_pr="$(printf '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{"context_window_size":200000},"transcript_path":"%s"}' "$BOX/t172-ref.jsonl")"
+t172_a="$(agy_out "$BOX/c172" 120 none "$t172_p")"
+t172_b="$(agy_out "$BOX/c172r" 120 none "$t172_pr")"
+t172_cf="$(agy_cache_file "$BOX/c172" "$BOX/t172.jsonl")"
+t172_off="$(json_field "$t172_cf" 'd.get("offset")')"
+t172_size="$(wc -c <"$BOX/t172.jsonl" | tr -d ' ')"
+if [[ "$t172_a" == "$t172_b" && "$t172_off" == "$t172_size" ]] \
+   && printf '%s' "$t172_a" | grep -qF "↑7 ↓2 | R3"; then
+    pass T172 "agy overlong line skipped: later line aggregated, offset==size, output == reference"
+else
+    fail T172 "off=$t172_off size=$t172_size l2=[${t172_a##*$'\n'}] ref=[${t172_b##*$'\n'}]"
+fi
+
+# ============================================================
+# T173: 分支名净化（R3-2）——git 分支名里的 RLO 不得原样进入状态栏
+# ============================================================
+new_box
+R173="$BOX/r173"; mkdir -p "$R173"
+(cd "$R173" && git -c init.defaultBranch=main init -q && git config user.email t@e.com && git config user.name t \
+    && : >f && git add -A && git commit -qm i >/dev/null 2>&1 \
+    && git checkout -q -b $'feature‮evil') >/dev/null 2>&1
+t173_p="$(printf '{"cwd":"%s","model":{"display_name":"m"}}' "$R173")"
+t173_out="$(agy_out "$BOX/c173" 120 none "$t173_p")"
+t173_l1="${t173_out%%$'\n'*}"
+t173_ok=1; t173_note=""
+printf '%s' "$t173_l1" | grep -q $'‮' && { t173_ok=0; t173_note="$t173_note [RLO kept]"; }
+printf '%s' "$t173_l1" | grep -qF "featureevil" || { t173_ok=0; t173_note="$t173_note [text]"; }
+printf '%s' "$t173_l1" | grep -qF "| agy" || { t173_ok=0; t173_note="$t173_note [badge]"; }
+if [[ $t173_ok -eq 1 ]]; then
+    pass T173 "agy branch sanitize: RLO stripped from git branch name (featureevil), badge kept"
+else
+    fail T173 "$t173_note l1=[$t173_l1]"
+fi
+
+# ============================================================
+# T174: 彩色注入不改着色（R3-3）——移除 fail-safe 后，模型名注入 ESC 仍保留
+#       本进程 truecolor 码，且不含注入的裸 SGR；剥色后与 NO_COLOR 逐字相同。
+# ============================================================
+new_box
+t174_p='{"cwd":"/tmp","model":{"display_name":"Gem\u001b[31mevil\u001b[0m","effort":"medium"},"context_window":{}}'
+t174_c="$(printf '%s' "$t174_p" | env -u NO_COLOR COLORTERM=truecolor COLUMNS=120 WREN_CACHE_DIR="$BOX/c174c" python3 "$AGY_PAYLOAD" 2>/dev/null)"
+t174_n="$(printf '%s' "$t174_p" | env NO_COLOR=1 COLUMNS=120 WREN_CACHE_DIR="$BOX/c174n" python3 "$AGY_PAYLOAD" 2>/dev/null)"
+t174_ok=1; t174_note=""
+printf '%s' "$t174_c" | grep -qF "38;2;" || { t174_ok=0; t174_note="$t174_note [truecolor]"; }
+printf '%s' "$t174_c" | grep -qF $'\x1b[31m' && { t174_ok=0; t174_note="$t174_note [bare-sgr]"; }
+[[ "$(printf '%s' "$t174_c" | agy_plain)" == "$t174_n" ]] || { t174_ok=0; t174_note="$t174_note [text]"; }
+printf '%s' "$t174_c" | grep -qF "Gemevil" || { t174_ok=0; t174_note="$t174_note [name]"; }
+if [[ $t174_ok -eq 1 ]]; then
+    pass T174 "agy colour injection: truecolor kept, injected SGR stripped, text == NO_COLOR"
+else
+    fail T174 "$t174_note"
+fi
+
+# ============================================================
+# T175: git 超时杀整棵树（R8）——假 git fork 出带标记的孙进程；超时后
+#       脚本 rc0/两行/<2.4s，且 1s 内无任何带标记的进程存活。
+#       标记必须在真实 argv 里（写成 shell 注释会被剥掉，ps/pgrep 看不到）。
+# ============================================================
+new_box
+t175_tag="wrent175-$$"
+t175_bin="$BOX/fakegit-$t175_tag"
+mkdir -p "$t175_bin" "$BOX/c175"
+cat >"$t175_bin/git" <<EOF2
+#!/bin/sh
+python3 -c "import time; time.sleep(120)  # $t175_tag"
+EOF2
+chmod +x "$t175_bin/git"
+t175_meta="$(python3 - "$AGY_PAYLOAD" "$t175_bin" "$BOX/c175" <<'T175PY'
+import json, os, subprocess, sys, time
+script, bin_dir, cache = sys.argv[1], sys.argv[2], sys.argv[3]
+env = {k: v for k, v in os.environ.items() if k not in ("COLUMNS", "NO_COLOR")}
+env.update({"PATH": bin_dir + ":" + env["PATH"], "NO_COLOR": "1",
+            "COLUMNS": "120", "WREN_CACHE_DIR": cache})
+t0 = time.monotonic()
+r = subprocess.run([sys.executable, script],
+                   input=json.dumps({"cwd": "/tmp", "model": {"display_name": "m"}}).encode(),
+                   capture_output=True, env=env, timeout=20)
+print("%.2f %d %d %d" % (time.monotonic() - t0, r.returncode,
+                         r.stdout.rstrip(b"\n").count(b"\n") + 1, len(r.stderr)))
+T175PY
+)"
+read -r t175_dt t175_rc t175_lines t175_errlen <<<"$t175_meta"
+t175_left=""
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+    t175_left="$(pgrep -f "$t175_tag" 2>/dev/null | tr '\n' ' ')"
+    [[ -z "$t175_left" ]] && break
+    sleep 0.1
+done
+pkill -9 -f "$t175_tag" 2>/dev/null || true
+if [[ "$t175_rc" == "0" && "$t175_lines" == "2" && "$t175_errlen" == "0" && -z "$t175_left" ]] \
+   && awk "BEGIN{exit !($t175_dt < 2.4)}"; then
+    pass T175 "agy git timeout kills whole tree: ${t175_dt}s, rc0, 2 lines, no survivors"
+else
+    fail T175 "dt=$t175_dt rc=$t175_rc lines=$t175_lines err=$t175_errlen left=[$t175_left]"
+fi
+
+# ============================================================
+# T176: 信号打断杀整棵树（R8）——SIGTERM/SIGHUP/SIGINT 各一次：发信号前
+#       先确认假 git 进程树活着（否则用例无效），发信号后断言 rc0、stderr 空、
+#       恰好两行、无存活进程；结束统一 pkill 清场，不给整套测试留孤儿。
+# ============================================================
+new_box
+t176_tag="wrent176-$$"
+t176_bin="$BOX/fakegit-$t176_tag"
+mkdir -p "$t176_bin" "$BOX/c176"
+cat >"$t176_bin/git" <<EOF2
+#!/bin/sh
+python3 -c "import time; time.sleep(120)  # $t176_tag"
+EOF2
+chmod +x "$t176_bin/git"
+t176_out="$(T176_SCRIPT="$AGY_PAYLOAD" T176_BIN="$t176_bin" T176_TAG="$t176_tag" T176_CACHE="$BOX/c176" python3 - <<'T176PY'
+import json, os, signal, subprocess, sys, time
+script = os.environ["T176_SCRIPT"]
+bin_dir = os.environ["T176_BIN"]
+tag = os.environ["T176_TAG"]
+cache = os.environ["T176_CACHE"]
+env = {k: v for k, v in os.environ.items() if k not in ("COLUMNS", "NO_COLOR")}
+env.update({"PATH": bin_dir + ":" + env["PATH"], "NO_COLOR": "1",
+            "COLUMNS": "120", "WREN_CACHE_DIR": cache})
+pay = json.dumps({"cwd": "/tmp", "model": {"display_name": "m"}}).encode()
+
+def survivors():
+    out = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout
+    return [l.strip() for l in out.splitlines() if tag in l]
+
+def sweep():
+    subprocess.run(["pkill", "-9", "-f", tag], capture_output=True)
+    time.sleep(0.2)
+
+for name in ("SIGTERM", "SIGHUP", "SIGINT"):
+    sig = getattr(signal, name)
+    p = subprocess.Popen([sys.executable, script], stdin=subprocess.PIPE,
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                         env=env, start_new_session=True)
+    p.stdin.write(pay)
+    p.stdin.close()
+    # 等到 git 包装脚本与孙进程都出现再发信号（高负载下固定 0.7s 可能不够；
+    # 发信号前进程树必须活着，否则用例无效）
+    deadline = time.time() + 2.5
+    alive = []
+    while time.time() < deadline:
+        alive = survivors()
+        if len(alive) >= 2:
+            break
+        time.sleep(0.05)
+    p.send_signal(sig)
+    try:
+        out, err = p.communicate(timeout=6)
+    except subprocess.TimeoutExpired:
+        p.kill()
+        out, err = p.communicate()
+    time.sleep(0.5)
+    left = survivors()
+    print("%s %d %d %d %d %d" % (name, len(alive), p.returncode,
+                                 out.rstrip(b"\n").count(b"\n") + 1, len(err), len(left)))
+    for l in left:
+        print("  leaked:", l[:140])
+    sweep()
+sweep()
+T176PY
+)"
+t176_ok=1; t176_note=""
+t176_rows="$(printf '%s\n' "$t176_out" | grep -E '^(SIGTERM|SIGHUP|SIGINT) ')"
+while read -r t176_name t176_alive t176_rc t176_lines t176_errlen t176_left; do
+    [[ -z "$t176_name" ]] && continue
+    if [[ "$t176_alive" -lt 2 || "$t176_rc" != "0" || "$t176_lines" != "2" \
+       || "$t176_errlen" != "0" || "$t176_left" != "0" ]]; then
+        t176_ok=0
+        t176_note="$t176_note [$t176_name alive=$t176_alive rc=$t176_rc lines=$t176_lines err=$t176_errlen left=$t176_left]"
+    fi
+done <<<"$t176_rows"
+t176_seen="$(printf '%s\n' "$t176_rows" | grep -cE '^(SIGTERM|SIGHUP|SIGINT) ')"
+pkill -9 -f "$t176_tag" 2>/dev/null || true
+if [[ $t176_ok -eq 1 && "$t176_seen" == "3" ]]; then
+    pass T176 "agy signals kill whole tree: SIGTERM/SIGHUP/SIGINT -> rc0, 2 lines, no survivors"
+else
+    fail T176 "seen=$t176_seen$t176_note out=[$(printf '%s' "$t176_out" | tr '\n' '~')]"
 fi
 
 # ---------- 汇总 ----------

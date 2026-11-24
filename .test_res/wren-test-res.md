@@ -1,5 +1,5 @@
 # wren 测试结果
-执行时间：2026-10-12 12:20:53
+执行时间：2026-11-24 03:11:50
 
 | ID | 状态 | 备注 |
 |----|------|------|
@@ -97,7 +97,7 @@
 | T92 | PASS | unwritable opencode config dir -> exit 1, zero side effects |
 | T93 | PASS | malformed tui.json -> exit 1, no payload installed, file untouched |
 | T94 | PASS | install opencode aliases oc; unknown target -> exit 2 |
-| T95 | PASS | install all wires 4 hosts; uninstall all unwires them |
+| T95 | PASS | install all wires 5 hosts; uninstall all unwires them |
 | T96 | PASS | oc minimal payload: 2 lines, oc badge, no invented segments |
 | T97 | PASS | oc full payload matches wren layout; 999_500 -> 1.0M |
 | T98 | PASS | oc line2 ladder: TTFT(68) -> CH(64) -> CP(55); cores never dropped |
@@ -144,8 +144,40 @@
 | T139 | PASS | physical-limit truecolor: no phantom separator slot after git segment cleared |
 | T140 | PASS | width probe chain: no COLUMNS + 51-col controlling tty triggers narrow tier |
 | T141 | PASS | oc edit terminates on all shapes (multi-element / stray commas / unclosed comment+string / nesting) |
-| T142 | PASS | timeout guard kills spinning child (rc=124 in 2s) |
-| T143 | PASS | watchdog trips on total timeout: writes FAIL row + nonzero exit in 16s |
+| T142 | PASS | timeout guard kills spinning child (rc=124 in 3s) |
+| T143 | PASS | watchdog trips on total timeout: writes FAIL row + nonzero exit in 15s |
 | T144 | PASS | timeout guard kills the whole tree (no orphan grandchildren) |
+| T145 | PASS | agy wide: exact 2 lines (totals/CH/ctx/TTFT/effort/cost/duration) |
+| T146 | PASS | agy narrow: compact form, width 10/31 <= 46 |
+| T147 | PASS | agy NO_COLOR: plain output equals ANSI-stripped colour output |
+| T148 | PASS | agy TTFT: first response only, stock value while waiting, SYSTEM input ignored |
+| T149 | PASS | agy duration on line1; future clock anomaly shows no negative duration |
+| T150 | PASS | agy payload fallback: totals/current_usage; unknown win renders pct only |
+| T151 | PASS | agy incremental cache: warm append == cold full scan, offset advances |
+| T152 | PASS | agy transcript faults: missing/empty/garbage/bad-line/half-line/truncation/poison cache all safe |
+| T153 | PASS | agy stdin: EOF idle, open pipe returns in 1.09s, bad bytes/JSON/array/8MiB safe |
+| T154 | PASS | agy fault matrix: 39 malformed payloads (incl. BOM/NaN/bidi/ANSI/OSC/cost) -> rc0, stderr empty, 2 lines, width<=80 |
+| T155 | PASS | agy width chain: COLUMNS > ctty (51 beats stale terminal_width=80) > payload > 80 |
+| T156 | PASS | agy LC_ALL=C: valid UTF-8 two lines with ↑ (stdout reconfigured) |
+| T157 | PASS | agy long branch + CJK path fits 80/60/40/30, badge kept |
+| T158 | PASS | agy non-git cwd: no branch segment, no error |
+| T159 | PASS | agy line1/line2 identical to cc after badge+cost strip (wide/narrow/NO_COLOR) |
+| T160 | PASS | install agy: enabled true, other keys kept, idempotent, payload copy + original backup |
+| T161 | PASS | uninstall agy: symmetric; enabled:true dropped, enabled:false/padding kept, foreign command left alone |
+| T162 | PASS | install agy invalid JSON -> exit 1, zero side effects |
+| T163 | PASS | install antigravity normalizes non-object statusLine; agy/antigravity aliases |
+| T164 | PASS | agy warm run 0.085s < 1.5s (3-run max) |
+| T165 | PASS | agy cache key isolated: agy- prefix, no cross-host contamination |
+| T166 | PASS | agy text sanitize: ANSI/OSC/CSI/bidi stripped, colour kept, ZWNJ kept, plain text unchanged |
+| T167 | PASS | agy token ints: transcript/payload fallback/cached floats truncate (2.0 -> 2) |
+| T168 | PASS | agy git budget: hanging git returns in 1.57s < 2.2s (GIT_TIMEOUT_S=1.5) |
+| T169 | PASS | agy worst case: stdin open + hanging git returns in 2.57s < 3.8s |
+| T170 | PASS | agy scan timebox: first 0.11s, converged in 3 resumes == full scan; bogus budget falls back |
+| T171 | PASS | agy non-regular transcript: /dev/zero, FIFO, dir -> fast two-line payload fallback |
+| T172 | PASS | agy overlong line skipped: later line aggregated, offset==size, output == reference |
+| T173 | PASS | agy branch sanitize: RLO stripped from git branch name (featureevil), badge kept |
+| T174 | PASS | agy colour injection: truecolor kept, injected SGR stripped, text == NO_COLOR |
+| T175 | PASS | agy git timeout kills whole tree: 1.57s, rc0, 2 lines, no survivors |
+| T176 | PASS | agy signals kill whole tree: SIGTERM/SIGHUP/SIGINT -> rc0, 2 lines, no survivors |
 
-汇总：Total 144 / Pass 143 / Fail 0 / Skip 1
+汇总：Total 176 / Pass 175 / Fail 0 / Skip 1

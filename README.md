@@ -55,28 +55,31 @@ otter -h                         # 帮助
 
 `-c` 可选值（白名单 `ALLOWED_TOOLS`）：`claude`、`qodercli`、`opencode`。布局为左 CLI 工具 + 右上 yazi + 右下空 shell，检测到 `nvim` / `lazygit` 时各开一个 window；软依赖缺失自动降级。
 
-
 ### [wren](./zoo-scripts/wren)
 
-wren 把两行 statusline（Dracula 配色）装到 4 个宿主：Claude Code、pi、Qoder CLI、opencode。
+wren 把两行 statusline（Dracula 配色）装到 5 个宿主：Claude Code（`cc`）、pi（`pi`）、Qoder CLI（`qc`）、opencode（`oc`）、Antigravity CLI（`agy`）。
+括号里是 `wren install` 的 target 名。
 wren 复制文件副本到宿主。安装完成后，宿主不再依赖本仓库的位置。
 
 ![wren 概览](./docs/wren-card.svg)
 
 ![wren statusline 预览（上：宽档；下：窄档）](./docs/wren-preview.svg)
 
-终端宽 ≥ 56 列时，wren 渲染宽档。终端宽 ≤ 55 列时，cc 与 pi 渲染窄档。
+终端宽 ≥ 56 列时，wren 渲染宽档。终端宽 ≤ 55 列时，cc、pi 与 agy 渲染窄档。
 窄档用 3 类图标：`◈` 缓存命中率、`▂▄▆█` 上下文占用四分位、`⏱` 首片延迟。
-窄档覆盖 2 个宿主。qc 拿不到终端宽，oc 暂不实现。
+窄档覆盖 3 个宿主。qc 拿不到终端宽，oc 暂不实现。
 
 ```bash
-./cli-zoo-install.sh wren        # 第一步：把 wren 装到 $PREFIX
-wren install [cc|pi|qc|oc|all]   # 装到宿主。默认 all。幂等。别名：claude、qoder、opencode
-wren uninstall [cc|pi|qc|oc|all] # 卸载。默认 all
-wren -h                          # 显示帮助
+./cli-zoo-install.sh wren            # 第一步：把 wren 装到 $PREFIX
+wren install [cc|pi|qc|oc|agy|all]   # 装到宿主。默认 all。幂等。别名：claude、qoder、opencode、antigravity
+wren uninstall [cc|pi|qc|oc|agy|all] # 卸载。默认 all
+wren -h                              # 显示帮助
 ```
 
-四个宿主的差异、安装器细节、完整参数，见 [zoo-scripts/wren/README.md](./zoo-scripts/wren/README.md)；测试见 [docs/testing.md](./docs/testing.md)。
+装到 cc / qc / agy / oc 需要 python3，只装 pi 不需要。`all` 不检查宿主装没装：
+没装 Antigravity CLI、又不想让它凭空生成 `~/.gemini/antigravity-cli/settings.json`，就按 target 分开装。
+
+五个宿主的差异、安装器细节、完整参数，见 [zoo-scripts/wren/README.md](./zoo-scripts/wren/README.md)；测试见 [docs/testing.md](./docs/testing.md)。
 
 ## 安装与卸载
 
@@ -92,14 +95,23 @@ wren -h                          # 显示帮助
 安装时检查源脚本存在且可执行（必要时 `chmod +x`），目标位置已有文件或软链则先 `rm -f`，再 `ln -s <repo>/zoo-scripts/<tool> $PREFIX/<tool>`（wren 因是多文件工具，软链的是目录内的入口脚本 `zoo-scripts/wren/wren`）。写入失败（权限不足）时会提示用 `sudo PREFIX=$PREFIX ./cli-zoo-install.sh <tool>` 重试。
 
 > **wren 的两级安装是刻意的**：`cli-zoo-install.sh` 装的 `$PREFIX/wren` 是**软链**（跟随仓库，改脚本即时生效）；
-> 而 `wren install` 装到宿主的 `<settings.json 同目录>/wren-cc` / `$PI_EXT_DIR/wren-pi.ts` / `$QODER_CONFIG_DIR/wren-qc.py` /
-> `<tui.json 同目录>/plugins/wren-oc.tsx` 是**文件副本**（仓库被移走/删除后 statusline 照常工作，更新需重跑 `wren install`）。
+> `wren install` 装到宿主的是**文件副本**（仓库被移走/删除后 statusline 照常工作，更新需重跑 `wren install`）。
 
-**wren 卸载要先拆线再卸本体**，否则会留下 `~/.claude/wren-cc`、两份 `settings.json` 里的 `statusLine`、pi 扩展目录里的 `wren-pi.ts`、
-`~/.qoder/wren-qc.py`、以及 opencode 的 payload 与 `tui.json` 里的 `plugin` 条目：
+| target | 宿主 | payload 副本 | 写入的配置 |
+|--------|------|--------------|------------|
+| `cc` | Claude Code | `<settings.json 同目录>/wren-cc` | `settings.json` 的 `statusLine` |
+| `pi` | pi | `$PI_EXT_DIR/wren-pi.ts` | 无（pi 自动加载） |
+| `qc` | Qoder CLI | `$QODER_CONFIG_DIR/wren-qc.py` | `settings.json` 的 `statusLine` |
+| `agy` | Antigravity CLI | `$AGY_CONFIG_DIR/wren-agy.py` | `settings.json` 的 `statusLine` |
+| `oc` | opencode | `<tui.json 同目录>/plugins/wren-oc.tsx`（连同 `wren-oc.ts`） | `tui.json` 的 `plugin` 数组 |
+
+payload 默认落在 `~/.claude`、`~/.pi/agent/extensions`、`~/.qoder`、`~/.gemini/antigravity-cli`、`~/.config/opencode`。
+写入只动 `statusLine` / `plugin`，其余键与顺序原样保留。
+
+**wren 卸载要先拆线再卸本体**，否则上表右两列的 payload 副本和配置接线会留下：
 
 ```bash
-wren uninstall              # 拆掉四个宿主的接线
+wren uninstall              # 拆掉五个宿主的接线
 ./cli-zoo-uninstall.sh wren # 再摘掉 wren 本体
 ```
 

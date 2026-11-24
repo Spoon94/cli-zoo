@@ -105,3 +105,10 @@ pi 侧不落盘回放（现 `sessionManager.getBranch()` 只补静态字段）�
 
 - TTFT 含整段 thinking 耗时（中位 13.2s）——定义内，不修；档位漂移已在 §2 记录。
 - pi 事件计时依赖 0.85.1 事件名，宿主升级可能改名——README 记版本锚点。
+
+## 补充：agy（2026-11）
+
+- 口径同 qc：最近一次真 `USER_INPUT` → 其后首条 `PLANNER_RESPONSE` 的 `created_at` 差；同轮后续 step 不覆盖；等待期显示存量。
+- `created_at` 只有秒级精度，TTFT 量化到 1s（如 `TTFT 1.0s`），没有亚秒信息；格式沿用 `fmt_ttft`。
+- agy transcript 没有压缩标记，CP 段恒不显示。
+- 窄档 `⏱` 图标与丢序（TTFT 永不剔）与 cc/qc 相同。

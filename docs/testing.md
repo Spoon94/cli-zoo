@@ -5,14 +5,14 @@
 | 工具 | 用例数 | 运行 |
 |------|--------|------|
 | `otter` | 25 | `bash .test_scripts/otter-test.sh` |
-| `wren` | 135 | `bash .test_scripts/wren-test.sh` |
+| `wren` | 176 | `bash .test_scripts/wren-test.sh` |
 
 输出格式：
 
 ```
 PASS T01 ...
 ...
-Total: 135  Pass: 134  Fail: 0  Skip: 1（T101 需 opencode/tmux 真机）
+Total: 176  Pass: 175  Fail: 0  Skip: 1（T101 需 opencode/tmux 真机）
 ```
 
 任一 FAIL → 退出码 1，结果文件 `.test_res/<tool>-test-res.md` 会被覆盖写。
@@ -20,10 +20,18 @@ Total: 135  Pass: 134  Fail: 0  Skip: 1（T101 需 opencode/tmux 真机）
 ## wren 测试说明
 
 全程在 `mktemp -d` 沙箱里作业：`PREFIX` / `PI_EXT_DIR` / `CLAUDE_SETTINGS` / `QODER_CONFIG_DIR` / `QODER_SETTINGS` /
-`OPENCODE_CONFIG_DIR` / `OPENCODE_TUI_CONFIG` 七个变量把安装目标全部改道，真实的 `/usr/local/bin`、`~/.pi`、`~/.claude`、
-`~/.qoder`、`~/.config/opencode` 一个都不碰。
+`AGY_CONFIG_DIR` / `AGY_SETTINGS` / `OPENCODE_CONFIG_DIR` / `OPENCODE_TUI_CONFIG` 九个变量把安装目标全部改道，真实的
+`/usr/local/bin`、`~/.pi`、`~/.claude`、`~/.qoder`、`~/.gemini/antigravity-cli`、`~/.config/opencode` 一个都不碰。
+直接跑 payload 的用例另把 `WREN_CACHE_DIR` 指到沙箱，避免污染真实 `~/.cache/wren`。
 
 - **pi 侧（T27-T32、T38、T40、T43、T46、T69-T73、T77-T78、T80）**：stub 掉 `@earendil-works/pi-tui`，用 fixture 驱动 `wren-pi.ts` 的 footer 真实渲染。
+- **agy 侧（T145-T176）**：夹具全部手工脱敏构造（结构同真实 Gemini transcript，content 是占位文本），覆盖宽/窄档精确两行、
+  TTFT 语义、时长与时钟异常、payload 回退、增量缓存、transcript 故障矩阵（缺失/空/二进制/半行/截断/毒缓存/非普通文件/超长单行）、
+  stdin 容灾（EOF / 管道保持打开 / 非法 UTF-8 / 超 8 MiB）、畸形 payload 矩阵（含 BOM/NaN/Infinity/bidi/ANSI/OSC 注入）、
+  文本净化（模型名/effort/cwd/分支名）、token 取整、宽度链（pty 控制终端权重）、C 语言环境编码、长分支 + CJK 路径、非 git cwd、
+  运行时预算（git 超时 / 最坏路径 / 扫描时间盒与收敛）、git 超时与信号打断杀整棵树、
+  agy↔cc 逐字一致性、安装器（enabled 开关/幂等/卸载对称/非法配置零副作用/别名）、性能护栏与缓存键隔离。
+  真机 agy 渲染不在单测范围（由人工验收）。
 - **oc 侧（T96-T100、T105、T106）**：`wren-oc.ts` 是纯函数（排版核心），node 直接 import 跑，用 fixture 断言两行/梯子/色档/去重/窄预算短形。
   渲染适配层（`wren-oc.tsx`）依赖宿主 JSX 运行时，不在单测范围。
 - **oc 真机（T101）**：在沙箱配置下真起 opencode TUI（tmux + 读屏），锁 slot 名/replace 透传契约/宽度预算/`api.state` 形状；轮询等首帧最多 75s（高负载下 opencode 首帧可能 >25s）。
