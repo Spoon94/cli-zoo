@@ -45,7 +45,7 @@ payload 文档 + 构造器静态核对 + 真会话抓包，由 T48-T58 守门）
 ### agy（Antigravity CLI）侧数据源
 
 `wren-agy.py` 以 qc 为基底（`workspace.current_dir` 优先、两行输出），数据源改为 agy 的 statusline
-payload + Gemini 格式 transcript（结论来自 agy 1.5.13 官方文档 + 真实语料核对 + 真机探针，由 T145-T176 守门）：
+payload + Gemini 格式 transcript（结论来自 agy 1.5.13 官方文档 + 真实语料核对 + 真机探针，由 T145-T188 守门）：
 
 | 位置 | 来源 |
 |------|------|
@@ -86,32 +86,115 @@ agy 的 `sh -c` 不导出 `COLUMNS`；payload 的 `terminal_width` 在启动首�
 `os.ctermid()` + `os.get_terminal_size` 从第一帧就准。所以探测链把控制终端放在
 `terminal_width` **之前**，否则窄 pane 首帧会按 80 列排版、换行错位。
 
-宿主有两条硬约束，取自 agy 1.5.13 二进制与真机探针：statusline runner 在约 **4.7s** 后 SIGKILL 脚本
-并计一次失败（`statusline: command failed: signal: killed (stderr: ) (failure 1/30)`），失败后立即重跑、
-无退避；连续 **30 次**失败自动禁用自定义状态栏
-（`Statusline disabled after %d consecutive failures.`，要 `/statusline enable` 才恢复）。
+宿主约束（agy 1.5.13 真机探针）：statusline runner 在约 **5.0s** 后 SIGKILL 脚本并计一次失败
+（`statusline: command failed: signal: killed (stderr: ) (failure 1/30)`），且超时**从进程创建起算**
+（含 `sh` / pyenv shim / 解释器启动，不是从脚本的 `main()` 起算）；失败后立即重跑、无退避；
+连续 **30 次**失败自动禁用自定义状态栏（`Statusline disabled after %d consecutive failures.`，
+要 `/statusline enable` 才恢复）。**新的触发会静默 SIGKILL 上一条还在跑的命令**（不计失败）——
+所以慢一帧不只是丢一帧，还会吃掉进行中的那一帧。
 
 **容灾**：任何路径都必须 rc=0、stderr 为空、恰好两行。`BrokenPipeError` 静默退出；其余 `BaseException`
 走 `emit_fallback()`（短 cwd + `agy`，两行、不查 git/网络）；stdout 启动时 best-effort
 `reconfigure(encoding="utf-8", errors="replace")`；payload 各字段按类型净化；缓存目录只读/损坏不影响渲染。
 
-**运行时预算**：总预算压在 4.7s 硬线之下。
+**运行时预算（R9）**：硬墙钟 `HARD_LIMIT_S = 3.0`，自**进程创建**起算（不是 `main()` 第一行）——
+pyenv shim 那 0.7–1.0s 也计入。进程创建时刻从内核读：
+
+| 平台 | 取法 |
+|------|------|
+| macOS | `proc_pidinfo(PROC_PIDTBSDINFO)` 尾部的 `pbi_start_tvsec/tvusec`。结构体长度随 macOS 版本变过（SDK 头 128B / `tvsec@112`，Darwin 24 实测 136B / `tvsec@120`），所以**不写死偏移**：在尾部按「像 epoch 秒、后一个 u64 像微秒」的特征找 |
+| Linux | `/proc/self/stat` 第 22 字段 `starttime`（comm 可能含空格/括号，取最后一个 `)` 之后切分）与 `/proc/uptime` 相减 |
+
+量不到（时钟跳变/平台不支持）时退回模块 import 时刻，与旧行为等价。
 
 | 常量 | 值 | 说明 |
 |------|----|------|
-| `TOTAL_BUDGET_S` | 3.5s | 自 `main()` 第一行起算的墙钟总预算 |
-| `GIT_TIMEOUT_S` | 1.5s | 单次 `git status`；cc/qc 用 3s，但 agy 的 4.7s 硬杀 + 失败计数不允许 |
-| `SCAN_BUDGET_S` | 1.0s | transcript 增量扫描；每处理完一行检查耗时，超时 break，offset 只记到完整行尾，下次续读收敛 |
+| `HARD_LIMIT_S` | 3.0s | 自进程创建起算的硬墙钟；宿主约 5.0s SIGKILL，留 ~2s 余量 |
+| `STDIN_TIMEOUT_S` | 1.0s | stdin 软上限（实际取 `min(1.0, 剩余)`；预算耗尽时不进 select） |
+| `GIT_TIMEOUT_S` | 1.5s | 单次 `git status` 软上限（cc/qc 用 3s；agy 的硬杀不允许） |
+| `SCAN_BUDGET_S` | 1.0s | transcript 增量扫描软上限；超时 break，offset 只记到完整行尾，下次续读收敛 |
+| `REAP_TIMEOUT_S` | 1.0s | 杀 git 整棵树后的回收等待上限（取 `min(1.0, max(0.05, 剩余))`） |
+| git 子进程 `alarm` | `int(软超时) + 1`，实际 ≤2s | `_git_child_setup()` 在 exec 前设；父进程被 SIGKILL 后 git 到点自灭（所有 POSIX；Linux 另有 `PR_SET_PDEATHSIG` 更快） |
 
-`WREN_AGY_SCAN_BUDGET`（秒）可覆盖扫描预算并钳在 `[0.01, 5.0]`，非法值回落 1.0
-（测试专用，正常用户不设）。stdin 超时取 `min(1.0, 剩余预算)`，git 超时取
-`min(1.5, max(0.05, 剩余预算))`；总预算耗尽时直接用缓存状态、不再读新字节。
-实测最坏路径（管道不关 + git 挂起）约 2.6s，低于宿主 4.7s 硬杀线。
+**看门狗（最关键的一刀）**：`main()` 第一行装 `setitimer(ITIMER_REAL)` / SIGALRM（提前 20ms 到点，
+保证比各阶段「取剩余预算当软上限」的 deadline 先到）。到点：屏蔽信号 → `killpg` 杀 git → 记慢日志 →
+输出兜底两行 → `os._exit(0)`。SIGKILL 本身拦不住，所以看门狗必须永远抢在宿主 ≈5.0s 之前；
+平台没有 `setitimer` / `pthread_sigmask` 时静默跳过，不会因此崩脚本。
+
+**信号**：`SIGTERM`/`SIGHUP`/`SIGINT` 的处理函数第一句就 `pthread_sigmask` 屏蔽后续信号
+（宿主关 pane 时连发多次 SIGHUP，重入会多输出两行），再杀 git、兜底两行、rc=0。正常收尾也先屏蔽
+信号再输出，`os._exit(0)` 不走解释器收尾——避免 pend 的 SIGALRM 再触发一次兜底。
+
+`WREN_AGY_HARD_LIMIT`（秒）可覆盖硬墙钟并钳在 `[0.2, 4.0]`，非法值回落 3.0；
+`WREN_AGY_SCAN_BUDGET`（秒）可覆盖扫描预算并钳在 `[0.01, 5.0]`，非法值回落 1.0（都属测试专用）。
+实测最坏路径（管道不关 + git 挂起）约 2.6s；慢启动（shim 2.6s + stdin 不关）在 ≈3.0s 由看门狗收口，
+不会再被宿主 SIGKILL。
+
+进程年龄合理性上界 `STARTUP_MAX_S = 60.0`：状态栏进程活不过宿主的约 5 秒，算出超过 60 秒的
+年龄只可能是量错了。Linux 侧 `/proc/uptime` 与 `starttime` 的时钟域是否一致（休眠时间是否计入）
+随内核版本而异，本项目没有在真实 Linux 上验证过。这道上界是防御性加固：超上界的年龄当作量不到，
+预算退回模块 import 时刻（R8 行为），避免万一算错时每帧都判定预算耗尽、只出兜底两行。
 
 git 以**独立会话**（`start_new_session`）启动：超时与进程被 `SIGTERM` / `SIGHUP` / `SIGINT`
 打断时都按进程组 `killpg` **整棵杀**（对齐 2026-10-12 测试护栏事故的教训——只杀直接
 子进程会漏孤儿）。被打断时先清 git 进程树，再输出兜底两行并 `rc=0`，既不漏进程，
-也不以信号死亡（agy 不记一次失败）。
+也不以信号死亡（agy 不记一次失败）。Linux 侧另有 `PR_SET_PDEATHSIG`
+（`preexec_fn` 里 `prctl(1, SIGKILL)`）：wren 被 SIGKILL 时内核直接带走 git 本体。
+
+**git 自带到期时间（所有 POSIX）**：`preexec_fn` 里、`exec` git 之前
+`alarm(int(软超时) + 1)`（1.5s 软超时 → 2s）。定时器跨 `exec` 保留，而被接管过的信号
+处置在 `exec` 时恢复默认（终止），所以**宿主 SIGKILL 掉 wren 之后，正在跑的 git 最多再活
+约 2 秒就自行终止**，不再成为孤儿。Linux 上 `PR_SET_PDEATHSIG` 会在父进程一死时立即带走
+git（比 2 秒更快）。已知边界：`git status` 正常不派生子进程；git 自己 fork 的子孙不继承
+这个定时器——父进程活着时由 `killpg` 整棵清掉，父进程死了它们会跑到自然结束。
+
+**启动开销与 shim**：`statusLine.command` 曾是裸脚本路径，靠 `#!/usr/bin/env python3`
+起解释器。pyenv 机器上 `python3` 是 `~/.pyenv/shims/python3`，每次刷新都要经
+`sh → env → shim(bash) → pyenv-exec(bash) → … → 真解释器`，实测 0.7–1.0s；结合
+「新触发杀在跑的命令」，活动期间状态栏根本跑不完。
+
+`wren install agy` 会选一个非 shim 的解释器，把 `command` 写成「优先用、坏了回落」的片段：
+
+```
+[ -x '<解释器>' ] && exec '<解释器>' '<脚本绝对路径>'; exec '<脚本绝对路径>'
+```
+
+`[ -x ]` 与 `exec` 都是 shell 内建，解释器存在时零额外开销；解释器日后被卸载则自动
+回落到脚本 shebang（原行为）。`WREN_AGY_PYTHON` 控制选择：
+
+| 值 | 行为 |
+|----|------|
+| `off` | 不绕，裸脚本路径（现状） |
+| 其它非空 | 当解释器绝对路径用；不存在/未通过健全性检查则告警并按 `auto` 继续（不让安装失败） |
+| 未设 / `auto` | `command -v python3` 解析到真解释器（最终目标不是 `#!` 文本）→ 裸路径；解析到 shim/包装脚本 → 在 PATH 各目录（跳过 shim 自己所在目录）与 `/opt/homebrew/bin`、`/usr/local/bin`、`/usr/bin` 里找第一个「最终目标是二进制 + 健全性检查通过」的 `python3` |
+
+健全性检查（5s 上限，后台跑 + 定时 `kill -9` 直接子进程，不在 `$(...)` 里再 fork 子 shell）：
+`python3 -c 'import sys, json, subprocess, unicodedata, signal, select; …3.8+ 且 hasattr(signal, "setitimer")…'`。
+候选写**目录里的入口路径**（如 `/opt/homebrew/bin/python3`），不解析到 Cellar 深处（brew 升级会换目录），
+也不选 `~/.pyenv/versions/…`（会被卸载）。一个都没有时 `log_err` 提示
+`可设 WREN_AGY_PYTHON=/path/to/python3 绕开`，继续用裸路径（安装仍 exit 0）。
+卸载对 agy 放宽匹配：`command` 等于裸路径，或裸路径以单引号完整路径串出现在片段里都认
+（解释器选择会随环境变化，不能只认字符串全等；cc/qc 行为不变）。
+
+**慢运行日志**：`$WREN_CACHE_DIR/agy-slow.log`（默认 `~/.cache/wren/agy-slow.log`；目录不可写时
+退到系统临时目录），一行 JSON，最多保留 40 行。字段（不含任何路径/邮箱）：`ts`、`reason`
+（`slow` / `watchdog`）、`phase`（`startup`/`stdin`/`scan`/`git`/`render`/`output`）、`since_start`、
+`startup`、`stdin`、`scan`、`git`、`py`、`transcript`（0 = payload 没有 `transcript_path`；
+1 = 有但不是普通文件；2 = 普通文件）、`git_skipped`、`git_timeout`、`stdin_timeout`、`scan_budget_hit`。
+触发条件（任一，正常运行不产生 I/O）：看门狗触发；退出时 `since_start >= 1.5`；`startup >= 1.0`；
+任一阶段降级标志。日志失败绝不影响两行输出。
+
+写入纪律（R10）：
+
+- **不得拖住退出**：日志在 daemon 线程里写，主线程最多等 `SLOW_LOG_WAIT_S = 0.25s`。
+  日志位置是 FIFO、或家目录落在卡死/极慢的文件系统（NFS、被挂起的云同步目录）时，照样先出两行并退出；
+  卡住的线程随 `os._exit(0)` 一起消失。线程只在收尾阶段起（git 之前不能有线程——`preexec_fn` 在多线程下不安全）。
+- **临时文件 + 原子替换**：写到 `agy-slow.log.<pid>.tmp` 再 `os.replace`，读者只会看到完整的旧文件或
+  完整的新文件；进程在写的中途被宿主 SIGKILL 也不会留下半行。带 pid 的临时名避免并发帧互相截断。
+- **看门狗路径先出帧后记日志**：`_expire()` 的顺序是屏蔽信号 → 杀 git → 兜底两行 → 记日志（≤0.25s）→
+  `os._exit(0)`，日志再慢也不会吞掉输出。
+- **阶段耗时照实结算**：看门狗在某个阶段中途触发时，`_close_phase()` 先结算被打断阶段
+  （`stdin` / `scan` / `git`）的耗时再记日志——`phase` 说在 git，`git` 字段就不会是 0。
 
 **文本净化**：`model.display_name` / `model.id` / `model.effort` / cwd /
 herdr 环境变量 / **git 分支名**统一走 `_clean_text()`——剥除 CSI（`\x1b[…final`）、OSC（`\x1b]…BEL|ST`）
@@ -125,7 +208,8 @@ U+200B，压平 Unicode 行界后 `strip()`；**保留** ZWNJ/ZWJ（U+200C/200D�
 时长、`ttft_ms` 保持原数值/小数语义。
 
 接入形态与 cc/qc 相同：`~/.gemini/antigravity-cli/settings.json` 的 `statusLine` 写
-`{type:"command", command:"<绝对路径>/wren-agy.py", enabled:true}`；宿主 `sh -c` 执行，
+`{type:"command", command:"<绝对路径>/wren-agy.py", enabled:true}`（安装器可能写成上文
+的「优先快解释器」片段，`WREN_AGY_PYTHON=off` 时是裸路径）；宿主 `sh -c` 执行，
 stdin JSON → stdout 两行，支持多行 + ANSI。`wren install agy` 会把残留的 `enabled:false`
 改回 `true`（否则安装形同没装）；`wren uninstall agy` 只摘 wren 写入的 `type`/`command`
 和等价缺省的 `enabled:true`，用户的 `padding` / `stack_with_default` / `enabled:false` 保留。
@@ -177,9 +261,11 @@ qc 侧：`install qc` 拷 payload 到 `$QODER_CONFIG_DIR/wren-qc.py` 并写 `$QO
 
 agy 侧：`install agy` 拷 payload 到 `$AGY_CONFIG_DIR/wren-agy.py`（默认 `~/.gemini/antigravity-cli/`，
 settings 在该目录的 `settings.json`，**不是** `~/.gemini/settings.json`）并写 `$AGY_SETTINGS` 的
-绝对路径 `statusLine`，同时确保 `statusLine.enabled = true`（残留 false 会让安装形同没装）。
-卸载只摘 `type`/`command` 与等价缺省的 `enabled:true`，保留用户的 `enabled:false` / `padding` /
-`stack_with_default`（T160-T163 守门）。
+`statusLine`（默认绕开 python3 shim，command 是「优先快解释器」片段；`WREN_AGY_PYTHON=off`
+回到裸绝对路径，详见上文「启动开销与 shim」），同时确保 `statusLine.enabled = true`
+（残留 false 会让安装形同没装）。卸载只摘 `type`/`command` 与等价缺省的 `enabled:true`，
+保留用户的 `enabled:false` / `padding` / `stack_with_default`；碎片化的 command 只要含
+wren 的裸路径（单引号完整路径串）就认（T160-T163、T181/T182 守门）。
 
 oc 侧：`install oc` 拷两个 payload（`wren-oc.tsx` + `wren-oc.ts`）到 `<tui 配置同目录>/plugins/`，
 并在 `tui.json` / `tui.jsonc` 的 `plugin` 数组里加一条 `./plugins/wren-oc.tsx`。因为宿主只把 TUI 插件当 npm 包安装
@@ -203,6 +289,8 @@ oc 侧：`install oc` 拷两个 payload（`wren-oc.tsx` + `wren-oc.ts`）到 `<t
 | `QODER_SETTINGS` | `$QODER_CONFIG_DIR/settings.json` | qc 侧要改的 settings 文件（显式设置时优先级最高） |
 | `AGY_CONFIG_DIR` | `$HOME/.gemini/antigravity-cli` | Antigravity CLI 配置目录（settings 在这里的 `settings.json`，**不是** `~/.gemini/settings.json`） |
 | `AGY_SETTINGS` | `$AGY_CONFIG_DIR/settings.json` | agy 侧要改的 settings 文件（显式设置时优先级最高）；payload 落点 = 它同目录的 `wren-agy.py` |
+| `WREN_AGY_PYTHON` | `auto` | agy 状态栏解释器：`off` = 裸脚本（走 shebang）；`auto` = 绕开 python3 shim；其它值时当作解释器绝对路径 |
+| `WREN_AGY_HARD_LIMIT` | （不设，3.0s） | agy 硬墙钟覆盖（秒，钳在 `[0.2, 4.0]`），测试专用 |
 | `OPENCODE_CONFIG_DIR` | `${XDG_CONFIG_HOME:-$HOME/.config}/opencode` | opencode 配置目录（opencode 官方同名重定向变量） |
 | `OPENCODE_TUI_CONFIG` | `$OPENCODE_CONFIG_DIR/tui.json`（存在 `tui.jsonc` 时优先接管） | oc 侧要改的 TUI 配置文件；payload 落点 = 它同目录的 `plugins/` |
 

@@ -36,10 +36,11 @@ wren install            # 五个宿主都装；或 wren install cc / pi / qc / a
 该步会写 `$CLAUDE_SETTINGS` 的 `statusLine` 键（只动这一个键，首次自动备份到 `<settings>.wren-bak`），并把 payload 拷到 **settings.json 同目录的 `wren-cc`** 与 `$PI_EXT_DIR/wren-pi.ts`。默认落 `~/.claude/wren-cc` 与 `~/.pi/agent/extensions/wren-pi.ts`，可用 `CLAUDE_SETTINGS` / `PI_EXT_DIR` 改道（改 settings 路径即改 payload 落点）。qc 侧同理：payload 拷到 `$QODER_CONFIG_DIR/wren-qc.py`（默认 `~/.qoder`，可用 `QODER_CONFIG_DIR` / `QODER_SETTINGS` 改道），`statusLine.command` 写该绝对路径。
 
 agy 侧：payload 拷到 `$AGY_CONFIG_DIR/wren-agy.py`（默认 `~/.gemini/antigravity-cli/`，可用 `AGY_CONFIG_DIR` / `AGY_SETTINGS` 改道；
-注意 settings 在 `~/.gemini/antigravity-cli/settings.json`，**不是** `~/.gemini/settings.json`），并在 `$AGY_SETTINGS` 写绝对路径的
-`statusLine`。agy 有启用开关，`wren install agy` 会确保 `statusLine.enabled = true`（残留 `false` 会让安装形同没装）；
-用户原有的 `padding` / `stack_with_default` 等子键保留。卸载只摘 wren 写入的 `type` / `command` 与等价缺省的
-`enabled:true`，`enabled:false`（用户主动关）保留。
+注意 settings 在 `~/.gemini/antigravity-cli/settings.json`，**不是** `~/.gemini/settings.json`），并在 `$AGY_SETTINGS` 写
+`statusLine`（默认绕开 pyenv python3 shim，command 是「优先快解释器、坏了回落」片段；`WREN_AGY_PYTHON=off` 用裸绝对路径，
+细节见 `zoo-scripts/wren/README.md`「启动开销与 shim」）。agy 有启用开关，`wren install agy` 会确保 `statusLine.enabled = true`
+（残留 `false` 会让安装形同没装）；用户原有的 `padding` / `stack_with_default` 等子键保留。卸载只摘 wren 写入的
+`type` / `command` 与等价缺省的 `enabled:true`，`enabled:false`（用户主动关）保留。
 
 oc 侧形态不同（opencode 没有 statusline 命令协议）：两个 payload（`wren-oc.tsx` + `wren-oc.ts`）拷到 **`<tui 配置同目录>/plugins/`**，
 并在 `tui.json` / `tui.jsonc` 的 `plugin` 数组里加一条 `./plugins/wren-oc.tsx`。默认落在 `~/.config/opencode`，
@@ -53,7 +54,7 @@ oc 侧形态不同（opencode 没有 statusline 命令协议）：两个 payload
 otter -h                                # otter 装好
 wren -h                                 # wren 本体装好
 bash .test_scripts/otter-test.sh        # expect: Total: 25  Pass: 25
-bash .test_scripts/wren-test.sh         # expect: Total: 176  Pass: 175  Fail: 0  Skip: 1（缺 node 时 23 条 SKIP，缺 opencode/tmux 时 T101 SKIP）
+bash .test_scripts/wren-test.sh         # expect: Total: 188  Pass: 187  Fail: 0  Skip: 1（缺 node 时 23 条 SKIP，缺 opencode/tmux 时 T101 SKIP，无 <3.10 系统 python 时 T183 SKIP）
 ```
 
 wren 装好后可再喂一份 statusline JSON 冒烟：
