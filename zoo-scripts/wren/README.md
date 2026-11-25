@@ -45,7 +45,7 @@ payload 文档 + 构造器静态核对 + 真会话抓包，由 T48-T58 守门）
 ### agy（Antigravity CLI）侧数据源
 
 `wren-agy.py` 以 qc 为基底（`workspace.current_dir` 优先、两行输出），数据源改为 agy 的 statusline
-payload + Gemini 格式 transcript（结论来自 agy 1.5.13 官方文档 + 真实语料核对 + 真机探针，由 T145-T188 守门）：
+payload + Gemini 格式 transcript（结论来自 agy 1.5.13 官方文档 + 真实语料核对 + 真机探针，由 T145-T190 守门）：
 
 | 位置 | 来源 |
 |------|------|

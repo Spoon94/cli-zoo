@@ -5,14 +5,14 @@
 | 工具 | 用例数 | 运行 |
 |------|--------|------|
 | `otter` | 25 | `bash .test_scripts/otter-test.sh` |
-| `wren` | 188 | `bash .test_scripts/wren-test.sh` |
+| `wren` | 190 | `bash .test_scripts/wren-test.sh` |
 
 输出格式：
 
 ```
 PASS T01 ...
 ...
-Total: 188  Pass: 187  Fail: 0  Skip: 1（T101 需 opencode/tmux 真机）
+Total: 190  Pass: 189  Fail: 0  Skip: 1（T101 需 opencode/tmux 真机）
 ```
 
 任一 FAIL → 退出码 1，结果文件 `.test_res/<tool>-test-res.md` 会被覆盖写。
@@ -25,7 +25,7 @@ Total: 188  Pass: 187  Fail: 0  Skip: 1（T101 需 opencode/tmux 真机）
 直接跑 payload 的用例另把 `WREN_CACHE_DIR` 指到沙箱，避免污染真实 `~/.cache/wren`。
 
 - **pi 侧（T27-T32、T38、T40、T43、T46、T69-T73、T77-T78、T80）**：stub 掉 `@earendil-works/pi-tui`，用 fixture 驱动 `wren-pi.ts` 的 footer 真实渲染。
-- **agy 侧（T145-T188）**：夹具全部手工脱敏构造（结构同真实 Gemini transcript，content 是占位文本），覆盖宽/窄档精确两行、
+- **agy 侧（T145-T190）**：夹具全部手工脱敏构造（结构同真实 Gemini transcript，content 是占位文本），覆盖宽/窄档精确两行、
   TTFT 语义、时长与时钟异常、payload 回退、增量缓存、transcript 故障矩阵（缺失/空/二进制/半行/截断/毒缓存/非普通文件/超长单行）、
   stdin 容灾（EOF / 管道保持打开 / 非法 UTF-8 / 超 8 MiB）、畸形 payload 矩阵（含 BOM/NaN/Infinity/bidi/ANSI/OSC 注入）、
   文本净化（模型名/effort/cwd/分支名）、token 取整、宽度链（pty 控制终端权重）、C 语言环境编码、长分支 + CJK 路径、非 git cwd、
@@ -33,6 +33,7 @@ Total: 188  Pass: 187  Fail: 0  Skip: 1（T101 需 opencode/tmux 真机）
   R9 进程创建起算的硬墙钟（慢启动计入预算 / setitimer 看门狗 / 进程创建时刻读数 / 信号重入防抖）、
   R10 收尾路径加固（慢日志线程化不拖住退出 / pid 临时文件原子写 / 40 行轮转 / 进程年龄上界）、
   R11 git 子进程自带到期时间（父进程被 SIGKILL 后孤儿自灭 / 慢但成功的 git 不被误杀）、
+  R12 bash 3.2 变量名邻接（静态扫描 / 系统 bash + UTF-8 locale 实跑安装器）、
   安装器解释器选择（绕开 python3 shim / 开关与回落 / 老接线卸载 / R8→R9 升级）与 Python 3.9 兼容、
   agy↔cc 逐字一致性、安装器（enabled 开关/幂等/卸载对称/非法配置零副作用/别名）、性能护栏与缓存键隔离。
   真机 agy 渲染不在单测范围（由人工验收）。
