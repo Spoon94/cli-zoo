@@ -1,5 +1,5 @@
 # wren 测试结果
-执行时间：2026-11-25 04:47:48
+执行时间：2026-11-25 11:00:53
 
 | ID | 状态 | 备注 |
 |----|------|------|
@@ -155,7 +155,7 @@
 | T150 | PASS | agy payload fallback: totals/current_usage; unknown win renders pct only |
 | T151 | PASS | agy incremental cache: warm append == cold full scan, offset advances |
 | T152 | PASS | agy transcript faults: missing/empty/garbage/bad-line/half-line/truncation/poison cache all safe |
-| T153 | PASS | agy stdin: EOF idle, open pipe returns in 1.10s, bad bytes/JSON/array/8MiB safe |
+| T153 | PASS | agy stdin: EOF idle, open pipe returns in 1.11s, bad bytes/JSON/array/8MiB safe |
 | T154 | PASS | agy fault matrix: 39 malformed payloads (incl. BOM/NaN/bidi/ANSI/OSC/cost) -> rc0, stderr empty, 2 lines, width<=80 |
 | T155 | PASS | agy width chain: COLUMNS > ctty (51 beats stale terminal_width=80) > payload > 80 |
 | T156 | PASS | agy LC_ALL=C: valid UTF-8 two lines with ↑ (stdout reconfigured) |
@@ -166,30 +166,32 @@
 | T161 | PASS | uninstall agy: symmetric; enabled:true dropped, enabled:false/padding kept, foreign command left alone |
 | T162 | PASS | install agy invalid JSON -> exit 1, zero side effects |
 | T163 | PASS | install antigravity normalizes non-object statusLine; agy/antigravity aliases |
-| T164 | PASS | agy warm run 0.087s < 1.5s (3-run max) |
+| T164 | PASS | agy warm run 0.102s < 1.5s (3-run max) |
 | T165 | PASS | agy cache key isolated: agy- prefix, no cross-host contamination |
 | T166 | PASS | agy text sanitize: ANSI/OSC/CSI/bidi stripped, colour kept, ZWNJ kept, plain text unchanged |
 | T167 | PASS | agy token ints: transcript/payload fallback/cached floats truncate (2.0 -> 2) |
-| T168 | PASS | agy git budget: hanging git returns in 1.57s < 2.2s (GIT_TIMEOUT_S=1.5) |
-| T169 | PASS | agy worst case: stdin open + hanging git returns in 2.58s < 3.8s |
-| T170 | PASS | agy scan timebox: first 0.11s, converged in 3 resumes == full scan; bogus budget falls back |
+| T168 | PASS | agy git budget: hanging git returns in 1.58s < 2.2s (GIT_TIMEOUT_S=1.5) |
+| T169 | PASS | agy worst case: stdin open + hanging git returns in 2.59s < 3.8s |
+| T170 | PASS | agy scan timebox: first 0.12s, converged in 3 resumes == full scan; bogus budget falls back |
 | T171 | PASS | agy non-regular transcript: /dev/zero, FIFO, dir -> fast two-line payload fallback |
 | T172 | PASS | agy overlong line skipped: later line aggregated, offset==size, output == reference |
 | T173 | PASS | agy branch sanitize: RLO stripped from git branch name (featureevil), badge kept |
 | T174 | PASS | agy colour injection: truecolor kept, injected SGR stripped, text == NO_COLOR |
 | T175 | PASS | agy git timeout kills whole tree: 1.57s, rc0, 2 lines, no survivors |
 | T176 | PASS | agy signals kill whole tree: SIGTERM/SIGHUP/SIGINT -> rc0, 2 lines, no survivors |
-| T177 | PASS | agy slow start counted: 2.99s from spawn (<4.0), rc0, 2 lines, slow log startup=2.676s |
-| T178 | PASS | agy watchdog: 0.59s (hard limit 0.6), rc0, 2 lines, reason=watchdog phase=git git=0.528s, no leak |
-| T179 | PASS | agy proc-start read: delayed startup=1.279s (>=1.2), direct startup=0.052s (<0.5), stat field 22 parsed |
+| T177 | PASS | agy slow start counted: 2.99s from spawn (<4.0), rc0, 2 lines, slow log startup=2.686s |
+| T178 | PASS | agy watchdog: 0.59s (hard limit 0.6), rc0, 2 lines, reason=watchdog phase=git git=0.520s, no leak |
+| T179 | PASS | agy proc-start read: delayed startup=1.284s (>=1.2), direct startup=0.056s (<0.5), stat field 22 parsed |
 | T180 | PASS | agy repeated SIGHUP x3: rc0, exactly 2 lines, no survivors (reentry blocked) |
-| T181 | PASS | install agy bypasses python3 shim: fragment -> /var/folders/ch/zh5ql_7x71v_ljzcxsy3s24w0000gn/T/tmp.484RQRs9LC/box135/pygood/python3, shim never entered, 2 lines |
+| T181 | PASS | install agy bypasses python3 shim: fragment -> /var/folders/ch/zh5ql_7x71v_ljzcxsy3s24w0000gn/T/tmp.AvtoMQFEx7/box135/pygood/python3, shim never entered, 2 lines |
 | T182 | PASS | agy interpreter switch: off->bare, bad path warns+falls back (exit 0), no candidate->bare+hint, old wiring uninstalls |
 | T183 | PASS | python 3.9.6 compiles and renders 2 lines |
 | T184 | PASS | R8->R9 upgrade: fragment installed, user keys kept, backup == pre-state, old payload replaced, uninstall symmetric |
-| T185 | PASS | slow log never blocks exit: FIFO watchdog 0.87s, normal 1.97s; rc0/2 lines/no leak |
+| T185 | PASS | slow log never blocks exit: FIFO watchdog 0.86s, normal 1.97s; rc0/2 lines/no leak |
 | T186 | PASS | slow log atomic+rotate: seed40 -> 40 lines (n=1..39+watchdog), 8 concurrent rc0/2 lines, valid JSON, no tmp |
 | T187 | PASS | process age sanity: 0..59.9 kept, 60.1/-0.1/7200/nan/inf/None -> None |
-| T188 | PASS | git self-expires: orphan gone in 2.00s after wren SIGKILL, no leak; slow 1s git still renders main in 1.42s |
+| T188 | PASS | git self-expires: orphan gone in 2.03s after wren SIGKILL, no leak; slow 0.3s git still renders main in 0.75s |
+| T189 | PASS | bash 3.2 static guard: no var+nonascii, no unicode-escape inside dollar-quotes in sh scripts |
+| T190 | PASS | /bin/bash (3.2.57(1)-release) + UTF-8: full shim notice, fragment written |
 
-汇总：Total 188 / Pass 187 / Fail 0 / Skip 1
+汇总：Total 190 / Pass 189 / Fail 0 / Skip 1

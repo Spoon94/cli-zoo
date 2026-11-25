@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# wren-test.sh - 自动运行 wren 的 188 个用例（用例书见 .test_task/wren-test.md）。
+# wren-test.sh - 自动运行 wren 的 190 个用例（用例书见 .test_task/wren-test.md）。
 #
 # 用法: bash .test_scripts/wren-test.sh
 # 写出: .test_res/wren-test-res.md（可用 WREN_TEST_RES_FILE 改道）
@@ -3032,8 +3032,8 @@ fi
 
 # ============================================================
 #       CLAUDE_SETTINGS/OPENCODE_TUI_CONFIG 给裸文件名（无斜杠）时配置落 CWD，
-#       payload 旧版落 $CLAUDE_CONFIG_DIR / $OPENCODE_CONFIG_DIR（分裂）；
-#       QODER_SETTINGS 覆盖到别处时 qc payload 旧版仍钉死 $QODER_CONFIG_DIR。
+#       payload 旧版落 $CLAUDE_CONFIG_DIR / ${OPENCODE_CONFIG_DIR}（分裂）；
+#       QODER_SETTINGS 覆盖到别处时 qc payload 旧版仍钉死 ${QODER_CONFIG_DIR}。
 #       修法：payload 落点跟随配置文件所在目录（cc/qc 绝对化，host 要绝对 command）。
 # ============================================================
 new_box
@@ -3820,7 +3820,7 @@ t141_case() {  # t141_case <名字> <fixture 正文> <期望: exit 码或 any>
     run_wren install oc
     if [[ "$WREN_EXIT" == "124" ]]; then t141_ok=0; t141_note="$t141_note [$name:install 超时]"; return; fi
     if [[ "$want" != "any" && "$WREN_EXIT" != "$want" ]]; then
-        t141_ok=0; t141_note="$t141_note [$name:rc=$WREN_EXIT≠$want]"; return
+        t141_ok=0; t141_note="$t141_note [$name:rc=${WREN_EXIT}≠$want]"; return
     fi
     if [[ "$want" == "1" ]]; then  # 拒收路径：文件必须原样
         [[ "$(<"$OCCONF")" == "$before" ]] || { t141_ok=0; t141_note="$t141_note [$name:被改动]"; }
@@ -4757,10 +4757,12 @@ printf '%s' "$t166_a" | grep -qF $'\x1b[31m' && { t166_ok=0; t166_note="$t166_no
 [[ "$(printf '%s' "$t166_a" | agy_plain)" == "$t166_an" ]] || { t166_ok=0; t166_note="$t166_note [ansi:text]"; }
 printf '%s' "$t166_a" | grep -qF "Gemevil" || { t166_ok=0; t166_note="$t166_note [ansi:name]"; }
 # B) bidi（RLO/LRI）注入 model / effort / cwd
+# 注：以下 ZWNJ / RLO / LRI 断言用八进制字节转义（$'\342\200\214' 等），
+# 不用反斜杠-u 四 hex 转义：bash 3.2 在整段脚本的上下文里不解释后者（T189 第 2 条规则守门）。
 t166_b="$(printf '%s' '{"cwd":"/tmp/a\u202eb","workspace":{"current_dir":"/tmp/a\u202eb"},"model":{"display_name":"ab\u202ecdef","effort":"hi\u2066"},"context_window":{}}' \
     | env NO_COLOR=1 COLUMNS=120 WREN_CACHE_DIR="$BOX/c166b" python3 "$AGY_PAYLOAD" 2>/dev/null)"
-printf '%s' "$t166_b" | grep -q $'\u202e' && { t166_ok=0; t166_note="$t166_note [bidi:202E]"; }
-printf '%s' "$t166_b" | grep -q $'\u2066' && { t166_ok=0; t166_note="$t166_note [bidi:2066]"; }
+printf '%s' "$t166_b" | grep -q $'\342\200\256' && { t166_ok=0; t166_note="$t166_note [bidi:202E]"; }
+printf '%s' "$t166_b" | grep -q $'\342\201\246' && { t166_ok=0; t166_note="$t166_note [bidi:2066]"; }
 printf '%s' "$t166_b" | grep -qF "abcdef · hi" || { t166_ok=0; t166_note="$t166_note [bidi:text]"; }
 [[ "${t166_b%%$'\n'*}" == "/tmp/ab | agy" ]] || { t166_ok=0; t166_note="$t166_note [bidi:cwd]"; }
 # C) OSC（BEL 结尾）/ CSI（ED）注入
@@ -4773,7 +4775,7 @@ printf '%s' "$t166_c" | grep -qF "abcdef · medium" || { t166_ok=0; t166_note="$
 # D) ZWNJ 保留（波斯文模型名）
 t166_d="$(printf '%s' '{"cwd":"/tmp","model":{"display_name":"ف\u200cب"},"context_window":{}}' \
     | env NO_COLOR=1 COLUMNS=120 WREN_CACHE_DIR="$BOX/c166d" python3 "$AGY_PAYLOAD" 2>/dev/null)"
-printf '%s' "$t166_d" | grep -q $'\u200c' || { t166_ok=0; t166_note="$t166_note [zwnj]"; }
+printf '%s' "$t166_d" | grep -q $'\342\200\214' || { t166_ok=0; t166_note="$t166_note [zwnj]"; }
 # E) 正常文本（空格/括号/连字符/CJK）逐字不变
 t166_e="$(printf '%s' '{"cwd":"/tmp","model":{"display_name":"Gemini 4 Neon (Medium) — 测试 ×2"},"context_window":{}}' \
     | env NO_COLOR=1 COLUMNS=120 WREN_CACHE_DIR="$BOX/c166e" python3 "$AGY_PAYLOAD" 2>/dev/null)"
@@ -4781,7 +4783,7 @@ printf '%s' "$t166_e" | grep -qF "Gemini 4 Neon (Medium) — 测试 ×2" || { t1
 # F) herdr env 注入（ESC + bidi）：着色不受影响，注入的裸 SGR 被剥掉
 t166_f="$(printf '%s' '{"cwd":"/tmp","model":{"display_name":"m"},"context_window":{}}' \
     | env -u NO_COLOR COLORTERM=truecolor COLUMNS=120 WREN_CACHE_DIR="$BOX/c166f" \
-        HERDR_WORKSPACE_ID=$'w\x1b[31m1' HERDR_TAB_ID=$'t\u202e2' HERDR_PANE_ID='p3' \
+        HERDR_WORKSPACE_ID=$'w\x1b[31m1' HERDR_TAB_ID=$'t\342\200\2562' HERDR_PANE_ID='p3' \
         python3 "$AGY_PAYLOAD" 2>/dev/null)"
 printf '%s' "$t166_f" | grep -qF "38;2;" || { t166_ok=0; t166_note="$t166_note [herdr:truecolor]"; }
 printf '%s' "$t166_f" | grep -qF $'\x1b[31m' && { t166_ok=0; t166_note="$t166_note [herdr:bare-sgr]"; }
@@ -5760,7 +5762,7 @@ fi
 # ============================================================
 # T188 (R11): git 子进程自带到期时间——宿主只 SIGKILL wren 本体、不杀进程组时，
 # 正在跑的单进程假 git 必须在 ≤3.5s 内自己消失（alarm 跨 exec 保留）；
-# 后半：慢但成功的 git（sleep 1 后输出分支名）不被兜底 alarm 误杀。
+# 后半：慢但成功的 git（sleep 0.3 后输出分支名，余量 1.2s）不被兜底 alarm 误杀。
 # ============================================================
 new_box
 t188_tag="wrent188-$$"
@@ -5769,7 +5771,7 @@ t188_slow="$BOX/fakegit-slow-$t188_tag"
 mkdir -p "$t188_bin" "$t188_slow" "$BOX/notgit" "$BOX/c188a" "$BOX/c188b"
 printf '#!/usr/bin/env python3\nwhile True:\n    pass\n' >"$t188_bin/git"
 chmod +x "$t188_bin/git"
-printf '#!/bin/sh\nsleep 1\necho "# branch.head main"\n' >"$t188_slow/git"
+printf '#!/bin/sh\nsleep 0.3\necho "# branch.head main"\n' >"$t188_slow/git"
 chmod +x "$t188_slow/git"
 t188_out="$(T188_SCRIPT="$AGY_PAYLOAD" T188_BIN="$t188_bin" T188_SLOW="$t188_slow" T188_TAG="$t188_tag" \
     T188_CWD="$BOX/notgit" T188_CACHE_A="$BOX/c188a" T188_CACHE_B="$BOX/c188b" python3 - <<'T188PY'
@@ -5817,7 +5819,7 @@ for fh in (p.stdin, p.stdout, p.stderr):
     except Exception:
         pass
 
-# 后半：慢但成功的 git（1.0s < 2s alarm）不被误杀
+# 后半：慢但成功的 git（0.3s < 2s alarm）不被误杀
 env_b = dict(base_env, PATH=slowdir + ":" + os.environ["PATH"], WREN_CACHE_DIR=cache_b)
 t0 = time.time()
 rb = subprocess.run([sys.executable, script], input=payload, capture_output=True,
@@ -5839,9 +5841,93 @@ if [[ "$t188_before" -ge 1 && "$t188_gone" != "none" && "$t188_left" == "0" ]] \
    && awk "BEGIN{exit !($t188_gone > 0 && $t188_gone <= 3.5)}" \
    && [[ "$t188_brc" == "0" && "$t188_blines" == "2" && "$t188_bmain" == "1" && "$t188_berr" == "0" ]] \
    && awk "BEGIN{exit !($t188_bdt < 2.5)}"; then
-    pass T188 "git self-expires: orphan gone in ${t188_gone}s after wren SIGKILL, no leak; slow 1s git still renders main in ${t188_bdt}s"
+    pass T188 "git self-expires: orphan gone in ${t188_gone}s after wren SIGKILL, no leak; slow 0.3s git still renders main in ${t188_bdt}s"
 else
     fail T188 "A: before=$t188_before gone=$t188_gone left=$t188_left | B: dt=$t188_bdt rc=$t188_brc lines=$t188_blines main=$t188_bmain err=$t188_berr"
+fi
+
+# ============================================================
+# T189 (R12/R12b): 静态守卫——shebang 含 sh 的脚本里两条规则：
+# 1) `$变量名` 后面不得紧跟非 ASCII 字节（bash 3.2 在 UTF-8 locale 下会把后续
+#    字节并进变量名，set -u 下直接中止）；
+# 2) `$'…'` 里不得出现反斜杠-u 四 hex 转义（bash 3.2 在整段脚本的上下文里不解释）。
+# 不依赖 git ls-files（无 .git 的副本也能跑），排除 .git 目录。
+# ============================================================
+new_box
+t189_out="$(python3 - "$REPO_ROOT" <<'T189PY'
+import os, re, sys
+root = sys.argv[1]
+pat1 = re.compile(rb'\$[A-Za-z_][A-Za-z0-9_]*[\x80-\xff]')
+pat2 = re.compile(rb"\$'[^']*\\u[0-9a-fA-F]{4}")
+hits = []
+for dirpath, dirnames, filenames in os.walk(root):
+    dirnames[:] = [d for d in dirnames if d != ".git"]
+    for fn in filenames:
+        p = os.path.join(dirpath, fn)
+        try:
+            with open(p, "rb") as fh:
+                data = fh.read()
+        except OSError:
+            continue
+        first = data.split(b"\n", 1)[0]
+        if not first.startswith(b"#!") or b"sh" not in first:
+            continue
+        for i, line in enumerate(data.splitlines(), 1):
+            for rule, pat in (("1:var+nonascii", pat1), ("2:unicode-escape", pat2)):
+                for m in pat.finditer(line):
+                    snippet = line[max(0, m.start() - 24):m.end() + 8].decode("utf-8", "replace")
+                    hits.append("%s:%d [%s]: %s" % (os.path.relpath(p, root), i, rule, snippet))
+print(len(hits))
+for h in hits[:20]:
+    print(h)
+T189PY
+)"
+t189_n="$(printf '%s\n' "$t189_out" | head -1)"
+t189_list="$(printf '%s\n' "$t189_out" | tail -n +2)"
+if [[ "$t189_n" == "0" ]]; then
+    pass T189 "bash 3.2 static guard: no var+nonascii, no unicode-escape inside dollar-quotes in sh scripts"
+else
+    fail T189 "$t189_n hit(s): $(printf '%s' "$t189_list" | tr '\n' '~')"
+fi
+
+# ============================================================
+# T190 (R12): 用系统 /bin/bash（macOS 3.2）实跑 `install agy`，UTF-8 locale +
+# PATH 首位是留标记的假 shim：rc0，提示必须完整（不被变量名吞并截断），
+# statusLine.command 是片段。bash 5.x 上同样应通过。
+# ============================================================
+new_box
+if [[ -x /bin/bash ]]; then
+    t190_shim="$BOX/pyshim"
+    t190_good="$BOX/pygood"
+    mkdir -p "$t190_shim" "$t190_good"
+    t190_real="$(python3 -c 'import sys; print(sys.executable)')"
+    printf '#!/bin/sh\nexec "%s" "$@"\n' "$t190_real" >"$t190_shim/python3"
+    chmod +x "$t190_shim/python3"
+    ln -s "$t190_real" "$t190_good/python3"
+    run_limited "$CMD_TIMEOUT" env NO_COLOR=1 LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 \
+        PREFIX="$BIN" PI_EXT_DIR="$PIEXT" \
+        CLAUDE_CONFIG_DIR="$CLAUDE" CLAUDE_SETTINGS="$SETTINGS" \
+        QODER_CONFIG_DIR="$QODER" QODER_SETTINGS="$QODER_SETTINGS" \
+        AGY_CONFIG_DIR="$AGY" AGY_SETTINGS="$AGY_SETTINGS" \
+        OPENCODE_CONFIG_DIR="$OC" OPENCODE_TUI_CONFIG="$OCCONF" \
+        PATH="$t190_shim:$t190_good:$PATH" \
+        /bin/bash "$WREN" install agy >"$BOX/out190.txt" 2>"$BOX/err190.txt"
+    t190_rc=$?
+    t190_out="$(<"$BOX/out190.txt")"
+    t190_err="$(<"$BOX/err190.txt")"
+    t190_cmd="$(json_field "$AGY_SETTINGS" 'd["statusLine"]["command"]')"
+    t190_want="python3 是 shim（$t190_shim/python3）；状态栏改用 $t190_good/python3"
+    t190_ok=1
+    [[ "$t190_rc" == "0" ]] || t190_ok=0
+    printf '%s' "$t190_out" | grep -qF "$t190_want" || t190_ok=0
+    [[ -n "$t190_cmd" && "$t190_cmd" == *"$t190_good/python3"* ]] || t190_ok=0
+    if [[ $t190_ok -eq 1 ]]; then
+        pass T190 "/bin/bash ($(/bin/bash -c 'echo $BASH_VERSION' 2>/dev/null)) + UTF-8: full shim notice, fragment written"
+    else
+        fail T190 "rc=$t190_rc err=[$t190_err] out=[$t190_out] cmd=[$t190_cmd]"
+    fi
+else
+    skip T190 "/bin/bash not executable"
 fi
 
 # ---------- 汇总 ----------

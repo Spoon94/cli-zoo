@@ -19,7 +19,7 @@
 
 set -u
 
-# cc 部署目标：与 settings.json 同目录的 wren-cc（绝对路径；v8 起不再放 $PREFIX，
+# cc 部署目标：与 settings.json 同目录的 wren-cc（绝对路径；v8 起不再放 ${PREFIX}，
 # 与 qc 侧一致：command 写绝对路径，且重定向 settings 就重定向了 payload）
 
 usage() {
@@ -80,7 +80,7 @@ log_info() {
     printf '%s\n' "$*"
 }
 
-# 回溯脚本自身位置（可能被 cli-zoo-install.sh 软链到 $PREFIX），借此找到同目录的 payload。
+# 回溯脚本自身位置（可能被 cli-zoo-install.sh 软链到 ${PREFIX}），借此找到同目录的 payload。
 # 只用 bash 内建与 readlink，不依赖 dirname/pwd 这些外部命令。
 script_dir() {
     local f="${BASH_SOURCE[0]}" d
@@ -623,6 +623,9 @@ remove_payload() {
 }
 
 # ---- agy 解释器选择（R9）----
+# 规则（bash 3.2）：变量后面紧跟非 ASCII 字符时必须写 ${var}——bash 3.2 在
+# UTF-8 locale 下会把后续多字节字符的字节并进变量名（`${py}）` 会被当成
+# 名为 `py…` 的变量，`set -u` 下直接 unbound variable）。由 T189 静态守门。
 # 单引号 shell 引用：内部的 ' → '\''。逐字符拼接（bash 3.2 的
 # ${var//pat/repl} 反斜杠转义不可靠）。
 shq() {
@@ -715,10 +718,10 @@ agy_pick_python() {
         agy_is_binary "$cand_real" || continue
         agy_py_sane "$cand" || continue
         AGY_PY="$cand"
-        log_info "[agy] python3 是 shim（$py）；状态栏改用 $cand"
+        log_info "[agy] python3 是 shim（${py}）；状态栏改用 $cand"
         return 0
     done <<<"$list"
-    log_err "[agy] python3 解析到 shim（$py），每次刷新会多付启动开销；可设 WREN_AGY_PYTHON=/path/to/python3 绕开"
+    log_err "[agy] python3 解析到 shim（${py}），每次刷新会多付启动开销；可设 WREN_AGY_PYTHON=/path/to/python3 绕开"
     return 0
 }
 

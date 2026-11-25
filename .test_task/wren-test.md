@@ -221,7 +221,9 @@
 | T185 | agy | R10 慢日志不拖住退出：`agy-slow.log` 做成 FIFO；看门狗路径（0.6s + 假 git）与正常收尾（sleep 1.6 后 exec，真 git 在 /tmp 立刻返回）各一次，超时击杀兜底 | 两条都 rc0、恰好两行、stderr 空、无孤儿；看门狗 ≤1.6s、正常 ≤2.6s（**日志写入点卡死也照常退出**；修复前两条都会挂到被杀） |
 | T186 | agy | R10 慢日志原子 + 轮转：种子 40 行合法 JSON → 一个慢帧；再并发 8 个慢帧 | 恰好 40 行、逐行可解析、首行 `n==1`、末行 `reason=="watchdog"`；并发后仍逐行合法、≤40 行；目录无 `agy-slow.log.*.tmp`（**pid 临时名 + os.replace 守门**） |
 | T187 | agy | R10 进程年龄合理性（表驱动，importlib 加载模块） | `0.0`/`0.05`/`3.5`/`59.9` 原样；`60.1`/`-0.1`/`7200`/`nan`/`inf`/`None` → `None`；`STARTUP_MAX_S==60.0`（**休眠时钟域安全阀**） |
-| T188 | agy | R11 git 自带到期时间：单进程假 git 烧 CPU，等它跑起来后只 `kill -9` wren 本体（不杀进程组）；后半用 sleep 1 后输出 `# branch.head main` 的慢 git | 前半：被杀时 git 在跑，之后 ≤3.5s 内它**自己消失**（测试不替它收尾），清场后无存活；后半：rc0、两行、行1 含 `main`、整体 <2.5s（**alarm 跨 exec 保留兜底 + 慢 git 不被误杀**） |
+| T188 | agy | R11 git 自带到期时间：单进程假 git 烧 CPU，等它跑起来后只 `kill -9` wren 本体（不杀进程组）；后半用 sleep 0.3 后输出 `# branch.head main` 的慢 git | 前半：被杀时 git 在跑，之后 ≤3.5s 内它**自己消失**（测试不替它收尾），清场后无存活；后半：rc0、两行、行1 含 `main`、整体 <2.5s（**alarm 跨 exec 保留兜底 + 慢 git 不被误杀**） |
+| T189 | 安装 | R12/R12b 静态守卫：遍历仓库里 shebang 含 `sh` 的文件（排除 `.git`，不依赖 `git ls-files`），两条规则：①`\$名字` 紧跟非 ASCII 字节；②`$'…'` 里出现反斜杠-u 四 hex 转义 | 两条都 0 命中；失败时列出文件、行号、规则与片段（**bash 3.2 UTF-8 locale 会把后续字节并进变量名；且其在整段脚本上下文里不解释 `$'…'` 的 `\uXXXX`**） |
+| T190 | agy 安装 | R12 系统 bash 实跑：`/bin/bash "$WREN" install agy`，`LANG/LC_ALL=en_US.UTF-8`，PATH 首位放假 shim、其后好 python3 目录（照 T181） | rc0；stdout 完整包含 `python3 是 shim（<shim>）；状态栏改用 <候选>`（证明未被截断）；`statusLine.command` 是指向好目录解释器的片段；无 `/bin/bash` 时 SKIP（**bash 3.2 线上事故回归**） |
 
 ## 条件用例（不满足条件时 SKIP，不算 FAIL）
 

@@ -54,7 +54,7 @@ oc 侧形态不同（opencode 没有 statusline 命令协议）：两个 payload
 otter -h                                # otter 装好
 wren -h                                 # wren 本体装好
 bash .test_scripts/otter-test.sh        # expect: Total: 25  Pass: 25
-bash .test_scripts/wren-test.sh         # expect: Total: 188  Pass: 187  Fail: 0  Skip: 1（缺 node 时 23 条 SKIP，缺 opencode/tmux 时 T101 SKIP，无 <3.10 系统 python 时 T183 SKIP）
+bash .test_scripts/wren-test.sh         # expect: Total: 190  Pass: 189  Fail: 0  Skip: 1（缺 node 时 23 条 SKIP，缺 opencode/tmux 时 T101 SKIP，无 <3.10 系统 python 时 T183 SKIP）
 ```
 
 wren 装好后可再喂一份 statusline JSON 冒烟：
