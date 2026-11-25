@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# wren-test.sh - 自动运行 wren 的 176 个用例（用例书见 .test_task/wren-test.md）。
+# wren-test.sh - 自动运行 wren 的 188 个用例（用例书见 .test_task/wren-test.md）。
 #
 # 用法: bash .test_scripts/wren-test.sh
 # 写出: .test_res/wren-test-res.md（可用 WREN_TEST_RES_FILE 改道）
@@ -191,6 +191,26 @@ run_wren() {
 WREN_EXIT=0
 WREN_OUT=""
 WREN_ERR=""
+
+# 同 run_wren，但可前置任意 env 赋值（T181/T182 需要改 PATH / WREN_AGY_PYTHON）：
+#   run_wrenx PATH=/x:$PATH WREN_AGY_PYTHON=off -- install agy
+run_wrenx() {
+    local extra=()
+    while [[ $# -gt 0 && "$1" != "--" ]]; do extra+=("$1"); shift; done
+    [[ "${1:-}" == "--" ]] && shift
+    run_limited "$CMD_TIMEOUT" env NO_COLOR=1 PREFIX="$BIN" PI_EXT_DIR="$PIEXT" \
+        CLAUDE_CONFIG_DIR="$CLAUDE" CLAUDE_SETTINGS="$SETTINGS" \
+        QODER_CONFIG_DIR="$QODER" QODER_SETTINGS="$QODER_SETTINGS" \
+        AGY_CONFIG_DIR="$AGY" AGY_SETTINGS="$AGY_SETTINGS" \
+        OPENCODE_CONFIG_DIR="$OC" OPENCODE_TUI_CONFIG="$OCCONF" \
+        ${extra[@]+"${extra[@]}"} "$WREN" "$@" >"$BOX/out.txt" 2>"$BOX/err.txt"
+    WREN_EXIT=$?
+    if [[ "$WREN_EXIT" == "124" ]]; then
+        printf 'wren: TIMEOUT after %ss (suspected infinite loop): %s\n' "$CMD_TIMEOUT" "$*" >>"$BOX/err.txt"
+    fi
+    WREN_OUT="$(<"$BOX/out.txt")"
+    WREN_ERR="$(<"$BOX/err.txt")"
+}
 
 # 行1 尾有 " | cc"/" | pi" 宿主徽标（v6 起），跨实现比对前剥掉
 strip_tag() {
@@ -2380,7 +2400,7 @@ fi
 # T95: install all / uninstall all 把五个宿主都接上、都摘干净
 # ============================================================
 new_box
-run_wren install all
+WREN_AGY_PYTHON=off run_wren install all
 inst_all=1
 [[ -f "$CLAUDE/wren-cc" ]] || inst_all=0
 [[ -f "$PIEXT/wren-pi.ts" ]] || inst_all=0
@@ -4558,7 +4578,7 @@ fi
 new_box
 printf '{\n  "model": "m",\n  "statusLine": { "type": "command", "command": "old-thing", "padding": 0, "stack_with_default": true, "enabled": false },\n  "env": {"A": "1"}\n}\n' >"$AGY_SETTINGS"
 cp "$AGY_SETTINGS" "$BOX/before160"
-run_wren install agy
+WREN_AGY_PYTHON=off run_wren install agy
 t160_rc1="$WREN_EXIT"
 t160_cmd="$(json_field "$AGY_SETTINGS" 'd["statusLine"]["command"]')"
 t160_type="$(json_field "$AGY_SETTINGS" 'd["statusLine"]["type"]')"
@@ -4567,7 +4587,7 @@ t160_pad="$(json_field "$AGY_SETTINGS" 'd["statusLine"]["padding"]')"
 t160_stack="$(json_field "$AGY_SETTINGS" 'd["statusLine"]["stack_with_default"]')"
 t160_env="$(json_field "$AGY_SETTINGS" 'd["env"]["A"]')"
 cp "$AGY_SETTINGS" "$BOX/after160a"
-run_wren install agy
+WREN_AGY_PYTHON=off run_wren install agy
 t160_rc2="$WREN_EXIT"
 t160_ok=1
 [[ "$t160_rc1" == "0" && "$t160_rc2" == "0" ]] || t160_ok=0
@@ -4653,7 +4673,7 @@ fi
 # ============================================================
 new_box
 printf '{"statusLine": true, "model": "m"}\n' >"$AGY_SETTINGS"
-run_wren install antigravity
+WREN_AGY_PYTHON=off run_wren install antigravity
 t163_ok=1
 [[ "$WREN_EXIT" == "0" ]] || t163_ok=0
 [[ "$(json_field "$AGY_SETTINGS" 'type(d["statusLine"]).__name__')" == "dict" ]] || t163_ok=0
@@ -5141,6 +5161,687 @@ if [[ $t176_ok -eq 1 && "$t176_seen" == "3" ]]; then
     pass T176 "agy signals kill whole tree: SIGTERM/SIGHUP/SIGINT -> rc0, 2 lines, no survivors"
 else
     fail T176 "seen=$t176_seen$t176_note out=[$(printf '%s' "$t176_out" | tr '\n' '~')]"
+fi
+
+# ============================================================
+# T177 (R9): 慢启动计入预算——包装脚本先睡 2.6s 再 exec（进程创建时刻早于
+# Python 启动），stdin 保持不关、假 git 挂住：从包装启动算 < 4.0s 结束，
+# rc0、恰好两行、stderr 空、无孤儿；agy-slow.log 记录 startup >= 2.5。
+# （修复前：预算从 main() 起算 + stdin 1.0 + git 1.5+ → 超 5s 被宿主 SIGKILL，零输出。）
+# ============================================================
+new_box
+t177_tag="wrent177-$$"
+t177_bin="$BOX/fakegit-$t177_tag"
+mkdir -p "$t177_bin" "$BOX/c177"
+cat >"$t177_bin/git" <<EOF2
+#!/bin/sh
+python3 -c "import time; time.sleep(120)  # $t177_tag"
+EOF2
+chmod +x "$t177_bin/git"
+t177_meta="$(T177_SCRIPT="$AGY_PAYLOAD" T177_BIN="$t177_bin" T177_TAG="$t177_tag" T177_CACHE="$BOX/c177" python3 - <<'T177PY'
+import json, os, signal, subprocess, sys, threading, time
+script, bindir, tag, cache = (os.environ[k] for k in
+                              ("T177_SCRIPT", "T177_BIN", "T177_TAG", "T177_CACHE"))
+env = dict(os.environ, PATH=bindir + ":" + os.environ["PATH"], NO_COLOR="1",
+           COLUMNS="120", WREN_CACHE_DIR=cache)
+env.pop("WREN_AGY_HARD_LIMIT", None)
+p = subprocess.Popen(["/bin/sh", "-c", "sleep 2.6; exec %s %s" % (sys.executable, script)],
+                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                     env=env, start_new_session=True)
+t0 = time.monotonic()
+host_killed = [False]
+def host_kill():
+    time.sleep(5.0)          # 模拟宿主：5.0s 从进程创建起算的 SIGKILL
+    if p.poll() is None:
+        host_killed[0] = True
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except Exception:
+            pass
+threading.Thread(target=host_kill, daemon=True).start()
+out = p.stdout.read()        # stdin 始终不写、不关
+err = p.stderr.read()
+rc = p.wait()
+dt = time.monotonic() - t0
+p.stdin.close()
+left = []
+for _ in range(10):
+    left = [l for l in subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True,
+                                      text=True).stdout.splitlines() if tag in l]
+    if not left:
+        break
+    time.sleep(0.1)
+subprocess.run(["pkill", "-9", "-f", tag], capture_output=True)
+startup = -1.0
+try:
+    rows = [json.loads(x) for x in open(os.path.join(cache, "agy-slow.log")).read().splitlines() if x.strip()]
+    startup = max([r.get("startup", -1.0) for r in rows] + [-1.0])
+except Exception:
+    pass
+lines = out.rstrip(b"\n").count(b"\n") + 1 if out else 0
+print("%.2f %d %d %d %d %d %.3f" % (dt, rc, lines, len(err), int(host_killed[0]), len(left), startup))
+T177PY
+)"
+read -r t177_dt t177_rc t177_lines t177_errlen t177_hostkill t177_left t177_startup <<<"$t177_meta"
+if [[ "$t177_rc" == "0" && "$t177_lines" == "2" && "$t177_errlen" == "0" \
+   && "$t177_hostkill" == "0" && "$t177_left" == "0" ]] \
+   && awk "BEGIN{exit !($t177_dt < 4.0)}" \
+   && awk "BEGIN{exit !($t177_startup >= 2.5)}"; then
+    pass T177 "agy slow start counted: ${t177_dt}s from spawn (<4.0), rc0, 2 lines, slow log startup=${t177_startup}s"
+else
+    fail T177 "dt=$t177_dt rc=$t177_rc lines=$t177_lines err=$t177_errlen hostkill=$t177_hostkill left=$t177_left startup=$t177_startup"
+fi
+
+# ============================================================
+# T178 (R9/R10c): 看门狗——WREN_AGY_HARD_LIMIT=0.6 + 假 git 挂住（带标记孙进程）：
+# ≤1.3s 退出、rc0、恰好两行、无孤儿；agy-slow.log 的 reason=watchdog、phase=git，
+# 且 git 阶段耗时已结算（0.3 <= git <= 0.6，抓「看门狗中途触发时 _T 恒为 0」）。
+# ============================================================
+new_box
+t178_tag="wrent178-$$"
+t178_bin="$BOX/fakegit-$t178_tag"
+mkdir -p "$t178_bin" "$BOX/c178"
+cat >"$t178_bin/git" <<EOF2
+#!/bin/sh
+python3 -c "import time; time.sleep(120)  # $t178_tag"
+EOF2
+chmod +x "$t178_bin/git"
+t178_meta="$(T178_SCRIPT="$AGY_PAYLOAD" T178_BIN="$t178_bin" T178_TAG="$t178_tag" T178_CACHE="$BOX/c178" python3 - <<'T178PY'
+import json, os, subprocess, sys, time
+script, bindir, tag, cache = (os.environ[k] for k in
+                              ("T178_SCRIPT", "T178_BIN", "T178_TAG", "T178_CACHE"))
+env = dict(os.environ, PATH=bindir + ":" + os.environ["PATH"], NO_COLOR="1",
+           COLUMNS="120", WREN_CACHE_DIR=cache, WREN_AGY_HARD_LIMIT="0.6")
+payload = json.dumps({"cwd": "/tmp", "model": {"display_name": "m"}}).encode()
+t0 = time.monotonic()
+r = subprocess.run([sys.executable, script], input=payload, capture_output=True,
+                   env=env, start_new_session=True, timeout=20)
+dt = time.monotonic() - t0
+left = []
+for _ in range(10):
+    left = [l for l in subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True,
+                                      text=True).stdout.splitlines() if tag in l]
+    if not left:
+        break
+    time.sleep(0.1)
+subprocess.run(["pkill", "-9", "-f", tag], capture_output=True)
+reason = phase = ""
+git_t = -1.0
+try:
+    rows = [json.loads(x) for x in open(os.path.join(cache, "agy-slow.log")).read().splitlines() if x.strip()]
+    for row in reversed(rows):
+        if row.get("reason") == "watchdog":
+            reason, phase = row.get("reason"), row.get("phase")
+            git_t = float(row.get("git", -1.0))
+            break
+    if not reason and rows:
+        reason, phase = rows[-1].get("reason", ""), rows[-1].get("phase", "")
+        git_t = float(rows[-1].get("git", -1.0))
+except Exception:
+    pass
+print("%.2f %d %d %d %d %s %s %.3f" % (dt, r.returncode, r.stdout.count(b"\n") + 1, len(r.stderr),
+                                        len(left), reason, phase, git_t))
+T178PY
+)"
+read -r t178_dt t178_rc t178_lines t178_errlen t178_left t178_reason t178_phase t178_git <<<"$t178_meta"
+if [[ "$t178_rc" == "0" && "$t178_lines" == "2" && "$t178_errlen" == "0" && "$t178_left" == "0" \
+   && "$t178_reason" == "watchdog" && "$t178_phase" == "git" ]] \
+   && awk "BEGIN{exit !($t178_dt <= 1.3)}" \
+   && awk "BEGIN{exit !($t178_git >= 0.3 && $t178_git <= 0.6)}"; then
+    pass T178 "agy watchdog: ${t178_dt}s (hard limit 0.6), rc0, 2 lines, reason=watchdog phase=git git=${t178_git}s, no leak"
+else
+    fail T178 "dt=$t178_dt rc=$t178_rc lines=$t178_lines err=$t178_errlen left=$t178_left reason=$t178_reason phase=$t178_phase git=$t178_git"
+fi
+
+# ============================================================
+# T179 (R9): 进程创建时刻读得准——sleep 1.2 再 exec → 日志 startup >= 1.2；
+# 直接运行时 startup < 0.5；_linux_start_ticks 两段样例（comm 含空格/括号）。
+# ============================================================
+new_box
+t179_a="$(T179_SCRIPT="$AGY_PAYLOAD" T179_CACHE="$BOX/c179" python3 - <<'T179PY'
+import json, os, subprocess, sys
+script, cache = os.environ["T179_SCRIPT"], os.environ["T179_CACHE"]
+env = dict(os.environ, NO_COLOR="1", COLUMNS="120", WREN_CACHE_DIR=cache)
+env.pop("WREN_AGY_HARD_LIMIT", None)
+r = subprocess.run(["/bin/sh", "-c", "sleep 1.2; exec %s %s" % (sys.executable, script)],
+                   input=b'{"cwd":"/tmp"}', capture_output=True, env=env, timeout=20, cwd="/tmp")
+startup = -1.0
+try:
+    rows = [json.loads(x) for x in open(os.path.join(cache, "agy-slow.log")).read().splitlines() if x.strip()]
+    startup = max([x.get("startup", -1.0) for x in rows] + [-1.0])
+except Exception:
+    pass
+print("%d %.3f" % (r.returncode, startup))
+T179PY
+)"
+read -r t179_arc t179_astartup <<<"$t179_a"
+t179_b="$(python3 - "$AGY_PAYLOAD" <<'T179PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("wren_agy_mod", sys.argv[1])
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+def sample(comm, ticks):
+    mid = " ".join(str(i) for i in range(3, 22))   # 字段 3..21，共 19 个
+    return ("1234 (%s) %s %d 0" % (comm, mid, ticks)).encode()
+print("%.3f %s %s" % (m._STARTUP_S,
+                      m._linux_start_ticks(sample("python3", 987654)),
+                      m._linux_start_ticks(sample("my (weird) prog", 424242))))
+T179PY
+)"
+read -r t179_bstartup t179_a_ticks t179_b_ticks <<<"$t179_b"
+if [[ "$t179_arc" == "0" && "$t179_a_ticks" == "987654" && "$t179_b_ticks" == "424242" ]] \
+   && awk "BEGIN{exit !($t179_astartup >= 1.2)}" \
+   && awk "BEGIN{exit !($t179_bstartup < 0.5)}"; then
+    pass T179 "agy proc-start read: delayed startup=${t179_astartup}s (>=1.2), direct startup=${t179_bstartup}s (<0.5), stat field 22 parsed"
+else
+    fail T179 "arc=$t179_arc astartup=$t179_astartup bstartup=$t179_bstartup ticks=$t179_a_ticks/$t179_b_ticks"
+fi
+
+# ============================================================
+# T180 (R9): 信号重入——假 git 挂住时连发 3 次 SIGHUP（间隔 10ms）：
+# rc0、恰好两行、stderr 空、无孤儿（第一次处理即屏蔽后续信号）。
+# ============================================================
+new_box
+t180_tag="wrent180-$$"
+t180_bin="$BOX/fakegit-$t180_tag"
+mkdir -p "$t180_bin" "$BOX/c180"
+cat >"$t180_bin/git" <<EOF2
+#!/bin/sh
+python3 -c "import time; time.sleep(120)  # $t180_tag"
+EOF2
+chmod +x "$t180_bin/git"
+t180_meta="$(T180_SCRIPT="$AGY_PAYLOAD" T180_BIN="$t180_bin" T180_TAG="$t180_tag" T180_CACHE="$BOX/c180" python3 - <<'T180PY'
+import json, os, signal, subprocess, sys, time
+script, bindir, tag, cache = (os.environ[k] for k in
+                              ("T180_SCRIPT", "T180_BIN", "T180_TAG", "T180_CACHE"))
+env = dict(os.environ, PATH=bindir + ":" + os.environ["PATH"], NO_COLOR="1",
+           COLUMNS="120", WREN_CACHE_DIR=cache)
+env.pop("WREN_AGY_HARD_LIMIT", None)
+def survivors():
+    return [l for l in subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True,
+                                      text=True).stdout.splitlines() if tag in l]
+p = subprocess.Popen([sys.executable, script], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                     stderr=subprocess.PIPE, env=env, start_new_session=True)
+p.stdin.write(json.dumps({"cwd": "/tmp", "model": {"display_name": "m"}}).encode())
+p.stdin.close()
+deadline = time.time() + 2.5
+alive = []
+while time.time() < deadline:
+    alive = survivors()
+    if len(alive) >= 2:
+        break
+    time.sleep(0.05)
+for _ in range(3):
+    try:
+        p.send_signal(signal.SIGHUP)
+    except Exception:
+        pass
+    time.sleep(0.01)
+try:
+    out, err = p.communicate(timeout=6)
+except subprocess.TimeoutExpired:
+    p.kill()
+    out, err = p.communicate()
+left = []
+for _ in range(10):
+    left = survivors()
+    if not left:
+        break
+    time.sleep(0.1)
+subprocess.run(["pkill", "-9", "-f", tag], capture_output=True)
+print("%d %d %d %d %d" % (len(alive), p.returncode, out.count(b"\n") + 1, len(err), len(left)))
+T180PY
+)"
+read -r t180_alive t180_rc t180_lines t180_errlen t180_left <<<"$t180_meta"
+if [[ "$t180_alive" -ge 2 && "$t180_rc" == "0" && "$t180_lines" == "2" \
+   && "$t180_errlen" == "0" && "$t180_left" == "0" ]]; then
+    pass T180 "agy repeated SIGHUP x3: rc0, exactly 2 lines, no survivors (reentry blocked)"
+else
+    fail T180 "alive=$t180_alive rc=$t180_rc lines=$t180_lines err=$t180_errlen left=$t180_left"
+fi
+
+# ============================================================
+# T181 (R9): 安装器绕开 python3 shim——沙箱 PATH=[假 shim, 好 python3 目录, 原 PATH]。
+# 假 shim 留标记；好目录 python3 是指向真解释器的软链。install agy 后 command
+# 是片段且指向好目录解释器；sh -c 跑通出两行且 shim 标记不存在；uninstall 摘干净。
+# ============================================================
+new_box
+t181_shim="$BOX/pyshim"
+t181_good="$BOX/pygood"
+mkdir -p "$t181_shim" "$t181_good"
+t181_real="$(python3 -c 'import sys; print(sys.executable)')"
+printf '#!/bin/sh\ntouch "%s"\nexec "%s" "$@"\n' "$BOX/shim-used" "$t181_real" >"$t181_shim/python3"
+chmod +x "$t181_shim/python3"
+ln -s "$t181_real" "$t181_good/python3"
+rm -f "$BOX/shim-used"
+run_wrenx PATH="$t181_shim:$t181_good:$PATH" -- install agy
+t181_rc1="$WREN_EXIT"
+t181_cmd="$(json_field "$AGY_SETTINGS" 'd["statusLine"]["command"]')"
+rm -f "$BOX/shim-used"
+t181_out="$(printf '%s' '{"cwd":"/tmp","model":{"display_name":"m"}}' \
+    | env NO_COLOR=1 COLUMNS=120 PATH="$t181_shim:$t181_good:$PATH" WREN_CACHE_DIR="$BOX/c181" \
+        sh -c "$t181_cmd" 2>"$BOX/e181")"
+t181_rc2=$?
+t181_lines="$(agy_lines "$t181_out")"
+t181_shim_used=0
+[[ -e "$BOX/shim-used" ]] && t181_shim_used=1   # 卸载的 heredoc 会再走 shim，先取证
+run_wrenx PATH="$t181_shim:$t181_good:$PATH" -- uninstall agy
+t181_rc3="$WREN_EXIT"
+t181_ok=1
+[[ "$t181_rc1" == "0" && "$t181_rc2" == "0" && "$t181_rc3" == "0" ]] || t181_ok=0
+[[ -n "$t181_cmd" && "$t181_cmd" != "$AGY/wren-agy.py" ]] || t181_ok=0
+[[ "$t181_cmd" == *"$t181_good/python3"* ]] || t181_ok=0
+[[ "$t181_lines" == "2" && ! -s "$BOX/e181" ]] || t181_ok=0
+[[ "$t181_shim_used" == "0" ]] || t181_ok=0
+[[ "$(json_field "$AGY_SETTINGS" '("statusLine" in d)')" == "False" && ! -e "$AGY/wren-agy.py" ]] || t181_ok=0
+if [[ $t181_ok -eq 1 ]]; then
+    pass T181 "install agy bypasses python3 shim: fragment -> $t181_good/python3, shim never entered, 2 lines"
+else
+    fail T181 "rc=$t181_rc1/$t181_rc2/$t181_rc3 cmd=[$t181_cmd] lines=$t181_lines err=[$(cat "$BOX/e181" 2>/dev/null)] shim=$t181_shim_used sl=[$(json_field "$AGY_SETTINGS" 'd.get("statusLine")')]"
+fi
+
+# ============================================================
+# T182 (R9): 开关与回落——off → 裸路径；不存在的路径 → 警告 + 回落且 exit 0；
+# PATH 首位的 shim 之外没有可用候选 → 裸路径 + 提示；旧式裸路径接线能被卸载。
+# （「没有可用候选」用 PYTHONHOME 指向不存在目录构造：候选健全性检查必失败，
+#   假 shim 自己 unset PYTHONHOME 后 exec 真解释器，安装器本体照常工作。）
+# ============================================================
+new_box
+t182_ok=1; t182_note=""
+run_wrenx WREN_AGY_PYTHON=off -- install agy
+t182_cmd="$(json_field "$AGY_SETTINGS" 'd["statusLine"]["command"]')"
+[[ "$WREN_EXIT" == "0" && "$t182_cmd" == "$AGY/wren-agy.py" ]] || { t182_ok=0; t182_note="$t182_note [off]"; }
+run_wrenx WREN_AGY_PYTHON="$BOX/nope/python3" -- install agy
+t182_cmd="$(json_field "$AGY_SETTINGS" 'd["statusLine"]["command"]')"
+[[ "$WREN_EXIT" == "0" ]] || { t182_ok=0; t182_note="$t182_note [bad:rc=$WREN_EXIT]"; }
+printf '%s' "$WREN_ERR" | grep -qF "WREN_AGY_PYTHON" || { t182_ok=0; t182_note="$t182_note [bad:warn]"; }
+[[ "$t182_cmd" == "$AGY/wren-agy.py" || "$t182_cmd" == *"python"* ]] || { t182_ok=0; t182_note="$t182_note [bad:cmd=$t182_cmd]"; }
+t182_shim="$BOX/pyshim2"
+mkdir -p "$t182_shim"
+printf '#!/bin/sh\nunset PYTHONHOME\nexec "%s" "$@"\n' "$(python3 -c 'import sys; print(sys.executable)')" >"$t182_shim/python3"
+chmod +x "$t182_shim/python3"
+run_wrenx PATH="$t182_shim:$PATH" PYTHONHOME=/nonexistent -- install agy
+t182_cmd="$(json_field "$AGY_SETTINGS" 'd["statusLine"]["command"]')"
+[[ "$WREN_EXIT" == "0" && "$t182_cmd" == "$AGY/wren-agy.py" ]] || { t182_ok=0; t182_note="$t182_note [nocand:rc=$WREN_EXIT cmd=$t182_cmd]"; }
+printf '%s' "$WREN_ERR" | grep -qF "绕开" || { t182_ok=0; t182_note="$t182_note [nocand:hint]"; }
+# 旧式裸路径接线（payload 已装、command 为裸路径）也能被卸载摘掉
+new_box
+mkdir -p "$AGY"
+cp "$AGY_PAYLOAD" "$AGY/wren-agy.py"
+chmod +x "$AGY/wren-agy.py"
+printf '{"model":"m","statusLine":{"type":"command","command":"%s/wren-agy.py","enabled":true}}\n' "$AGY" >"$AGY_SETTINGS"
+run_wren uninstall agy
+[[ "$WREN_EXIT" == "0" ]] || { t182_ok=0; t182_note="$t182_note [old:rc=$WREN_EXIT]"; }
+[[ "$(json_field "$AGY_SETTINGS" '("statusLine" in d)')" == "False" && ! -e "$AGY/wren-agy.py" ]] \
+    || { t182_ok=0; t182_note="$t182_note [old:sl]"; }
+if [[ $t182_ok -eq 1 ]]; then
+    pass T182 "agy interpreter switch: off->bare, bad path warns+falls back (exit 0), no candidate->bare+hint, old wiring uninstalls"
+else
+    fail T182 "$t182_note"
+fi
+
+# ============================================================
+# T183 (R9): Python 3.9 兼容——/usr/bin/python3（<3.10 时）编译并跑一次最小
+# payload；否则 SKIP。compile() 不落 __pycache__，不污染仓库。
+# ============================================================
+new_box
+if [[ -x /usr/bin/python3 ]] && /usr/bin/python3 -c 'import sys; sys.exit(0 if sys.version_info < (3, 10) else 1)' 2>/dev/null; then
+    if /usr/bin/python3 -c 'import sys; compile(open(sys.argv[1], encoding="utf-8").read(), sys.argv[1], "exec")' "$AGY_PAYLOAD" \
+       && printf '%s' '{"cwd":"/tmp","model":{"display_name":"m"}}' \
+          | env NO_COLOR=1 COLUMNS=120 WREN_CACHE_DIR="$BOX/c183" /usr/bin/python3 "$AGY_PAYLOAD" >"$BOX/o183" 2>"$BOX/e183" \
+       && [[ "$(agy_lines "$(<"$BOX/o183")")" == "2" && ! -s "$BOX/e183" ]]; then
+        pass T183 "python $(/usr/bin/python3 -c 'import sys; print("%d.%d.%d" % sys.version_info[:3])') compiles and renders 2 lines"
+    else
+        fail T183 "py39 compile/run failed err=[$(cat "$BOX/e183" 2>/dev/null)]"
+    fi
+else
+    skip T183 "no /usr/bin/python3 older than 3.10"
+fi
+
+# ============================================================
+# T184 (R10): 升级路径——R8 用户的裸路径接线 + 旧 payload + 用户子键，
+# 升级安装后应换成片段并保留一切用户数据；卸载对称。
+# ============================================================
+new_box
+t184_shim="$BOX/pyshim"
+t184_good="$BOX/pygood"
+mkdir -p "$t184_shim" "$t184_good"
+t184_real="$(python3 -c 'import sys; print(sys.executable)')"
+printf '#!/bin/sh\ntouch "%s"\nexec "%s" "$@"\n' "$BOX/shim-used" "$t184_real" >"$t184_shim/python3"
+chmod +x "$t184_shim/python3"
+ln -s "$t184_real" "$t184_good/python3"
+# R8 现场：旧 payload（与仓库不同）+ 裸路径 command + 用户子键
+printf '#!/bin/sh\nexit 0\n' >"$AGY/wren-agy.py"
+chmod +x "$AGY/wren-agy.py"
+printf '{\n  "model": "m",\n  "statusLine": { "type": "command", "command": "%s/wren-agy.py", "padding": 2, "stack_with_default": true, "enabled": true }\n}\n' "$AGY" >"$AGY_SETTINGS"
+cp "$AGY_SETTINGS" "$BOX/before184"
+run_wrenx PATH="$t184_shim:$t184_good:$PATH" -- install agy
+t184_rc1="$WREN_EXIT"
+t184_cmd="$(json_field "$AGY_SETTINGS" 'd["statusLine"]["command"]')"
+t184_payload_ok=0
+cmp -s "$AGY/wren-agy.py" "$AGY_PAYLOAD" && t184_payload_ok=1
+t184_bak_ok=0
+[[ -e "$AGY_SETTINGS.wren-bak" ]] && diff -q "$BOX/before184" "$AGY_SETTINGS.wren-bak" >/dev/null && t184_bak_ok=1
+t184_pad="$(json_field "$AGY_SETTINGS" 'd["statusLine"].get("padding")')"
+t184_stack="$(json_field "$AGY_SETTINGS" 'd["statusLine"].get("stack_with_default")')"
+t184_en="$(json_field "$AGY_SETTINGS" 'd["statusLine"].get("enabled")')"
+t184_type="$(json_field "$AGY_SETTINGS" 'd["statusLine"].get("type")')"
+rm -f "$BOX/shim-used"
+t184_out="$(printf '%s' '{"cwd":"/tmp","model":{"display_name":"m"}}' \
+    | env NO_COLOR=1 COLUMNS=120 PATH="$t184_shim:$t184_good:$PATH" WREN_CACHE_DIR="$BOX/c184" \
+        sh -c "$t184_cmd" 2>"$BOX/e184")"
+t184_rc2=$?
+t184_shim_used=0
+[[ -e "$BOX/shim-used" ]] && t184_shim_used=1
+t184_lines="$(agy_lines "$t184_out")"
+t184_errlen=0
+[[ -s "$BOX/e184" ]] && t184_errlen=1
+run_wrenx -- uninstall agy
+t184_rc3="$WREN_EXIT"
+t184_ok=1
+[[ "$t184_rc1" == "0" && "$t184_rc2" == "0" && "$t184_rc3" == "0" ]] || t184_ok=0
+[[ -n "$t184_cmd" && "$t184_cmd" != "$AGY/wren-agy.py" && "$t184_cmd" == *"$t184_good/python3"* ]] || t184_ok=0
+[[ "$t184_pad" == "2" && "$t184_stack" == "True" && "$t184_en" == "True" && "$t184_type" == "command" ]] || t184_ok=0
+[[ "$t184_payload_ok" == "1" && "$t184_bak_ok" == "1" ]] || t184_ok=0
+[[ "$t184_lines" == "2" && "$t184_errlen" == "0" && "$t184_shim_used" == "0" ]] || t184_ok=0
+[[ "$(json_field "$AGY_SETTINGS" 'd["statusLine"].get("padding")')" == "2" \
+   && "$(json_field "$AGY_SETTINGS" 'd["statusLine"].get("stack_with_default")')" == "True" \
+   && "$(json_field "$AGY_SETTINGS" 'd["statusLine"].get("enabled")')" == "None" \
+   && "$(json_field "$AGY_SETTINGS" 'd["statusLine"].get("type")')" == "None" \
+   && "$(json_field "$AGY_SETTINGS" 'd["statusLine"].get("command")')" == "None" ]] || t184_ok=0
+[[ ! -e "$AGY/wren-agy.py" && ! -e "$AGY_SETTINGS.wren-bak" ]] || t184_ok=0
+if [[ $t184_ok -eq 1 ]]; then
+    pass T184 "R8->R9 upgrade: fragment installed, user keys kept, backup == pre-state, old payload replaced, uninstall symmetric"
+else
+    fail T184 "rc=$t184_rc1/$t184_rc2/$t184_rc3 cmd=[$t184_cmd] lines=$(agy_lines "$t184_out") err=[$(cat "$BOX/e184" 2>/dev/null)] shim=$t184_shim_used payload=$t184_payload_ok bak=$t184_bak_ok sl=[$(json_field "$AGY_SETTINGS" 'd.get("statusLine")')] payload_exists=$([[ -e $AGY/wren-agy.py ]] && echo y || echo n) bak_exists=$([[ -e $AGY_SETTINGS.wren-bak ]] && echo y || echo n)"
+fi
+
+# ============================================================
+# T185 (R10): 慢日志不得拖住退出——把 agy-slow.log 做成 FIFO（写入点确定阻塞）：
+# (a) 看门狗路径（0.6s + 假 git 挂住）≤1.6s；(b) 正常收尾（sleep 1.6 后 exec，
+# 真 git 在 /tmp 立刻返回）≤2.6s。两条都 rc0、恰好两行、stderr 空、无孤儿。
+# 每条路径自带超时击杀（修复前的版本会卡在 FIFO 上）。
+# ============================================================
+new_box
+t185_tag="wrent185-$$"
+t185_bin="$BOX/fakegit-$t185_tag"
+mkdir -p "$t185_bin" "$BOX/c185w" "$BOX/c185n"
+cat >"$t185_bin/git" <<EOF2
+#!/bin/sh
+python3 -c "import time; time.sleep(120)  # $t185_tag"
+EOF2
+chmod +x "$t185_bin/git"
+mkfifo "$BOX/c185w/agy-slow.log"
+mkfifo "$BOX/c185n/agy-slow.log"
+t185_probe() {  # <cache> <watchdog|normal> → "dt rc lines errlen killed survivors"
+    T185_SCRIPT="$AGY_PAYLOAD" T185_CACHE="$1" T185_KIND="$2" T185_TAG="$t185_tag" T185_BIN="$t185_bin" \
+    python3 - <<'T185PY'
+import fcntl, json, os, signal, subprocess, sys, time
+script, cache, kind, tag, bindir = (os.environ[k] for k in
+                                   ("T185_SCRIPT", "T185_CACHE", "T185_KIND", "T185_TAG", "T185_BIN"))
+env = dict(os.environ, NO_COLOR="1", COLUMNS="120", WREN_CACHE_DIR=cache)
+env.pop("WREN_AGY_HARD_LIMIT", None)
+if kind == "watchdog":
+    env["PATH"] = bindir + ":" + os.environ["PATH"]
+    env["WREN_AGY_HARD_LIMIT"] = "0.6"
+    argv, limit = [sys.executable, script], 3.0
+else:
+    argv, limit = ["/bin/sh", "-c", "sleep 1.6; exec %s %s" % (sys.executable, script)], 4.0
+p = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                     env=env, start_new_session=True)
+t0 = time.monotonic()
+out = b""
+killed = False
+try:
+    p.stdin.write(json.dumps({"cwd": "/tmp", "model": {"display_name": "m"}}).encode())
+    p.stdin.flush()
+    p.stdin.close()
+    fd = p.stdout.fileno()
+    fl = fcntl.fcntl(fd, fcntl.F_GETFL)
+    fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
+    while time.monotonic() - t0 < limit:
+        try:
+            chunk = p.stdout.read()
+            if chunk:
+                out += chunk
+        except BlockingIOError:
+            pass
+        if p.poll() is not None:
+            break
+        time.sleep(0.02)
+    if p.poll() is None:
+        killed = True
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except OSError:
+            pass
+    p.wait()
+    try:
+        tail = p.stdout.read()
+        if tail:
+            out += tail
+    except Exception:
+        pass
+    err = p.stderr.read()
+finally:
+    for fh in (p.stdin, p.stdout, p.stderr):
+        try:
+            fh.close()
+        except Exception:
+            pass
+dt = time.monotonic() - t0
+lines = out.rstrip(b"\n").count(b"\n") + 1 if out else 0
+after = []
+for _ in range(10):
+    after = [l for l in subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True,
+                                       text=True).stdout.splitlines() if tag in l]
+    if not after:
+        break
+    time.sleep(0.1)
+subprocess.run(["pkill", "-9", "-f", tag], capture_output=True)
+print("%.2f %d %d %d %d %d" % (dt, p.returncode, lines, len(err), int(killed), len(after)))
+T185PY
+}
+read -r t185_wdt t185_wrc t185_wlines t185_werr t185_wkill t185_wleft <<<"$(t185_probe "$BOX/c185w" watchdog)"
+read -r t185_ndt t185_nrc t185_nlines t185_nerr t185_nkill t185_nleft <<<"$(t185_probe "$BOX/c185n" normal)"
+if [[ "$t185_wrc" == "0" && "$t185_wlines" == "2" && "$t185_werr" == "0" \
+   && "$t185_wkill" == "0" && "$t185_wleft" == "0" \
+   && "$t185_nrc" == "0" && "$t185_nlines" == "2" && "$t185_nerr" == "0" \
+   && "$t185_nkill" == "0" && "$t185_nleft" == "0" ]] \
+   && awk "BEGIN{exit !($t185_wdt <= 1.6)}" \
+   && awk "BEGIN{exit !($t185_ndt <= 2.6)}"; then
+    pass T185 "slow log never blocks exit: FIFO watchdog ${t185_wdt}s, normal ${t185_ndt}s; rc0/2 lines/no leak"
+else
+    fail T185 "watchdog dt=$t185_wdt rc=$t185_wrc lines=$t185_wlines err=$t185_werr kill=$t185_wkill left=$t185_wleft | normal dt=$t185_ndt rc=$t185_nrc lines=$t185_nlines err=$t185_nerr kill=$t185_nkill left=$t185_nleft"
+fi
+
+# ============================================================
+# T186 (R10): 慢日志原子 + 轮转——种子 40 行 → 一个慢帧后恰好 40 行、逐行合法、
+# 首行 n==1、末行 reason=watchdog；再并发 8 个慢帧：仍逐行合法、≤40 行、
+# 目录无 agy-slow.log.*.tmp 残留。
+# ============================================================
+new_box
+t186_tag="wrent186-$$"
+t186_bin="$BOX/fakegit-$t186_tag"
+t186_cache="$BOX/c186"
+mkdir -p "$t186_bin" "$t186_cache"
+cat >"$t186_bin/git" <<EOF2
+#!/bin/sh
+python3 -c "import time; time.sleep(120)  # $t186_tag"
+EOF2
+chmod +x "$t186_bin/git"
+python3 - "$t186_cache/agy-slow.log" <<'T186SEED'
+import json, sys
+with open(sys.argv[1], "w") as fh:
+    for i in range(40):
+        fh.write(json.dumps({"reason": "seed", "n": i}) + "\n")
+T186SEED
+t186_out="$(T186_SCRIPT="$AGY_PAYLOAD" T186_CACHE="$t186_cache" T186_BIN="$t186_bin" T186_TAG="$t186_tag" python3 - <<'T186PY'
+import json, os, subprocess, sys, time
+script, cache, bindir, tag = (os.environ[k] for k in
+                              ("T186_SCRIPT", "T186_CACHE", "T186_BIN", "T186_TAG"))
+env = dict(os.environ, PATH=bindir + ":" + os.environ["PATH"], NO_COLOR="1",
+           COLUMNS="120", WREN_CACHE_DIR=cache, WREN_AGY_HARD_LIMIT="0.6")
+payload = json.dumps({"cwd": "/tmp", "model": {"display_name": "m"}}).encode()
+log = os.path.join(cache, "agy-slow.log")
+r = subprocess.run([sys.executable, script], input=payload, capture_output=True,
+                   env=env, start_new_session=True, timeout=10)
+ok1 = r.returncode == 0 and r.stdout.count(b"\n") == 1 and not r.stderr
+rows = []
+try:
+    rows = [json.loads(x) for x in open(log).read().splitlines() if x.strip()]
+except Exception:
+    pass
+ok2 = (len(rows) == 40 and rows and rows[0].get("n") == 1
+       and rows[-1].get("reason") == "watchdog")
+procs = []
+for _ in range(8):
+    procs.append(subprocess.Popen([sys.executable, script], stdin=subprocess.PIPE,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env,
+                                  start_new_session=True))
+for p in procs:
+    p.stdin.write(payload)
+    p.stdin.close()
+rcs = []
+for p in procs:
+    try:
+        out, err = p.communicate(timeout=10)
+    except subprocess.TimeoutExpired:
+        p.kill()
+        out, err = p.communicate()
+    rcs.append((p.returncode, out.count(b"\n") + 1 if out else 0, len(err)))
+conc_ok = len(rcs) == 8 and all(rc == 0 and n == 2 and e == 0 for rc, n, e in rcs)
+raw = [x for x in open(log).read().splitlines() if x.strip()]
+valid = True
+for x in raw:
+    try:
+        json.loads(x)
+    except Exception:
+        valid = False
+tmp = [f for f in os.listdir(cache) if f.startswith("agy-slow.log.") and f.endswith(".tmp")]
+print("%d %d %d %d %d %d %d" % (int(ok1), int(ok2), len(rows), len(raw), int(valid), len(tmp), int(conc_ok)))
+print("concurrent:", rcs)
+subprocess.run(["pkill", "-9", "-f", tag], capture_output=True)
+T186PY
+)"
+t186_first="$(printf '%s\n' "$t186_out" | head -1)"
+t186_conc="$(printf '%s\n' "$t186_out" | tail -1)"
+read -r t186_ok1 t186_ok2 t186_rows t186_raw t186_valid t186_tmp t186_concok <<<"$t186_first"
+if [[ "$t186_ok1" == "1" && "$t186_ok2" == "1" && "$t186_rows" == "40" \
+   && "$t186_raw" -ge 1 && "$t186_raw" -le 40 && "$t186_valid" == "1" && "$t186_tmp" == "0" \
+   && "$t186_concok" == "1" ]]; then
+    pass T186 "slow log atomic+rotate: seed40 -> 40 lines (n=1..39+watchdog), 8 concurrent rc0/2 lines, valid JSON, no tmp"
+else
+    fail T186 "ok1=$t186_ok1 ok2=$t186_ok2 rows=$t186_rows raw=$t186_raw valid=$t186_valid tmp=$t186_tmp conc=$t186_concok $t186_conc"
+fi
+
+# ============================================================
+# T187 (R10): 进程年龄合理性——_sane_since 表驱动：0.0/0.05/3.5/59.9 原样；
+# 60.1/-0.1/7200/nan/inf/None → None；STARTUP_MAX_S == 60.0。
+# ============================================================
+new_box
+if python3 - "$AGY_PAYLOAD" <<'T187PY'
+import importlib.util, math, sys
+spec = importlib.util.spec_from_file_location("wren_agy_mod", sys.argv[1])
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+assert m.STARTUP_MAX_S == 60.0, m.STARTUP_MAX_S
+for v in (0.0, 0.05, 3.5, 59.9):
+    assert m._sane_since(v) == v, (v, m._sane_since(v))
+for v in (60.1, -0.1, 7200, float("nan"), float("inf"), None):
+    assert m._sane_since(v) is None, (v, m._sane_since(v))
+T187PY
+then
+    pass T187 "process age sanity: 0..59.9 kept, 60.1/-0.1/7200/nan/inf/None -> None"
+else
+    fail T187 "sane_since table mismatch"
+fi
+
+# ============================================================
+# T188 (R11): git 子进程自带到期时间——宿主只 SIGKILL wren 本体、不杀进程组时，
+# 正在跑的单进程假 git 必须在 ≤3.5s 内自己消失（alarm 跨 exec 保留）；
+# 后半：慢但成功的 git（sleep 1 后输出分支名）不被兜底 alarm 误杀。
+# ============================================================
+new_box
+t188_tag="wrent188-$$"
+t188_bin="$BOX/fakegit-$t188_tag"
+t188_slow="$BOX/fakegit-slow-$t188_tag"
+mkdir -p "$t188_bin" "$t188_slow" "$BOX/notgit" "$BOX/c188a" "$BOX/c188b"
+printf '#!/usr/bin/env python3\nwhile True:\n    pass\n' >"$t188_bin/git"
+chmod +x "$t188_bin/git"
+printf '#!/bin/sh\nsleep 1\necho "# branch.head main"\n' >"$t188_slow/git"
+chmod +x "$t188_slow/git"
+t188_out="$(T188_SCRIPT="$AGY_PAYLOAD" T188_BIN="$t188_bin" T188_SLOW="$t188_slow" T188_TAG="$t188_tag" \
+    T188_CWD="$BOX/notgit" T188_CACHE_A="$BOX/c188a" T188_CACHE_B="$BOX/c188b" python3 - <<'T188PY'
+import json, os, signal, subprocess, sys, time
+script, bindir, slowdir, tag, cwd, cache_a, cache_b = (os.environ[k] for k in
+    ("T188_SCRIPT", "T188_BIN", "T188_SLOW", "T188_TAG", "T188_CWD", "T188_CACHE_A", "T188_CACHE_B"))
+base_env = dict(os.environ, NO_COLOR="1", COLUMNS="120")
+base_env.pop("WREN_AGY_HARD_LIMIT", None)
+payload = json.dumps({"cwd": cwd, "model": {"display_name": "m"}}).encode()
+
+def git_pids():
+    out = subprocess.run(["ps", "-axww", "-o", "pid=,command="], capture_output=True, text=True).stdout
+    return [int(l.split(None, 1)[0]) for l in out.splitlines() if tag in l and "/git " in l and "ps -axww" not in l]
+
+# 前半：SIGKILL wren 本体后，挂住的单进程假 git 自己到点消失
+env = dict(base_env, PATH=bindir + ":" + os.environ["PATH"], WREN_CACHE_DIR=cache_a)
+p = subprocess.Popen([sys.executable, script], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                     stderr=subprocess.PIPE, env=env, start_new_session=True)
+p.stdin.write(payload)
+p.stdin.flush()
+p.stdin.close()
+deadline = time.time() + 4.0
+while time.time() < deadline and not git_pids() and p.poll() is None:
+    time.sleep(0.02)
+time.sleep(0.15)
+before = git_pids()
+os.kill(p.pid, signal.SIGKILL)          # 宿主顶替：只杀 wren 本体，不杀进程组
+p.wait()
+t0 = time.time()
+gone = None
+while time.time() - t0 < 4.0:           # 测试只观察，不替它收尾
+    if not git_pids():
+        gone = time.time() - t0
+        break
+    time.sleep(0.05)
+left = git_pids()
+for pid in left:
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except OSError:
+        pass
+for fh in (p.stdin, p.stdout, p.stderr):
+    try:
+        fh.close()
+    except Exception:
+        pass
+
+# 后半：慢但成功的 git（1.0s < 2s alarm）不被误杀
+env_b = dict(base_env, PATH=slowdir + ":" + os.environ["PATH"], WREN_CACHE_DIR=cache_b)
+t0 = time.time()
+rb = subprocess.run([sys.executable, script], input=payload, capture_output=True,
+                    env=env_b, start_new_session=True, timeout=10)
+dtb = time.time() - t0
+l2 = rb.stdout.decode("utf-8", "replace").rstrip("\n").split("\n")
+l1 = l2[0] if l2 else ""
+print("A %d %s %d" % (len(before), ("%.2f" % gone) if gone is not None else "none", len(left)))
+print("B %.2f %d %d %d %d" % (dtb, rb.returncode, len(l2), int("main" in l1), len(rb.stderr)))
+subprocess.run(["pkill", "-9", "-f", tag], capture_output=True)
+T188PY
+)"
+t188_a="$(printf '%s\n' "$t188_out" | head -1)"
+t188_b="$(printf '%s\n' "$t188_out" | tail -1)"
+read -r _ t188_before t188_gone t188_left <<<"$t188_a"
+read -r _ t188_bdt t188_brc t188_blines t188_bmain t188_berr <<<"$t188_b"
+pkill -9 -f "$t188_tag" 2>/dev/null || true
+if [[ "$t188_before" -ge 1 && "$t188_gone" != "none" && "$t188_left" == "0" ]] \
+   && awk "BEGIN{exit !($t188_gone > 0 && $t188_gone <= 3.5)}" \
+   && [[ "$t188_brc" == "0" && "$t188_blines" == "2" && "$t188_bmain" == "1" && "$t188_berr" == "0" ]] \
+   && awk "BEGIN{exit !($t188_bdt < 2.5)}"; then
+    pass T188 "git self-expires: orphan gone in ${t188_gone}s after wren SIGKILL, no leak; slow 1s git still renders main in ${t188_bdt}s"
+else
+    fail T188 "A: before=$t188_before gone=$t188_gone left=$t188_left | B: dt=$t188_bdt rc=$t188_brc lines=$t188_blines main=$t188_bmain err=$t188_berr"
 fi
 
 # ---------- 汇总 ----------

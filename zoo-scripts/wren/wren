@@ -55,6 +55,8 @@ Environment:
   QODER_SETTINGS     要改的 Qoder settings.json (default: $QODER_CONFIG_DIR/settings.json)
   AGY_CONFIG_DIR     Antigravity CLI 配置目录 (default: $HOME/.gemini/antigravity-cli)
   AGY_SETTINGS       要改的 agy settings.json (default: $AGY_CONFIG_DIR/settings.json)
+  WREN_AGY_PYTHON    agy 状态栏解释器：off 用裸脚本（走 shebang）；auto（默认）
+                     绕开 python3 shim；或给解释器绝对路径
   OPENCODE_CONFIG_DIR  opencode 配置目录 (default: $XDG_CONFIG_HOME/opencode，未设则 $HOME/.config/opencode)
   OPENCODE_TUI_CONFIG  要改的 opencode TUI 配置 (default: $OPENCODE_CONFIG_DIR/tui.json；
                      已存在的 tui.jsonc 会被优先接管)
@@ -219,7 +221,18 @@ except ValueError:
 if not isinstance(data, dict):
     sys.exit(0)
 sl = data.get("statusLine")
-if not isinstance(sl, dict) or sl.get("command") != cmd:
+if not isinstance(sl, dict):
+    print("leftalone")
+    sys.exit(0)
+cur = sl.get("command")
+ours = cur == cmd
+if not ours and agy_mode and isinstance(cur, str):
+    # agy 放宽：安装器可能写「[ -x '<解释器>' ] && exec … '<裸路径>'」的片段，
+    # 解释器选择随环境变化，不能只认字符串全等；裸路径以单引号完整路径串
+    # 出现在 command 里即认为是自己的接线（cc/qc 仍是全等，行为不变）。
+    quoted = "'" + cmd.replace("'", "'\\''") + "'"
+    ours = quoted in cur
+if not ours:
     print("leftalone")
     sys.exit(0)
 # B-6：只摘 wren 写入的 type/command；用户原生子键（如 padding）还原保留，
@@ -609,9 +622,120 @@ remove_payload() {
     fi
 }
 
+# ---- agy 解释器选择（R9）----
+# 单引号 shell 引用：内部的 ' → '\''。逐字符拼接（bash 3.2 的
+# ${var//pat/repl} 反斜杠转义不可靠）。
+shq() {
+    local s="$1" out="" i ch
+    for (( i = 0; i < ${#s}; i++ )); do
+        ch="${s:i:1}"
+        if [[ "$ch" == "'" ]]; then
+            out="$out'\\''"
+        else
+            out="$out$ch"
+        fi
+    done
+    printf "'%s'" "$out"
+}
+
+# 沿符号链接解到最终目标（只用 bash 内建与 readlink）；解不开返回当前路径。
+resolve_target() {
+    local f="$1" d n=0
+    while [[ -L "$f" ]] && (( n++ < 40 )); do
+        d="${f%/*}"
+        [[ "$d" == "$f" ]] && d="."
+        f="$(readlink "$f")" || break
+        case "$f" in
+            /*) ;;
+            *) f="$d/$f" ;;
+        esac
+    done
+    printf '%s' "$f"
+}
+
+# 头两个字节不是 #! → 真解释器；是 #! → shim / 包装脚本。
+agy_is_binary() {
+    local f="$1" two=""
+    [[ -f "$f" ]] || return 1
+    IFS= LC_ALL=C read -r -n 2 -d '' two <"$f" 2>/dev/null || true
+    [[ "$two" != "#!" ]]
+}
+
+# 候选健全性（3.8+ 且带 setitimer）：后台跑 + 5s 上限直接 kill -9 子进程，
+# 不在 $(...) 里再 fork 子 shell（2026-10-12 孤儿事故的教训）。
+agy_py_sane() {
+    local cand="$1" pid ticks=0
+    "$cand" -c 'import sys, json, subprocess, unicodedata, signal, select; sys.exit(0 if sys.version_info >= (3, 8) and hasattr(signal, "setitimer") else 1)' >/dev/null 2>&1 &
+    pid=$!
+    while kill -0 "$pid" 2>/dev/null; do
+        if (( ticks++ >= 100 )); then
+            kill -9 "$pid" 2>/dev/null
+            wait "$pid" 2>/dev/null
+            return 1
+        fi
+        sleep 0.05
+    done
+    wait "$pid"
+}
+
+# 只在安装 agy 时调用：决定 statusLine.command 是否绕开 python3 shim。
+# 结果写 AGY_PY（空 = 裸脚本路径，即 shebang 原行为）。永不失败安装。
+agy_pick_python() {
+    local want="${WREN_AGY_PYTHON:-auto}" py pyreal shim_dir d cand cand_real seen list
+    AGY_PY=""
+    if [[ "$want" == "off" ]]; then
+        return 0
+    fi
+    if [[ -n "$want" && "$want" != "auto" ]]; then
+        if [[ "$want" == /* && -x "$want" ]] && agy_py_sane "$want"; then
+            AGY_PY="$want"
+            return 0
+        fi
+        log_err "[agy] WREN_AGY_PYTHON=$want 不可用；回落到自动选择"
+    fi
+    py="$(command -v python3 2>/dev/null || true)"
+    [[ -n "$py" ]] || return 0
+    pyreal="$(resolve_target "$py")"
+    agy_is_binary "$pyreal" && return 0   # 本来就是真解释器：裸路径（现状）
+    shim_dir="${py%/*}"
+    [[ "$shim_dir" == "$py" ]] && shim_dir="."
+    # 候选：PATH 各目录（跳过 shim 自己所在目录）→ 常用 bin 目录；去重。
+    seen=" "
+    list="${PATH//:/$'\n'}"
+    list="$list"$'\n'"/opt/homebrew/bin"$'\n'"/usr/local/bin"$'\n'"/usr/bin"
+    while IFS= read -r d; do
+        [[ "$d" == /* ]] || continue
+        d="${d%/}"
+        [[ "$d" == "$shim_dir" ]] && continue
+        cand="$d/python3"
+        [[ -x "$cand" ]] || continue
+        case "$seen" in *" $cand "*) continue ;; esac
+        seen="$seen$cand "
+        cand_real="$(resolve_target "$cand")"
+        agy_is_binary "$cand_real" || continue
+        agy_py_sane "$cand" || continue
+        AGY_PY="$cand"
+        log_info "[agy] python3 是 shim（$py）；状态栏改用 $cand"
+        return 0
+    done <<<"$list"
+    log_err "[agy] python3 解析到 shim（$py），每次刷新会多付启动开销；可设 WREN_AGY_PYTHON=/path/to/python3 绕开"
+    return 0
+}
+
+# 生成 statusLine.command：有快解释器时优先用它，解释器日后被卸载则由
+# [ -x ] 兜住、自动回落到脚本 shebang（原行为）。
+agy_sl_cmd() {
+    if [[ -n "${AGY_PY:-}" ]]; then
+        AGY_SL_CMD="[ -x $(shq "$AGY_PY") ] && exec $(shq "$AGY_PY") $(shq "$AGY_CMD"); exec $(shq "$AGY_CMD")"
+    else
+        AGY_SL_CMD="$AGY_CMD"
+    fi
+}
+
 cmd_install() {
     local target="$1"
     local dir cc_payload pi_payload qc_payload agy_payload oc_payload oc_core backup
+    local AGY_PY="" AGY_SL_CMD=""
     dir="$(script_dir)"
     cc_payload="$dir/wren-cc.py"
     pi_payload="$dir/wren-pi.ts"
@@ -636,7 +760,9 @@ cmd_install() {
     fi
     if want_target "$target" agy; then
         require_cmd python3
-        if ! write_statusline check "$AGY_SETTINGS" "$AGY_CMD" >/dev/null; then
+        agy_pick_python
+        agy_sl_cmd
+        if ! write_statusline check "$AGY_SETTINGS" "$AGY_SL_CMD" >/dev/null; then
             exit 1
         fi
     fi
@@ -700,13 +826,13 @@ cmd_install() {
 
     if want_target "$target" agy; then
         install_payload "$agy_payload" "$AGY_CMD" "agy" exec
-        if ! backup="$(write_statusline write "$AGY_SETTINGS" "$AGY_CMD" enable)"; then
+        if ! backup="$(write_statusline write "$AGY_SETTINGS" "$AGY_SL_CMD" enable)"; then
             exit 1
         fi
         if [[ -n "$backup" ]]; then
             log_info "[agy] backed up $AGY_SETTINGS -> $backup"
         fi
-        log_info "[agy] statusLine -> $AGY_CMD"
+        log_info "[agy] statusLine -> $AGY_SL_CMD"
     fi
 
     if want_target "$target" oc; then

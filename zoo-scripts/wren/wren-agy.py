@@ -28,8 +28,10 @@
 # 压平行界；不可信 ESC 不会进入 stdout。
 # transcript 容灾（R3-1）：只读普通文件（设备/FIFO 直接跳过）；单行 >8MiB 整行跳过。
 # token 取整（R2-2）：transcript 与 payload 回退的 token 计数统一 int（2.0 → 2）。
-# 运行时预算（R2-3）：总 3.5s / git 1.5s / transcript 扫描 1.0s——agy 的 runner
-# 约 4.7s SIGKILL 并计一次失败，连续 30 次失败自动禁用状态栏。
+# 运行时预算（R9）：硬墙钟 3.0s，自**进程创建**起算（含 sh / pyenv shim /
+# 解释器启动）——agy 的 runner 实测约 5.0s SIGKILL 并从进程创建起算，且新触发
+# 会静默 SIGKILL 上一条还在跑的命令。setitimer 看门狗到点杀 git、输出兜底两行、
+# rc=0，永远抢在宿主之前；连续 30 次失败会自动禁用状态栏。
 # 容灾铁律：任何情况下 rc=0、stderr 为空、输出恰好两行——agy 连续失败会自动禁用
 # 自定义状态栏（"Statusline disabled after %d consecutive failures."）。
 import json
@@ -43,14 +45,125 @@ import time
 import unicodedata
 from pathlib import Path
 
-# ---- 运行时预算（R2-3）----
-# agy 的 statusline runner 约 4.7s 后 SIGKILL 脚本并计一次失败
-# （statusline_runner.go:259，failure N/30），连续 30 次失败自动禁用状态栏；
-# 失败后立即重跑、无退避。所以总预算必须压在这条硬线之下，且 git 超时比
-# cc/qc 的 3s 短（宿主 4.7s 硬杀 + 失败计数）。
-TOTAL_BUDGET_S = 3.5
+# ---- 运行时预算（R9）----
+# 宿主实测（agy 1.5.13 真机探针）：约 5.0s SIGKILL，且从**进程创建**起算
+# （含 sh / pyenv shim / 解释器启动）。所以硬墙钟必须从进程创建时刻算，
+# 由 setitimer 看门狗执行（不依赖各阶段传参），git 超时比 cc/qc 的 3s 短。
+HARD_LIMIT_S = 3.0        # 自进程创建起算；宿主约 5.0s SIGKILL，留 ~2s 余量
+STDIN_TIMEOUT_S = 1.0     # 以下四个是各阶段软上限，实际取 min(软上限, 剩余预算)
 GIT_TIMEOUT_S = 1.5
 SCAN_BUDGET_S = 1.0
+REAP_TIMEOUT_S = 1.0
+SLOW_LOG_WAIT_S = 0.25    # 慢日志最多拖住退出这么久；日志卡死也照常出两行并退出
+STARTUP_MAX_S = 60.0      # 状态栏进程活不过宿主的 5s；超过这个数的「启动耗时」只可能是量错了
+_IMPORT_EPOCH = time.time()
+
+
+def _linux_start_ticks(stat_bytes):
+    """/proc/<pid>/stat 的 starttime（第 22 字段，自开机起的 clock tick）。
+    comm 字段可能含空格与括号，所以从**最后一个** ')' 之后切分。返回 int 或 None。"""
+    try:
+        fields = stat_bytes.rsplit(b")", 1)[1].split()
+        return int(fields[19])   # 第 3 字段是 state，starttime 是其后第 20 个
+    except Exception:
+        return None
+
+
+def _proc_start_epoch():
+    """本进程的创建时刻（epoch 秒）；取不到返回 None。
+    Darwin: proc_pidinfo(PROC_PIDTBSDINFO) 尾部是 pbi_start_tvsec / pbi_start_tvusec，
+            但结构体长度随 macOS 版本变过（SDK 头 128B/tvsec@112，Darwin 24 实测 136B/tvsec@120），
+            所以不写死偏移，在尾部按「像 epoch 秒、后一个 u64 像微秒」找。
+    Linux: /proc/self/stat 第 22 字段 starttime（自开机起的 clock tick）与 /proc/uptime 相减。"""
+    import struct
+    try:
+        sysname = os.uname().sysname
+        now = time.time()
+        if sysname == "Darwin":
+            import ctypes
+            lib = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+            lib.proc_pidinfo.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_uint64,
+                                         ctypes.c_void_p, ctypes.c_int]
+            lib.proc_pidinfo.restype = ctypes.c_int
+            buf = ctypes.create_string_buffer(512)
+            n = lib.proc_pidinfo(os.getpid(), 3, 0, buf, 512)      # 3 = PROC_PIDTBSDINFO
+            if n < 32:
+                return None
+            for off in range((n - 16) & ~7, max(-1, n - 64), -8):
+                sec, usec = struct.unpack_from("<QQ", buf.raw, off)
+                if now - 86400 <= sec <= now + 2 and usec < 2_000_000:
+                    return sec + usec / 1e6
+            return None
+        if sysname == "Linux":
+            with open("/proc/self/stat", "rb") as fh:
+                ticks = _linux_start_ticks(fh.read())
+            with open("/proc/uptime") as fh:
+                uptime = float(fh.read().split()[0])
+            if ticks is None:
+                return None
+            return now - (uptime - ticks / os.sysconf("SC_CLK_TCK"))
+    except Exception:
+        pass
+    return None
+
+
+def _sane_since(s):
+    """进程年龄合理性：0 <= s <= STARTUP_MAX_S 才采信，否则 None（当作量不到，
+    退回 import 时刻）。状态栏进程活不过宿主的约 5 秒，算出超过 60 秒的年龄只
+    可能是量错了。Linux 侧 /proc/uptime 与 starttime 的时钟域是否一致（休眠时间
+    是否计入）随内核版本而异，本项目没有在真实 Linux 上验证过；这道上界是防御性
+    加固，避免万一算错时每一帧都判定预算耗尽、只出兜底两行。"""
+    try:
+        ok = 0 <= s <= STARTUP_MAX_S
+    except TypeError:
+        ok = False
+    return s if ok else None
+
+
+# 模块级（import 时算一次）：解释器 + shim 的启动耗时（R9 的核心输入）。
+_PROC_START = _proc_start_epoch()
+_since = _sane_since(time.time() - _PROC_START) if _PROC_START is not None else None
+if _since is None:
+    _PROC_START = None
+_STARTUP_S = _since if _PROC_START is not None else 0.0
+
+# 阶段耗时记账（慢运行日志用）；_PHASE 由 main 在进入各阶段时更新，
+# _PHASE_T0 是该阶段的起点（看门狗中途触发时由 _close_phase 结算）。
+_T = {"stdin": 0.0, "scan": 0.0, "git": 0.0}
+_PHASE = "startup"
+_PHASE_T0 = None
+_F = {"git_skipped": False, "git_timeout": False,
+      "stdin_timeout": False, "scan_budget_hit": False}
+_TRANSCRIPT_KIND = 0   # 0=payload 没有 transcript_path；1=有但不是普通文件；2=普通文件
+
+
+def _hard_limit_s():
+    """硬墙钟：默认 HARD_LIMIT_S；WREN_AGY_HARD_LIMIT（秒）可覆盖并钳在
+    [0.2, 4.0]；非法/非有限值回落 3.0（测试专用，正常用户不设）。"""
+    raw = os.environ.get("WREN_AGY_HARD_LIMIT")
+    if not raw:
+        return HARD_LIMIT_S
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return HARD_LIMIT_S
+    if not math.isfinite(v):
+        return HARD_LIMIT_S
+    return min(4.0, max(0.2, v))
+
+
+def _start_epoch():
+    """预算起点：能读到进程创建时刻就用它（含 shim/解释器启动）；否则退回
+    模块 import 时刻（与 R8 及更早的行为等价，不更差）。"""
+    return _PROC_START if _PROC_START is not None else _IMPORT_EPOCH
+
+
+def _since_start():
+    return time.time() - _start_epoch()
+
+
+def remaining():
+    return _hard_limit_s() - _since_start()
 
 
 def _scan_budget_s():
@@ -78,6 +191,89 @@ def _default_cache_dir():
 
 
 CACHE_DIR = _default_cache_dir()
+
+
+def _write_slow_log(path, body):
+    """慢日志原子写：临时文件带 pid（同一目录下并发帧不会互相截断同名 tmp），
+    os.replace 保证读者只看到完整的旧文件或完整的新文件。失败时尽力清掉
+    临时文件并返回 False，交给调用方回落。"""
+    tmp = path.with_name("%s.%d.tmp" % (path.name, os.getpid()))
+    try:
+        tmp.write_text(body, encoding="utf-8")
+        os.replace(str(tmp), str(path))
+        return True
+    except Exception:
+        try:
+            tmp.unlink()
+        except Exception:
+            pass
+        return False
+
+
+def _log_slow(reason):
+    """慢运行日志：一行 JSON 追加到 CACHE_DIR/agy-slow.log（目录不可写时退到
+    系统临时目录）；超过 40 行只留最后 40 行。字段不含任何路径/邮箱。
+    日志失败绝不影响输出（全程 try/except）。
+    注意：这里可能阻塞（日志位置是 FIFO / 文件系统卡死），只经
+    _log_slow_async 在收尾阶段带超时调用。"""
+    try:
+        rec = {
+            "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "reason": reason,
+            "phase": _PHASE,
+            "since_start": round(_since_start(), 3),
+            "startup": round(_STARTUP_S, 3),
+            "stdin": round(_T["stdin"], 3),
+            "scan": round(_T["scan"], 3),
+            "git": round(_T["git"], 3),
+            "py": "%d.%d.%d" % sys.version_info[:3],
+            "transcript": _TRANSCRIPT_KIND,
+            "git_skipped": bool(_F["git_skipped"]),
+            "git_timeout": bool(_F["git_timeout"]),
+            "stdin_timeout": bool(_F["stdin_timeout"]),
+            "scan_budget_hit": bool(_F["scan_budget_hit"]),
+        }
+        line = json.dumps(rec, ensure_ascii=True)
+        try:
+            CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            path = CACHE_DIR / "agy-slow.log"
+        except Exception:
+            path = None
+        try:
+            old = (path.read_text(encoding="utf-8", errors="replace").splitlines()
+                   if path is not None else [])
+        except Exception:
+            old = []
+        body = "\n".join((old + [line])[-40:]) + "\n"
+        if path is not None and _write_slow_log(path, body):
+            return
+        import tempfile
+        alt = Path(tempfile.gettempdir()) / "wren-agy-slow.log"
+        if alt != path:
+            _write_slow_log(alt, body)
+    except Exception:
+        pass
+
+
+def _log_slow_async(reason):
+    """慢日志不得拖住退出：日志线程最多等 SLOW_LOG_WAIT_S 秒，超时照常往下走
+    （daemon 线程随 os._exit 一起消失）。只在收尾阶段调用——git 跑起来之前
+    不能有线程（preexec_fn 在多线程下不安全）。"""
+    try:
+        import threading          # subprocess 已经 import 过，这里不付启动成本
+        t = threading.Thread(target=_log_slow, args=(reason,), daemon=True)
+        t.start()
+        t.join(SLOW_LOG_WAIT_S)
+    except Exception:
+        pass
+
+
+def _maybe_log_slow():
+    """正常运行收尾时的触发条件：慢启动、接近墙钟，或任一阶段降级。"""
+    if (_since_start() >= 1.5 or _STARTUP_S >= 1.0 or _F["git_skipped"]
+            or _F["git_timeout"] or _F["stdin_timeout"] or _F["scan_budget_hit"]):
+        _log_slow_async("slow")
+
 
 # 文本净化（R2-1）：输入字段里的终端控制序列整段剥掉，禁止注入 ESC。
 # CSI（\x1b[ … final）、OSC（\x1b] … BEL|ST）、其它两字符 ESC 序列。
@@ -166,24 +362,57 @@ def _kill_git():
         except Exception:
             pass
     try:
-        p.communicate(timeout=1)
+        p.communicate(timeout=min(REAP_TIMEOUT_S, max(0.05, remaining())))
+    except Exception:
+        pass
+
+
+def _pdeathsig():
+    """Linux：wren 被 SIGKILL 时内核连带杀掉 git 本体（PR_SET_PDEATHSIG）。
+    macOS 没有等价机制（README 如实注明）。任何异常都不能影响 git 启动。"""
+    try:
+        import ctypes
+        ctypes.CDLL(None).prctl(1, signal.SIGKILL, 0, 0, 0)   # PR_SET_PDEATHSIG
+    except Exception:
+        pass
+
+
+def _git_child_setup(timeout):
+    """fork 出来的子进程里、exec git 之前跑（Popen 的 preexec_fn）。两道保险：
+    - 所有 POSIX：alarm(int(timeout) + 1)，1.5s 软超时 → 2s。定时器跨 exec 保留、
+      处置恢复默认（终止）。父进程被 SIGKILL 时没人再替 git 收尾，它到点自己死，
+      不会成为孤儿。必须大于传给 sh() 的软超时：父进程活着时永远由父进程先杀，
+      alarm 只是父进程已死时的兜底。
+    - Linux：PR_SET_PDEATHSIG —— 父进程一死内核立即带走 git（比 alarm 更快）。
+    任何异常都不能影响 git 启动。preexec_fn 只在单线程进程里安全：本脚本的线程
+    只在收尾阶段（git 之后）才起，这个前提不要破坏。"""
+    try:
+        signal.alarm(max(1, int(timeout) + 1))
+    except Exception:
+        pass
+    try:
+        if os.uname().sysname == "Linux":
+            _pdeathsig()
     except Exception:
         pass
 
 
 def sh(args, timeout=3):
     """单次外部命令（git）。Popen + 独立会话：超时/异常先杀整棵树再返回 ""。
-    正常路径返回值语义不变（stdout.strip()）。"""
+    正常路径返回值语义不变（stdout.strip()）。子进程 exec 前挂 alarm 兜底
+    （父进程被宿主 SIGKILL 后 git 到点自灭），Linux 另有 parent-death signal。"""
     global _GIT
     p = None
     try:
         kwargs = {"start_new_session": True} if hasattr(os, "killpg") else {}
+        kwargs["preexec_fn"] = lambda: _git_child_setup(timeout)
         p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                              text=True, **kwargs)
         _GIT = p
         out, _ = p.communicate(timeout=timeout)
         return out.strip()
     except subprocess.TimeoutExpired:
+        _F["git_timeout"] = True
         _kill_git()
         return ""
     except Exception:
@@ -193,9 +422,72 @@ def sh(args, timeout=3):
         _GIT = None
 
 
+def _block_signals():
+    """屏蔽本线程后续信号（防重入）：宿主关 pane 时会连发多次 SIGHUP，处理器
+    重入会重复输出兜底两行；正常收尾也要挡住 pend 的 SIGALRM 再兜底一次。
+    平台没有 pthread_sigmask 时静默跳过。"""
+    mask = getattr(signal, "pthread_sigmask", None)
+    if mask is None:
+        return
+    sigs = set()
+    for _name in ("SIGALRM", "SIGTERM", "SIGHUP", "SIGINT"):
+        _sig = getattr(signal, _name, None)
+        if _sig is not None:
+            sigs.add(_sig)
+    try:
+        mask(signal.SIG_BLOCK, sigs)
+    except Exception:
+        pass
+
+
+def _close_phase():
+    """看门狗在某个阶段中途触发时结算该阶段的耗时（否则慢日志里它恒为 0）。"""
+    global _PHASE_T0
+    if _PHASE in _T and _PHASE_T0 is not None:
+        _T[_PHASE] = time.monotonic() - _PHASE_T0
+        _PHASE_T0 = None      # 防重复结算
+
+
+def _expire(reason):
+    """看门狗到期：屏蔽信号 → 杀 git → 结算被打断阶段的耗时 → 先出帧（兜底两行）
+    → 再记慢日志（最多等 SLOW_LOG_WAIT_S，日志卡死也照常退出）→ rc=0。
+    必须抢在宿主约 5.0s 的 SIGKILL 之前（SIGKILL 本身拦不住）。"""
+    _block_signals()
+    _kill_git()
+    _close_phase()
+    emit_fallback()
+    _log_slow_async(reason)
+    os._exit(0)
+
+
+def _on_alarm(signum, frame):
+    _expire("watchdog")
+
+
+def _arm_watchdog():
+    """进程创建起算的硬中断：setitimer 到点走 _expire。平台没有 setitimer 时
+    静默跳过——装看门狗失败绝不能把脚本搞崩。
+    提前 20ms 到点：各阶段软上限取的是「剩余预算」，挂住的 git 会与硬墙钟
+    精确撞线；看门狗必须是实际生效的那一刀（宿主 SIGKILL 拦不住）。"""
+    setitimer = getattr(signal, "setitimer", None)
+    if setitimer is None:
+        return
+    left = remaining()
+    if left <= 0.05:
+        _expire("watchdog")
+        return
+    try:
+        signal.signal(signal.SIGALRM, _on_alarm)
+        setitimer(signal.ITIMER_REAL, max(0.01, left - 0.02))
+    except Exception:
+        pass
+
+
 def _on_signal(signum, frame):
-    """被宿主打断（重载/关闭状态栏、退出、Ctrl-C）：清掉 git 进程树，输出兜底
-    两行，rc=0——既不漏进程，也不以信号死亡（agy 不把它记成一次失败）。"""
+    """被宿主打断（重载/关闭状态栏、退出、Ctrl-C）：先屏蔽信号防重入，再清掉
+    git 进程树，输出兜底两行，rc=0——既不漏进程，也不以信号死亡（agy 不把它
+    记成一次失败）。"""
+    _block_signals()
     _kill_git()
     emit_fallback()
     os._exit(0)
@@ -515,6 +807,7 @@ def scan_transcript(path, budget_s=SCAN_BUDGET_S):
                 fh.seek(offset)
                 while True:
                     if time.monotonic() >= deadline:
+                        _F["scan_budget_hit"] = True
                         break
                     line_start = consumed
                     chunk = fh.readline(MAX_LINE)
@@ -528,6 +821,7 @@ def scan_transcript(path, budget_s=SCAN_BUDGET_S):
                         except Exception:
                             pass
                         if time.monotonic() >= deadline:
+                            _F["scan_budget_hit"] = True
                             break                       # 状态保留，offset 记到行尾
                         continue
                     if len(chunk) < MAX_LINE:
@@ -538,6 +832,7 @@ def scan_transcript(path, budget_s=SCAN_BUDGET_S):
                     skipped = False
                     while True:
                         if time.monotonic() >= deadline:
+                            _F["scan_budget_hit"] = True
                             break                       # 超预算：下次从行首重来
                         more = fh.readline(MAX_LINE)
                         if not more:
@@ -587,12 +882,16 @@ MAX_LINE = 8 * 1024 * 1024   # transcript 单行上限（R3-1）：超过则整�
 MAX_SKIP = 64 * 1024 * 1024  # 单行跳过量上限：超过则本次停止扫描（offset 不前进）
 
 
-def read_stdin(timeout=1.0):
+def read_stdin(timeout=STDIN_TIMEOUT_S):
     """带超时读取 stdin。agy 的 statusline runner 若不关 stdin，阻塞 read 会让状态栏挂死；
     读到 EOF / 超时 / 8 MiB 上限即返回，随后把 fd 换成 /dev/null 解除上游阻塞
     （对齐参考实现 `timeout 1 cat` + `exec 0</dev/null`）。
+    timeout <= 0（预算已耗尽）时不等 select，直接返回 ""。
     sys.stdin 为 None / fd 无效 → 返回 ""。"""
     if sys.stdin is None:
+        return ""
+    if timeout <= 0:
+        _F["stdin_timeout"] = True
         return ""
     try:
         fd = sys.stdin.fileno()
@@ -609,6 +908,7 @@ def read_stdin(timeout=1.0):
         while total < MAX_STDIN:
             remain = deadline - time.monotonic()
             if remain <= 0:
+                _F["stdin_timeout"] = True
                 break
             try:
                 r, _, _ = select.select([fd], [], [], remain)
@@ -618,6 +918,7 @@ def read_stdin(timeout=1.0):
                 except Exception:
                     return ""
             if not r:
+                _F["stdin_timeout"] = True
                 break
             try:
                 chunk = os.read(fd, min(65536, MAX_STDIN - total))
@@ -638,13 +939,16 @@ def read_stdin(timeout=1.0):
 
 
 def main():
-    # R2-3：总预算自 main 第一行起算（宿主约 4.7s SIGKILL，连续失败会禁用状态栏）
-    t0 = time.monotonic()
+    global _PHASE, _PHASE_T0, _TRANSCRIPT_KIND
+    # R9：预算自**进程创建**起算（含 shim/解释器启动），看门狗负责硬中断；
+    # 任何阶段都取 min(软上限, 剩余预算)。
+    _arm_watchdog()
 
-    def remaining():
-        return TOTAL_BUDGET_S - (time.monotonic() - t0)
-
-    raw = read_stdin(min(1.0, max(0.0, remaining())))
+    _PHASE = "stdin"
+    _PHASE_T0 = time.monotonic()
+    raw = read_stdin(min(STDIN_TIMEOUT_S, max(0.0, remaining())))
+    _T["stdin"] = time.monotonic() - _PHASE_T0
+    _PHASE_T0 = None
     dump = os.getenv("WREN_DEBUG_DUMP")
     if dump:
         try:
@@ -703,10 +1007,21 @@ def main():
     tp = data.get("transcript_path")
     transcript = tp if isinstance(tp, str) else ""   # 非 str 不扫描
     # ---- token / TTFT / 时长：agy transcript 增量解析（缓存 agy-<sha1>）----
-    # R2-3：扫描预算取 min(SCAN_BUDGET_S, 剩余总预算)——超时不丢已聚合状态，
-    # offset 续读收敛；总预算耗尽（remaining<=0）时直接用缓存状态。
+    # R9：扫描预算取 min(SCAN_BUDGET_S, 剩余硬墙钟)——超时不丢已聚合状态，
+    # offset 续读收敛；硬墙钟耗尽时直接用缓存状态、不再读新字节。
+    _PHASE = "scan"
+    _PHASE_T0 = time.monotonic()
+    if not transcript:
+        _TRANSCRIPT_KIND = 0
+    else:
+        try:
+            _TRANSCRIPT_KIND = 2 if os.path.isfile(transcript) else 1
+        except Exception:
+            _TRANSCRIPT_KIND = 1
     scan_budget = min(_scan_budget_s(), max(0.0, remaining()))
     st = scan_transcript(transcript, scan_budget) if transcript else dict(ZERO_STATE)
+    _T["scan"] = time.monotonic() - _PHASE_T0
+    _PHASE_T0 = None
 
     # 家目录折叠只锚定路径前缀（对齐 cc Bug 猎杀 #3：无锚 replace 会把
     # /Users/spoon<x>… 的兄弟目录错折成 ~<x>…，显示不存在的路径）
@@ -717,11 +1032,20 @@ def main():
     short_cwd = ("~" + cwd[len(home):]) if home and (cwd == home or cwd.startswith(home + "/")) else cwd
 
     # ---- git: 单次 porcelain v2（branch + ahead/behind + 增/删/改） ----
-    # R2-3：agy 侧超时压到 1.5s（cc/qc 的 3s 在 4.7s 宿主硬杀下太险）；
-    # 总预算快耗尽时进一步缩短，给两行输出留时间。
+    # R9：agy 侧软上限 1.5s；剩余预算 <= 0.05s 时不启动 git（直接当空输出），
+    # 绝不在硬墙钟边缘再赌一次子进程启动。
+    _PHASE = "git"
+    _PHASE_T0 = time.monotonic()
     branch, ab, dmg, dmg_plain = "", "", "", ""
-    stg = sh(["git", "-C", cwd, "status", "--porcelain=v2", "--branch"],
-             timeout=min(GIT_TIMEOUT_S, max(0.05, remaining())))
+    rem = remaining()
+    if rem <= 0.05:
+        stg = ""
+        _F["git_skipped"] = True
+    else:
+        stg = sh(["git", "-C", cwd, "status", "--porcelain=v2", "--branch"],
+                 timeout=min(GIT_TIMEOUT_S, rem))
+    _T["git"] = time.monotonic() - _PHASE_T0
+    _PHASE_T0 = None
     if stg:
         added = modified = deleted = 0
         for ln in stg.splitlines():
@@ -755,6 +1079,8 @@ def main():
                 parts.append(c(name, f"{mark}{count}"))
         dmg = " " + " ".join(parts) if parts else ""
         dmg_plain = " " + " ".join(plain_parts) if plain_parts else ""
+
+    _PHASE = "render"
 
     # ---- herdr 位置 ----
     # R2-1：环境变量同样只取净化后的文本（剥 ESC/控制字符，压平行界）。
@@ -1059,8 +1385,14 @@ def main():
     # 出口兜底：折叠只保证「算出来不超宽」，这里保证「输出不超宽」（truncate）。
     # 主动 flush 把断管拉进可捕获域（对齐 cc 猎杀四轮 #6：行短时 write 只进
     # 缓冲，断管在解释器退出 flush 阶段才炸——main 域 try 不到、RC=120）。
+    # R9：收尾先屏蔽信号（挡掉 pend 的 SIGALRM 再兜底一次），输出后按触发
+    # 条件记慢日志，最后 os._exit(0)——不走解释器正常退出。
+    _PHASE = "output"
+    _block_signals()
     sys.stdout.write(f"{truncate_display(line1, term_w)}\n{truncate_display(line2, term_w)}")
     sys.stdout.flush()
+    _maybe_log_slow()
+    os._exit(0)
 
 
 def emit_fallback():
@@ -1116,7 +1448,9 @@ if __name__ == "__main__":
         os._exit(0)
     except BaseException:
         # 任何异常都退化到两行兜底，rc=0、stderr 为空——agy 连续失败会自动
-        # 禁用自定义状态栏，绝不能把 traceback 漏到 stderr。
+        # 禁用自定义状态栏，绝不能把 traceback 漏到 stderr。R9：先屏蔽信号，
+        # 防止异常处理期间 pend 的 SIGALRM/宿主信号再触发一次兜底。
+        _block_signals()
         try:
             emit_fallback()
         except BaseException:

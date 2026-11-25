@@ -210,6 +210,18 @@
 | T174 | agy | 模型名注入 `Gem<ESC>[31mevil<ESC>[0m`；truecolor vs NO_COLOR | truecolor 码 `38;2;` 仍在、无注入的裸 `ESC[31m`、剥色后 == NO_COLOR、`Gemevil` 在场（**注入的 ESC 不干掉本进程着色**） |
 | T175 | agy | 假 git（包装脚本 fork 出带标记孙进程）超时 | rc0、两行、<2.4s、1s 内无带标记进程存活（**超时杀整棵树**） |
 | T176 | agy | 同样的假 git 挂住时依次 SIGTERM / SIGHUP / SIGINT | 发信号前确认进程树活着；每次 rc0、stderr 空、恰好两行、无存活进程（**信号打断杀整棵树**） |
+| T177 | agy | R9 慢启动：`sh` 先睡 2.6s 再 exec（进程创建早于 Python），stdin 不关 + 假 git 挂住 | 从包装启动算 <4.0s 结束、rc0、恰好两行、stderr 空、无孤儿；`agy-slow.log` 有记录且 `startup>=2.5`（**预算自进程创建起算**；修复前该场景 >5s 被宿主 SIGKILL、零输出） |
+| T178 | agy | R9/R10c 看门狗：`WREN_AGY_HARD_LIMIT=0.6` + 假 git 挂住（带标记孙进程），stdin 正常 | ≤1.3s 退出、rc0、恰好两行、无孤儿；日志 `reason=="watchdog"`、`phase=="git"`，且 `0.3 <= git <= 0.6`（**setitimer 硬中断 + 阶段耗时结算**） |
+| T179 | agy | R9 进程创建时刻：`sleep 1.2` 再 exec 的日志 `startup`；直接运行的 import 期 `startup`；`_linux_start_ticks()` 两段样例（comm 含空格/括号） | 前者 `startup>=1.2`；后者 `<0.5`；两段 stat 文本分别解析出 987654 / 424242（**proc_pidinfo 特征查找 + /proc 字段 22**） |
+| T180 | agy | R9 信号重入：假 git 挂住时连发 3 次 SIGHUP（间隔 10ms） | 发信号前确认进程树活着；rc0、恰好两行、stderr 空、无孤儿（**第一次处理即屏蔽后续信号**） |
+| T181 | agy 安装 | R9 绕开 shim：PATH=[假 shim（留标记）, 好 python3 目录（软链真解释器）, 原 PATH]，`install agy` | `statusLine.command` 是片段且指向好目录解释器；`sh -c` 喂 payload 出两行、shim 标记不存在；`uninstall agy` 摘干净（**片段 + 回落**） |
+| T182 | agy 安装 | R9 开关与回落：`WREN_AGY_PYTHON=off`；指定不存在的路径；shim 在 PATH 首位且候选全部不健全（`PYTHONHOME` 指向不存在目录，假 shim 自己 unset 后 exec 真解释器）；旧式裸路径接线 | off → 裸路径；坏路径 → stderr 警告 + 回落、exit 0；无候选 → 裸路径 + `绕开` 提示、exit 0；旧接线能被卸载摘除 |
+| T183 | agy 条件 | `/usr/bin/python3` 存在且 <3.10 | `compile()` 通过（不落 `__pycache__`）+ 最小 payload 出两行；否则 SKIP（**Python 3.9 兼容**） |
+| T184 | agy 安装 | R10 升级路径：预置 R8 现场（旧 payload、裸路径 command、`padding`/`stack_with_default`/`enabled:true`），PATH 首位放留标记的假 shim | rc0；command 换成指向好目录解释器的片段；用户子键与 enabled 保留；payload 与仓库逐字节相同；`.wren-bak` == 安装前；`sh -c` 跑通**恰好两行、stderr 空且 shim 未进入**；卸载摘掉 type/command/enabled，保留 padding/stack，payload 与备份都清掉（**R8→R9 升级守门**） |
+| T185 | agy | R10 慢日志不拖住退出：`agy-slow.log` 做成 FIFO；看门狗路径（0.6s + 假 git）与正常收尾（sleep 1.6 后 exec，真 git 在 /tmp 立刻返回）各一次，超时击杀兜底 | 两条都 rc0、恰好两行、stderr 空、无孤儿；看门狗 ≤1.6s、正常 ≤2.6s（**日志写入点卡死也照常退出**；修复前两条都会挂到被杀） |
+| T186 | agy | R10 慢日志原子 + 轮转：种子 40 行合法 JSON → 一个慢帧；再并发 8 个慢帧 | 恰好 40 行、逐行可解析、首行 `n==1`、末行 `reason=="watchdog"`；并发后仍逐行合法、≤40 行；目录无 `agy-slow.log.*.tmp`（**pid 临时名 + os.replace 守门**） |
+| T187 | agy | R10 进程年龄合理性（表驱动，importlib 加载模块） | `0.0`/`0.05`/`3.5`/`59.9` 原样；`60.1`/`-0.1`/`7200`/`nan`/`inf`/`None` → `None`；`STARTUP_MAX_S==60.0`（**休眠时钟域安全阀**） |
+| T188 | agy | R11 git 自带到期时间：单进程假 git 烧 CPU，等它跑起来后只 `kill -9` wren 本体（不杀进程组）；后半用 sleep 1 后输出 `# branch.head main` 的慢 git | 前半：被杀时 git 在跑，之后 ≤3.5s 内它**自己消失**（测试不替它收尾），清场后无存活；后半：rc0、两行、行1 含 `main`、整体 <2.5s（**alarm 跨 exec 保留兜底 + 慢 git 不被误杀**） |
 
 ## 条件用例（不满足条件时 SKIP，不算 FAIL）
 
@@ -220,6 +232,7 @@
 | T92 | 同上（oc 侧只读配置目录探针） |
 | T27-T32、T38、T40、T43、T46、T69-T73、T77-T78、T80、T96-T100、T108、T116-T120、T130-T133、T137-T138 | 无 `node`，或 `node` 不支持直接执行 `.ts`（Node 22.6+ 的 type stripping） |
 | T101 | 无 `opencode` 或无 `tmux`（真机 e2e） |
+| T183 | 无 `/usr/bin/python3`，或它的版本 ≥3.10（Python 3.9 兼容检查） |
 
 其余用例只依赖 bash / python3 / coreutils，且全程在用户态临时目录作业。
 `python3` 缺失时测试脚本自身 exit 2（前置依赖检查），因为连 settings.json 的断言都做不了。
