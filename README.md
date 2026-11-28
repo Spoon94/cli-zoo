@@ -1,129 +1,129 @@
-[中文](./README.md) | [English](./README.en.md)
+[中文](./README.zh-CN.md) | [English](./README.md)
 
 # cli-zoo
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![GitHub Stars](https://img.shields.io/github/stars/Spoon94/cli-zoo?style=social)](https://github.com/Spoon94/cli-zoo)
 [![Shell: Bash](https://img.shields.io/badge/Shell-Bash-1f425f.svg)](#)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#贡献)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#contributing)
 
-> 个人收藏并整理的命令行小工具集合，按工具拆分目录组织，开箱即用。
+> A personal collection of small command-line tools, organized in a separate directory per tool and ready to use out of the box.
 
-每个工具存放在 [`zoo-scripts/<动物名>`](./zoo-scripts) 下（单脚本或多文件目录均可，入口可直接执行），通过仓库根目录的 `cli-zoo-install.sh` 软链到 `$PREFIX`（默认 `/usr/local/bin`）即可全局使用。
+Each tool lives under [`zoo-scripts/<animal name>`](./zoo-scripts) (either a single script or a multi-file directory; the entry point is directly executable). Symlink it into `$PREFIX` (`/usr/local/bin` by default) with `cli-zoo-install.sh` in the repository root to use it globally.
 
-## 目录
+## Table of Contents
 
-- [快速开始](#快速开始)
-- [工具列表](#工具列表)
+- [Quick start](#quick-start)
+- [Tool list](#tool-list)
   - [otter](#otter)
   - [wren](#wren)
-- [安装与卸载](#安装与卸载)
-- [贡献](#贡献)
+- [Install and uninstall](#install-and-uninstall)
+- [Contributing](#contributing)
 - [License](#license)
 
-## 快速开始
+## Quick start
 
-以安装 `otter` 为例：
+Taking `otter` as an example:
 
 ```bash
-# 1. 克隆本仓库
+# 1. Clone this repository
 git clone https://github.com/Spoon94/cli-zoo.git
 cd cli-zoo
 
-# 2. 安装 otter 到 /usr/local/bin（可能需要 sudo）
+# 2. Install otter into /usr/local/bin (sudo may be required)
 ./cli-zoo-install.sh otter
 
-# 3. 验证
+# 3. Verify
 otter -h
 ```
 
-不想动 `/usr/local/bin` 时，可用 `PREFIX` 指定任意可写目录：
+If you would rather not touch `/usr/local/bin`, use `PREFIX` to specify any writable directory:
 
 ```bash
 PREFIX=$HOME/bin ./cli-zoo-install.sh otter
 ```
 
-## 工具列表
+## Tool list
 
 ### [otter](./zoo-scripts/otter)
 
-用 tmux 把 AI CLI 工具、文件管理器、编辑器、git 客户端组合成一套开箱即用的开发会话布局，一条命令进入工作状态。
+Uses tmux to combine an AI CLI tool, a file manager, an editor and a git client into a ready-to-use development session layout, so one command gets you into a working state.
 
 ```bash
-otter -c <tool> [-s <session>]   # 启动或复用一个 session
-otter -ks <session>              # 杀掉指定 session
-otter -h                         # 帮助
+otter -c <tool> [-s <session>]   # Start or reuse a session
+otter -ks <session>              # Kill the specified session
+otter -h                         # Help
 ```
 
-`-c` 可选值（白名单 `ALLOWED_TOOLS`）：`claude`、`qodercli`、`opencode`。布局为左 CLI 工具 + 右上 yazi + 右下空 shell，检测到 `nvim` / `lazygit` 时各开一个 window；软依赖缺失自动降级。
+Allowed values for `-c` (the `ALLOWED_TOOLS` allowlist): `claude`, `qodercli`, `opencode`. The layout is the CLI tool on the left, yazi in the upper right and an empty shell in the lower right; when `nvim` / `lazygit` is detected, one window is opened for each; missing soft dependencies degrade automatically.
 
 ### [wren](./zoo-scripts/wren)
 
-wren 把两行 statusline（Dracula 配色）装到 5 个宿主：Claude Code（`cc`）、pi（`pi`）、Qoder CLI（`qc`）、opencode（`oc`）、Antigravity CLI（`agy`）。
-括号里是 `wren install` 的 target 名。
-wren 复制文件副本到宿主。安装完成后，宿主不再依赖本仓库的位置。
+wren installs a two-line statusline (Dracula color scheme) into 5 hosts: Claude Code (`cc`), pi (`pi`), Qoder CLI (`qc`), opencode (`oc`), Antigravity CLI (`agy`).
+The names in parentheses are the target names for `wren install`.
+wren copies the files to each host. After installation, the hosts no longer depend on the location of this repository.
 
-![wren 概览](./docs/wren-card.svg)
+![wren overview](./docs/wren-card.svg)
 
-![wren statusline 预览（上：宽档；下：窄档）](./docs/wren-preview.svg)
+![Preview of the wren statusline (top: wide tier; bottom: narrow tier)](./docs/wren-preview.svg)
 
-终端宽 ≥ 56 列时，wren 渲染宽档。终端宽 ≤ 55 列时，cc、pi 与 agy 渲染窄档。
-窄档用 3 类图标：`◈` 缓存命中率、`▂▄▆█` 上下文占用四分位、`⏱` 首片延迟。
-窄档覆盖 3 个宿主。qc 拿不到终端宽，oc 暂不实现。
-
-```bash
-./cli-zoo-install.sh wren            # 第一步：把 wren 装到 $PREFIX
-wren install [cc|pi|qc|oc|agy|all]   # 装到宿主。默认 all。幂等。别名：claude、qoder、opencode、antigravity
-wren uninstall [cc|pi|qc|oc|agy|all] # 卸载。默认 all
-wren -h                              # 显示帮助
-```
-
-装到 cc / qc / agy / oc 需要 python3，只装 pi 不需要。`all` 不检查宿主装没装：
-没装 Antigravity CLI、又不想让它凭空生成 `~/.gemini/antigravity-cli/settings.json`，就按 target 分开装。
-
-五个宿主的差异、安装器细节、完整参数，见 [zoo-scripts/wren/README.md](./zoo-scripts/wren/README.md)；测试见 [docs/testing.md](./docs/testing.md)。
-
-## 安装与卸载
+When the terminal is 56 columns wide or more, wren renders the wide tier. When it is 55 columns wide or less, cc, pi and agy render the narrow tier.
+The narrow tier uses 3 kinds of icons: `◈` cache hit rate, `▂▄▆█` context usage quartile, `⏱` time to first chunk.
+The narrow tier covers 3 hosts. qc cannot get the terminal width, and oc does not implement it yet.
 
 ```bash
-./cli-zoo-install.sh <tool>     # <tool> 可选值：otter、wren
-./cli-zoo-uninstall.sh <tool>   # 幂等：目标不存在时直接成功 exit 0
+./cli-zoo-install.sh wren            # Step 1: install wren into $PREFIX
+wren install [cc|pi|qc|oc|agy|all]   # Install to the hosts. Default: all. Idempotent. Aliases: claude, qoder, opencode, antigravity
+wren uninstall [cc|pi|qc|oc|agy|all] # Uninstall. Default: all
+wren -h                              # Show help
 ```
 
-| 环境变量 | 默认值 | 说明 |
+Installing to cc / qc / agy / oc requires python3; installing pi alone does not. `all` does not check whether a host is installed:
+if Antigravity CLI is not installed and you do not want it to generate a `~/.gemini/antigravity-cli/settings.json` out of nowhere, install per target instead.
+
+For the differences between the five hosts, installer details and the full arguments, see [zoo-scripts/wren/README.md](./zoo-scripts/wren/README.md); for tests, see [docs/testing.md](./docs/testing.md).
+
+## Install and uninstall
+
+```bash
+./cli-zoo-install.sh <tool>     # <tool> options: otter, wren
+./cli-zoo-uninstall.sh <tool>   # Idempotent: exits 0 successfully when the target does not exist
+```
+
+| Environment variable | Default | Description |
 |----------|--------|------|
-| `PREFIX` | `/usr/local/bin` | 软链目标目录。目录不存在时会自动 `mkdir -p`。 |
+| `PREFIX` | `/usr/local/bin` | Target directory of the symlink. Created automatically with `mkdir -p` if it does not exist. |
 
-安装时检查源脚本存在且可执行（必要时 `chmod +x`），目标位置已有文件或软链则先 `rm -f`，再 `ln -s <repo>/zoo-scripts/<tool> $PREFIX/<tool>`（wren 因是多文件工具，软链的是目录内的入口脚本 `zoo-scripts/wren/wren`）。写入失败（权限不足）时会提示用 `sudo PREFIX=$PREFIX ./cli-zoo-install.sh <tool>` 重试。
+At install time the installer checks that the source script exists and is executable (`chmod +x` if necessary); if a file or symlink already exists at the target, it is removed first with `rm -f`, then `ln -s <repo>/zoo-scripts/<tool> $PREFIX/<tool>` (wren is a multi-file tool, so the symlink points at the entry script inside the directory, `zoo-scripts/wren/wren`). If the write fails (insufficient permission), you are prompted to retry with `sudo PREFIX=$PREFIX ./cli-zoo-install.sh <tool>`.
 
-> **wren 的两级安装是刻意的**：`cli-zoo-install.sh` 装的 `$PREFIX/wren` 是**软链**（跟随仓库，改脚本即时生效）；
-> `wren install` 装到宿主的是**文件副本**（仓库被移走/删除后 statusline 照常工作，更新需重跑 `wren install`）。
+> **wren's two-stage installation is deliberate**: the `$PREFIX/wren` installed by `cli-zoo-install.sh` is a **symlink** (it follows the repository, so changes to the script take effect immediately);
+> what `wren install` puts on the hosts are **file copies** (the statusline keeps working after the repository is moved or deleted; updating requires rerunning `wren install`).
 
-| target | 宿主 | payload 副本 | 写入的配置 |
+| target | Host | Payload copy | Config written |
 |--------|------|--------------|------------|
-| `cc` | Claude Code | `<settings.json 同目录>/wren-cc` | `settings.json` 的 `statusLine` |
-| `pi` | pi | `$PI_EXT_DIR/wren-pi.ts` | 无（pi 自动加载） |
-| `qc` | Qoder CLI | `$QODER_CONFIG_DIR/wren-qc.py` | `settings.json` 的 `statusLine` |
-| `agy` | Antigravity CLI | `$AGY_CONFIG_DIR/wren-agy.py` | `settings.json` 的 `statusLine` |
-| `oc` | opencode | `<tui.json 同目录>/plugins/wren-oc.tsx`（连同 `wren-oc.ts`） | `tui.json` 的 `plugin` 数组 |
+| `cc` | Claude Code | `<same directory as settings.json>/wren-cc` | `statusLine` in `settings.json` |
+| `pi` | pi | `$PI_EXT_DIR/wren-pi.ts` | None (pi loads it automatically) |
+| `qc` | Qoder CLI | `$QODER_CONFIG_DIR/wren-qc.py` | `statusLine` in `settings.json` |
+| `agy` | Antigravity CLI | `$AGY_CONFIG_DIR/wren-agy.py` | `statusLine` in `settings.json` |
+| `oc` | opencode | `<same directory as tui.json>/plugins/wren-oc.tsx` (together with `wren-oc.ts`) | The `plugin` array in `tui.json` |
 
-payload 默认落在 `~/.claude`、`~/.pi/agent/extensions`、`~/.qoder`、`~/.gemini/antigravity-cli`、`~/.config/opencode`。
-写入只动 `statusLine` / `plugin`，其余键与顺序原样保留。
+The payloads land by default in `~/.claude`, `~/.pi/agent/extensions`, `~/.qoder`, `~/.gemini/antigravity-cli`, `~/.config/opencode`.
+The write touches only `statusLine` / `plugin`; all other keys and their order are preserved as they are.
 
-**wren 卸载要先拆线再卸本体**，否则上表右两列的 payload 副本和配置接线会留下：
+**When uninstalling wren, remove the wiring first and then wren itself**, otherwise the payload copies and config wiring in the two right-hand columns of the table above are left behind:
 
 ```bash
-wren uninstall              # 拆掉五个宿主的接线
-./cli-zoo-uninstall.sh wren # 再摘掉 wren 本体
+wren uninstall              # Remove the wiring from the five hosts
+./cli-zoo-uninstall.sh wren # Then remove wren itself
 ```
 
-## 贡献
+## Contributing
 
-欢迎 PR 和 Issue：
+PRs and issues are welcome:
 
-- 新增工具：把脚本放到 `zoo-scripts/`，在本 README「工具列表」中追加一节，并配套补齐 `cli-zoo-install.sh` / `cli-zoo-uninstall.sh` 的 `case` 分支与测试用例（见 [docs/testing.md](./docs/testing.md)）。
-- 修复/改进现有工具：建议先在 Issue 中讨论后再提 PR。
-- 提交规范：建议遵循 [Conventional Commits](https://www.conventionalcommits.org/)。
+- Adding a tool: put the script in `zoo-scripts/`, append a section to "Tool list" in this README, and fill in the matching `case` branches of `cli-zoo-install.sh` / `cli-zoo-uninstall.sh` along with the test cases (see [docs/testing.md](./docs/testing.md)).
+- Fixing/improving an existing tool: it is recommended to discuss in an Issue first and then open a PR.
+- Commit convention: following [Conventional Commits](https://www.conventionalcommits.org/) is recommended.
 
 ## License
 
